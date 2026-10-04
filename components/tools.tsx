@@ -586,14 +586,14 @@ export const NAV_LINKS = [
     desktopOnly: true,
   },
   {
-    href: "/stick-control",
-    label: "Random Stick Control Warmup",
-    // Rewritten alongside the rename — the old copy ("random Stick Control patterns, triplets,
-    // and stroke rolls") had gone stale over several rounds of this tool's own simplification
-    // (triplets and standalone stroke rolls were both cut long before this), a real drift bug
-    // caught and fixed in the same pass, not just the label swapped.
+    href: "/random-sticking-warmup",
+    label: "Random Sticking Warmup",
+    // Renamed again (and this description rewritten once more) per a direct follow-up request to
+    // remove every reference to the specific printed source the original 72 patterns were
+    // transcribed from — the label and copy here are now deliberately generic, describing only
+    // what the tool actually does, not where its pattern bank came from.
     description:
-      "A drummer's warmup: a random Stick Control sticking pattern paired with a 9-stroke roll, written out and counted in by a metronome.",
+      "A drummer's warmup: a random sticking pattern paired with a roll, written out and counted in by a metronome.",
     icon: DrumIcon,
     category: "Drummers" as Category,
   },

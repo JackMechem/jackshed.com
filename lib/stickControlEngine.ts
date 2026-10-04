@@ -1,15 +1,15 @@
 /**
- * Stick Control's click-scheduling/playback engine — a plain module with no React, the same shape
- * `lib/metronomeEngine.ts` and `lib/metricModulationEngine.ts` already use so a tool's audio keeps
- * running across page navigation (nothing here is tied to any component's mount lifecycle).
- * `components/StickControl.tsx` is just a view: push settings in whenever they change, read the
- * live snapshot back out via `useSyncExternalStore`.
+ * This drum warmup tool's click-scheduling/playback engine — a plain module with no React, the
+ * same shape `lib/metronomeEngine.ts` and `lib/metricModulationEngine.ts` already use so a tool's
+ * audio keeps running across page navigation (nothing here is tied to any component's mount
+ * lifecycle). `components/StickControl.tsx` is just a view: push settings in whenever they
+ * change, read the live snapshot back out via `useSyncExternalStore`.
  *
  * Unlike those two, this doesn't go through `lib/clickEngine.ts`'s generic `startClickEngine` —
  * that engine's `ClickSettings` only knows "which beat/sub am I on," not "which hand is this
  * stroke, and which repeat of the 4-bar phrase am I on, and should I count off first" — all of
  * which this tool needs for the "distinct click per hand" option and for knowing when a repeat
- * count (or the whole exercise) is finished. So this is its own small scheduler, built the same
+ * count (or the whole pattern) is finished. So this is its own small scheduler, built the same
  * way (a single `setInterval` lookahead loop, borrowing `clickEngine.ts`'s own `scheduleClick`
  * helper and `CLICK_SOUNDS` palette) but with its own tick semantics.
  *
@@ -316,7 +316,7 @@ function beginScheduling() {
               repeatIndex = 0;
               notify();
             } else {
-              // The exercise is done: stop taking any further cells *this tick* (and clear the
+              // The run is done: stop taking any further cells *this tick* (and clear the
               // interval right away, below) so a slower-firing final `setTimeout` can't race a
               // later tick into scheduling one more repeat's worth of clicks before it fires.
               stopRequested = true;

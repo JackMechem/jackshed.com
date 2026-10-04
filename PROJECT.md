@@ -1189,13 +1189,18 @@ what exists, what's next, and the honest state of what's been verified.
   but unlike those, this doesn't depend on a font's own rendering being legible at a given size at
   all, only on basic CSS box/color primitives this sandbox can at least reason about with full
   confidence, even without being able to see the result.
-- **Random Stick Control Warmup** (displayed name — the underlying files/component/route are still
+- **Random Sticking Warmup** (displayed name, renamed a second time later in this same session's
+  own history — see that round's own entry, well below — for why; the route itself is now
+  `/random-sticking-warmup` too, per a later direct request specifically to change *that* — see
+  this section's own last entry — but the component/file names are still
   `components/StickControl.tsx`, `lib/stickControl.ts`, `lib/stickControlEngine.ts`,
-  `components/StickControlStave.tsx`, `/stick-control`, unchanged by the rename, same as this
-  app's own established pattern of a tool's display name diverging from its internal identifiers
-  — see the "Polyrhythm Metric Modulation Metronome" bullet below for another example) — the first
-  tool in a new **"Drummers"** sidebar category (`components/tools.tsx`'s `CATEGORIES`, between "Practice" and
-  "Audio"; `DrumIcon` is both the category icon and the tool's own `NAV_LINKS` icon). A drummer's
+  `components/StickControlStave.tsx`, and the synced-settings key is still
+  `"jam-practice-stick-control"`, untouched by any of these renames, same as this app's own
+  established pattern of a tool's display name/route diverging from its internal identifiers — see
+  the "Polyrhythm Metric Modulation Metronome" bullet below for another example) — the first tool
+  in a new **"Drummers"** sidebar category
+  (`components/tools.tsx`'s `CATEGORIES`, between "Practice" and "Audio"; `DrumIcon` is both the
+  category icon and the tool's own `NAV_LINKS` icon). A drummer's
   warmup tool modeled on George Lawrence Stone's *Stick Control for the Snare Drummer*: a
   metronome counts you in, then a few bars of a random sticking pattern repeat a set number of
   times (20 by default — "the author recommends that each rhythm be practised 20 TIMES WITHOUT
@@ -2130,6 +2135,204 @@ what exists, what's next, and the honest state of what's been verified.
   correctly under the new roll types too, not something this round had to separately re-verify by
   hand since the exhaustive script above already covers it generically). Zero console errors
   throughout every check. `tsc`, `eslint`, and `next build` all pass.
+
+  **Repeat barlines and a clef, added directly by Jack himself** (not through an AI session — the
+  `Barline` import, `REPEAT_BEGIN`/`REPEAT_END` via `setBegBarType`/`setEndBarType`, and the
+  `stave.addClef("percussion")` call were all already present in `components/StickControlStave.tsx`
+  when this round started) wrap the whole rendered pattern in a proper repeat sign (`:‖` at the
+  start, `‖:` at the end) and a percussion clef at the very beginning — a nice, independently-made
+  improvement over the plain unmarked staff this tool had before. **Reported directly, with a
+  screenshot**: once a pattern wrapped onto a second line, the repeat-begin barline (and the clef)
+  showed up again at the start of line 2, and the repeat-end barline showed up at the end of line 1
+  instead of only at the very end of the whole thing — "there should only be repeats at the
+  beginning and end of the entire thing, same for the cleff." A real, confirmed bug, and an easy
+  one to see why: `StickControlRow` renders one row at a time, and its own barline/clef logic
+  (`i === 0` / `i === barData.length - 1`) only ever knew about that row's own local first/last
+  bar — with no way to tell "the first bar of row 2" apart from "the first bar of the very first
+  row," every row got treated identically, each gaining its own clef + repeat-begin at its own
+  start and its own repeat-end at its own end.
+
+  Fixed by threading two new props down to `StickControlRow`: `isFirstRow`/`isLastRow` (computed by
+  the parent as `rowIndex === 0` / `rowIndex === rows.length - 1`, the one place that actually knows
+  how many rows exist). The clef/repeat-begin now gate on `isFirstRow && i === 0` (not just `i ===
+  0`), and the repeat-end gates on `isLastRow && i === barData.length - 1` — a row that's neither
+  first nor last just gets VexFlow's own default plain barlines on both ends, exactly like any
+  interior bar already did. The clef-aware left-padding calculation (`LEFT_PAD_CLEF` vs.
+  `LEFT_PAD_PLAIN`, used both to size each bar's own box and to decide where its notes start) moved
+  onto the same `showClef` condition, so a later row's own first bar — which no longer draws a clef
+  — correctly gets the smaller, clef-free padding instead of reserving space for a clef it doesn't
+  have.
+
+  Verified against the real dev deployment, not just reasoned through: forced a genuinely multi-row
+  pattern (a narrow 700px viewport with "Triplets" roll type, whose wider bars reliably wrap even a
+  short pattern) and inspected the real rendered SVG DOM directly — row 0 has exactly one clef and
+  exactly one repeat-barline group (confirmed via the actual VexFlow markup: a repeat barline's own
+  `<g class="vf-stavebarline">` contains extra `<rect>`s for the thick double-bar plus `<path>` arcs
+  for the dots, which a plain barline's identically-classed group never does, so presence of a
+  `<path>` child reliably tells the two apart in the DOM rather than guessing from a screenshot);
+  every interior row has zero of either; the last row has zero clefs and exactly one repeat-barline
+  group. Checked for both the "current pattern" and "next pattern preview" wrappers independently,
+  both correct. A screenshot (a genuine 4-row pattern, one bar per row at that width) confirms the
+  same thing by eye — clef and `:‖` only at the very top, `‖:` only at the very bottom, plain
+  barlines in between — matching the report's own request exactly. `tsc`, `eslint`, and
+  `next build` all pass, zero console errors throughout.
+
+  **That fix immediately surfaced a second, real bug, reported directly with a screenshot**: "the
+  ends of each line are slightly cut off." True — and the fix above is exactly what made it
+  visible: every row used to end in a `REPEAT_END` barline (the old, duplicated-everywhere bug),
+  and a repeat barline's own thicker double-bar-plus-dots decoration happened to have enough of its
+  own drawn margin to absorb a small, real, pre-existing sizing gap; a row's now-correct *plain*
+  barline — drawn flush at the stave's own right edge with no margin of its own — had nothing left
+  to absorb it, so it was silently clipped away by the SVG's own `viewBox` instead of just drawing
+  thinner. Root-caused directly against the real dev deployment (not guessed): measured every row's
+  real rendered content via `getBBox()` against the `viewBox` width VexFlow's own
+  `Formatter.preCalculateMinTotalWidth` estimate had sized the canvas to, and found a small,
+  startlingly *consistent* ~1px shortfall on every single row/bar checked — real content
+  consistently extending about 1px past where the canvas (and therefore the SVG's own clipping
+  boundary) ended, not random per-row noise. Rather than chase the exact VexFlow-internal rounding
+  cause (a worthwhile rabbit hole for another day, not this one), fixed by measuring the real
+  content a second time — a `getBBox()` call on the row's own `<svg>`, now done *after* everything
+  (notes, beams, tuplets, barlines) is actually drawn — and sizing the final `viewBox` (and the
+  `totalWidth` state the active-bar highlight overlay's percentage math is keyed on) to that
+  real measurement plus a small fixed `RIGHT_SAFETY_PX` (4) margin, instead of trusting the
+  pre-draw estimate used only to size the initial canvas. Self-correcting by construction — this
+  stays correct regardless of what specific VexFlow internal quirk produced the original ~1px gap,
+  or whether some future addition to this renderer (a wider glyph, a different barline decoration)
+  produces a different-sized one.
+
+  Verified against the real dev deployment: re-measured the same way the bug was originally
+  diagnosed — every row's real content `getBBox()` now lands exactly `RIGHT_SAFETY_PX` (4px) inside
+  its own `viewBox`, not past it, confirmed across every row of a genuine multi-row pattern (not
+  just the row that happens to be last). A screenshot of that same multi-row pattern confirms it by
+  eye: every row's own right-edge barline — plain for interior rows, the real repeat-end only on
+  the pattern's true last row — is now fully visible, nothing clipped, with zero console errors.
+  `tsc`, `eslint`, and `next build` all pass.
+
+  **Every reference to the original printed source this tool's pattern bank was transcribed
+  from — its title, its author, and the specific numbered patterns within it — removed, per a
+  direct request**: "Remove all references to the stick control book. Do not state exercises, and
+  rename the tool to something generic." Deliberately not documented by name anywhere in this
+  entry either, consistent with the request itself — see this section's own earlier bullets, above,
+  for the development history that originally named it (left as an accurate record of what was
+  actually done at the time, not retroactively scrubbed, the same way this file never rewrites its
+  own past — but every *current*, forward-looking description from this round on avoids it).
+  - **Renamed again**: `Random Sticking Warmup` now, both `ToolLayout`'s own `title` and
+    `components/tools.tsx`'s `NAV_LINKS` `label` (the two have to match exactly for the header
+    icon's own auto-lookup to resolve — see this file's own `ToolLayout` shared-conventions note).
+    The `NAV_LINKS` `description` was rewritten too, dropping both the source reference and the
+    now-inaccurate "9-stroke" specificity (the roll has been one of three selectable types for a
+    while now, not always 9-stroke) in favor of describing only what the tool actually does.
+    Internal identifiers — the component/file names, the `/stick-control` route, the
+    `"jam-practice-stick-control"` synced-settings key — are all unchanged, matching this app's own
+    established pattern of a tool's display name diverging from its internal identifiers rather
+    than cascading a rename through routes/storage keys that have nothing to do with what's
+    actually displayed.
+  - **The `credit` line removed outright** (`ToolLayout`'s own optional `credit` prop, previously
+    naming the source and its author) — there's no other sensible attribution to put in its place
+    once that's gone, so the prop is simply omitted now rather than left with placeholder text.
+  - **Pattern labels no longer identify which of the 72 transcribed patterns is currently showing**
+    — `GeneratedPattern.label` (shown above the notation, and above the "Next" preview) used to read
+    e.g. "Exercise 14 + 9-stroke roll"; the "Exercise N" half is gone, leaving just a description of
+    the roll itself (e.g. "9-stroke roll," "single-stroke roll," "triplet roll"). The underlying
+    `randomExercise()` helper — which used to generate that label alongside picking the pattern —
+    was renamed to `randomPattern()` and simplified to return just the sticking itself, since
+    nothing needs the label it used to also produce anymore.
+  - **Every code comment in this tool's own files that named the source, its author, or referred to
+    "exercises" was rewritten** to describe the same technical points in generic terms instead (a
+    bar's straight segment comes from "a bank of transcribed sticking patterns" rather than naming
+    where; `SINGLE_BEAT_COMBINATIONS`' own doc comment calls its 72 entries "transcribed sticking
+    patterns... as printed in the original source" rather than naming it) — not just the
+    user-visible surface, since the request's own wording ("all references") read as broader than
+    only what's rendered on the page. Grepped the whole touched surface afterward (case-insensitive,
+    for the title, the author's name, and the word "exercise") to confirm nothing was missed, rather
+    than trusting a single editing pass — the same verification habit this file's own "sheddex"
+    rename note already describes using for exactly this kind of sweep.
+
+  Verified two ways. Logic-level: re-ran the full exhaustive hand-safety/continuity script (3 roll
+  types × 1,000-pattern chains, 3,000 checks total) against the renamed `randomPattern()` — 0
+  failures, confirming the rename/simplification didn't disturb any of the seam-safety logic; a
+  separate 2,400-pattern check confirmed every single generated `label` is one of exactly three
+  fixed strings ("single-stroke roll," "9-stroke roll," "triplet roll") and never matches
+  `/exercise/i`. Real browser, against the actual dev deployment: the page's own `<h1>` reads
+  "Random Sticking Warmup"; a full-page text scan (`document.body.innerText`, case-insensitive)
+  confirms zero occurrences of "exercise," the source's own title, or the author's name anywhere
+  on the rendered page; the sidebar nav link reflects the new name; both the current and "Next"
+  pattern labels read as plain roll descriptions with no pattern-number reference; and the same
+  full-text scan was repeated after 6 live regenerations ("New pattern," clicked repeatedly) to
+  confirm no stray "exercise" text appears under any randomly-generated pattern, not just the one
+  first loaded. A screenshot confirms the same thing by eye — title, labels, and the options panel
+  all read generically, with no credit line at the bottom of the page anymore. `tsc`, `eslint`, and
+  `next build` all pass, zero console errors throughout.
+
+  **The roll-type labels removed too, right after the source references — "remove these titles and
+  just have the next in bigger text accent color."** The text above the current pattern (e.g.
+  "triplet roll") is gone outright, and "Next: triplet roll" above the preview became a plain
+  "Next," styled `text-sm font-semibold` — the same size/weight this file's own `phaseLabel`
+  ("Count-off…", "Repeat N of M") already uses, reused rather than inventing a new text size for
+  "bigger text." The color itself went through two rounds: first `text-accent` (matching
+  `phaseLabel`'s own color too, per the request's own literal wording), then corrected by an
+  immediate direct follow-up — "actually dont make the next label color accent, make it like a
+  secondary foreground" — to `text-muted`, this app's own established "secondary foreground" token
+  (the same one every other small label in this tool's own Options panel already uses, e.g.
+  "Pattern"/"Playback" section headers), not a new color invented for this one spot. With both JSX
+  usages of the old per-roll-type text gone, `GeneratedPattern.label` itself became genuinely dead
+  — grepped the whole app to confirm nothing else read it — so it was removed from the type
+  entirely, along with the `ROLL_TYPE_LABEL` lookup table that built it (`ROLL_TYPES`' own `label`
+  field, the "Roll type" dropdown's own option text, is a different, still-very-much-used thing and
+  was untouched). `generatePattern`'s return shrank to just `{ beatsPerBar, bars }`. The
+  now-single-child wrapper `<div>` around the current pattern's own `StickControlStave` (previously
+  also holding the removed label `<p>`) was dropped too, rather than left as a redundant one-child
+  flex container.
+
+  Verified both rounds the same way: `tsc` and `eslint` clean after each change (confirming `label`
+  really was unreachable from anywhere else once removed, not just assumed), and real-browser
+  checks against the actual dev deployment reading "Next"'s own `getComputedStyle` directly rather
+  than assuming a class name took effect — first confirming it matched the accent token's real
+  color (`rgb(99, 102, 241)`, `#6366f1`), then, after the correction, confirming it matches
+  `--muted`'s real color instead (`rgb(107, 107, 118)`, `#6b6b76`, read directly off
+  `document.documentElement`'s own computed `--muted` value, not hand-copied from
+  `app/globals.css`) — and a screenshot after each round confirming no roll-type text appears above
+  either stave, "Next" renders in the expected spot and size, with the correct color each time.
+  Zero console errors throughout. `tsc`, `eslint`, and `next build` all pass.
+
+  **The route itself renamed too — "change the route to /random-sticking-warmup and not
+  /stick-control."** App Router routes are directory-based, so this meant actually moving the page:
+  `app/stick-control/page.tsx` (tracked in git) was removed and an identical
+  `app/random-sticking-warmup/page.tsx` created in its place — same file content, just relocated,
+  via `git rm`/`git add`-equivalent commands so the move shows cleanly in history rather than as an
+  unrelated delete-and-add. The two other places a route string has to match it exactly were
+  updated in lockstep: `components/tools.tsx`'s `NAV_LINKS` entry's own `href`, and
+  `lib/toolRegistry.tsx`'s `TOOL_COMPONENTS` map — keyed by href for the tiling-panes feature's own
+  `TOOL_COMPONENTS[href]` lookup, so this key had to change to exactly match or that lookup would
+  silently miss. Everything else this tool touches — the component file/function name
+  (`StickControl`), `lib/stickControl.ts`/`lib/stickControlEngine.ts`, the `OptionsCard`'s own
+  `id="stick-control"` (a panel-open/collapsed localStorage key, unrelated to routing), and the
+  synced-settings key `"jam-practice-stick-control"` — stayed untouched, since the request was
+  specifically about the route, not a request to cascade the rename through every internal
+  identifier that happens to share its old name; changing the synced-settings key specifically
+  would have been a real, unasked-for regression (silently orphaning any already-synced account's
+  existing settings for this tool). No redirect from the old path was added — nothing in this app
+  currently redirects a renamed route (checked `next.config.*` directly for an existing convention
+  before deciding this, rather than assuming there wasn't one), and none was requested.
+
+  Verified against the real dev deployment, not just reasoned through. A plain `curl` confirms the
+  new route resolves (`200`) and the old one is genuinely gone (`404`), not just unlinked. In a
+  real browser: clicking the sidebar's own nav link (reading its real `href` first, not assuming)
+  navigates to `/random-sticking-warmup` and renders the actual tool — correct `<h1>`, real notation
+  `<svg>` elements present, zero console errors — confirming the whole chain (NAV_LINKS → Next's
+  router → the moved page → the unchanged component) still resolves correctly end to end. The
+  tiling-panes registry lookup specifically (`TOOL_COMPONENTS["/random-sticking-warmup"]`) was
+  *not* independently exercised through the feature's own real toggle UI — that toggle now lives
+  behind a "..." options flyout this round didn't map out, and a hand-fabricated `localStorage`
+  tiling-state fixture (the faster path tried first) hit the same category of false-alarm crash
+  this file's own tiling-feature history already documents for exactly this testing technique
+  (a malformed hand-built fixture crashing on a shape mismatch, not a reachable app bug) — so this
+  was left as a reasoned-through check instead: the registry is a single `Record<string,
+  ComponentType>` keyed by href, the key was updated to exactly match the new href (confirmed via a
+  direct, repo-wide `grep` for the old route string turning up only the deliberately-unchanged
+  internal identifiers listed above, nothing route-related), and that's the entire mechanism this
+  lookup depends on. `tsc`, `eslint`, and `next build` all pass, with the build's own route listing
+  directly confirming `/random-sticking-warmup` is present and `/stick-control` is gone.
 - **Slow Downer** — load a local audio/video file, slow playback without pitch shift, loop
   sections, add named markers with notes, zoom/pan the waveform.
 - **Recorder** — multitrack recording: per-track clips, punch-in recording, trim/crop/repeat/move

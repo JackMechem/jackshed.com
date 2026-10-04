@@ -45,7 +45,9 @@ export const TOOL_COMPONENTS: Record<string, ComponentType> = {
   "/slow-downer": dynamic(() => import("@/components/SlowDowner"), { loading: PaneLoading }),
   "/chord-charts": dynamic(() => import("@/components/ChordCharts"), { loading: PaneLoading }),
   "/recorder": dynamic(() => import("@/components/Recorder"), { loading: PaneLoading }),
-  "/stick-control": dynamic(() => import("@/components/StickControl"), { loading: PaneLoading }),
+  "/random-sticking-warmup": dynamic(() => import("@/components/StickControl"), {
+    loading: PaneLoading,
+  }),
   "/community": dynamic(() => import("@/components/Community"), { loading: PaneLoading }),
   "/account": dynamic(() => import("@/components/AccountPage"), { loading: PaneLoading }),
   // "/privacy", "/terms", and "/credits" aren't here — unlike every page above, those three don't

@@ -2,23 +2,29 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  Annotation,
-  AnnotationVerticalJustify,
-  Beam,
-  Formatter,
-  Renderer,
-  Stave,
-  StaveNote,
-  Tuplet,
-  Voice,
+	Annotation,
+	AnnotationVerticalJustify,
+	Barline,
+	Beam,
+	Formatter,
+	Renderer,
+	Stave,
+	StaveNote,
+	Tuplet,
+	Voice,
 } from "vexflow";
-import { CELL_BEAT_FRACTION, type CellSpeed, type GeneratedPattern, type NoteCell } from "@/lib/stickControl";
+import {
+	CELL_BEAT_FRACTION,
+	type CellSpeed,
+	type GeneratedPattern,
+	type NoteCell,
+} from "@/lib/stickControl";
 
-// Renders a Stick Control pattern as actual engraved notation (via VexFlow, this app's first use
+// Renders a drum sticking pattern as actual engraved notation (via VexFlow, this app's first use
 // of a real sheet-music library — reused rather than hand-rolling a drum-notation renderer the
 // way e.g. ChordChart.tsx hand-rolls chord notation, since the request specifically asked for
-// "some kind of sheet music library"), each stroke's sticking letter printed below it exactly
-// like the book's own "R"/"L" captions.
+// "some kind of sheet music library"), each stroke's sticking letter printed below it as a plain
+// "R"/"L" caption.
 //
 // Every bar used to get its own separate `Renderer`/card; fixed into one continuous system per a
 // direct follow-up ("bars should not be in separate containers... right next to each other in one
@@ -43,6 +49,9 @@ const STAVE_Y = 10;
 const LEFT_PAD_PLAIN = 16;
 const LEFT_PAD_CLEF = 70;
 const RIGHT_PAD = 20;
+// Extra safety margin added on top of the real, post-draw measured content width — see the draw
+// effect's own comment on why a fixed pre-draw estimate alone isn't quite enough.
+const RIGHT_SAFETY_PX = 4;
 const MAX_BARS_PER_ROW = 4;
 // Before the container's real width has ever been measured (the very first paint), assume a
 // generous desktop-ish width rather than 0 — avoids a flash of "1 bar per row" that would
@@ -63,19 +72,23 @@ const NOTATION_COLOR = "color-mix(in srgb, var(--foreground) 80%, black)";
 // a triplet once three of them are wrapped in a `Tuplet` (3-in-the-time-of-2) below; the duration
 // string by itself doesn't carry that.
 const DURATION_BY_SPEED: Record<CellSpeed, string> = {
-  normal: "8",
-  fast: "16",
-  triplet: "8",
+	normal: "8",
+	fast: "16",
+	triplet: "8",
 };
 
 type BarRect = { x: number; width: number };
 
 function buildNote(hand: string, dur: string) {
-  const note = new StaveNote({ keys: ["b/4"], duration: dur, clef: "percussion" });
-  const annotation = new Annotation(hand);
-  annotation.setVerticalJustification(AnnotationVerticalJustify.BOTTOM);
-  note.addModifier(annotation, 0);
-  return note;
+	const note = new StaveNote({
+		keys: ["b/4"],
+		duration: dur,
+		clef: "percussion",
+	});
+	const annotation = new Annotation(hand);
+	annotation.setVerticalJustification(AnnotationVerticalJustify.BOTTOM);
+	note.addModifier(annotation, 0);
+	return note;
 }
 
 /** One beat's worth of notes, plus whether they need a `Tuplet` bracket (a triplet beat always
@@ -89,229 +102,280 @@ type BeamGroup = { notes: StaveNote[]; isTriplet: boolean };
     is 3, so a fixed-count grouping would split a roll or triplet segment's beats in the wrong
     place. */
 function buildBeamGroups(cells: NoteCell[]): BeamGroup[] {
-  const groups: BeamGroup[] = [];
-  let current: StaveNote[] = [];
-  let currentIsTriplet = false;
-  let timeInBeat = 0;
-  cells.forEach((cell) => {
-    current.push(buildNote(cell.hand, DURATION_BY_SPEED[cell.speed]));
-    if (cell.speed === "triplet") currentIsTriplet = true;
-    timeInBeat += CELL_BEAT_FRACTION[cell.speed];
-    if (timeInBeat >= 1 - 1e-6) {
-      groups.push({ notes: current, isTriplet: currentIsTriplet });
-      current = [];
-      currentIsTriplet = false;
-      timeInBeat = 0;
-    }
-  });
-  if (current.length > 0) groups.push({ notes: current, isTriplet: currentIsTriplet });
-  return groups;
+	const groups: BeamGroup[] = [];
+	let current: StaveNote[] = [];
+	let currentIsTriplet = false;
+	let timeInBeat = 0;
+	cells.forEach((cell) => {
+		current.push(buildNote(cell.hand, DURATION_BY_SPEED[cell.speed]));
+		if (cell.speed === "triplet") currentIsTriplet = true;
+		timeInBeat += CELL_BEAT_FRACTION[cell.speed];
+		if (timeInBeat >= 1 - 1e-6) {
+			groups.push({ notes: current, isTriplet: currentIsTriplet });
+			current = [];
+			currentIsTriplet = false;
+			timeInBeat = 0;
+		}
+	});
+	if (current.length > 0)
+		groups.push({ notes: current, isTriplet: currentIsTriplet });
+	return groups;
 }
 
 /** One row's worth of a multi-bar system, rendered into its own shared `Renderer`/SVG — bars
     positioned side by side with no gap, same as the single-line version this was built from. */
 function StickControlRow({
-  rowBars,
-  beatsPerBar,
-  activeIndexInRow,
+	rowBars,
+	beatsPerBar,
+	activeIndexInRow,
+	isFirstRow,
+	isLastRow,
 }: {
-  rowBars: NoteCell[][];
-  beatsPerBar: number;
-  activeIndexInRow: number | null;
+	rowBars: NoteCell[][];
+	beatsPerBar: number;
+	activeIndexInRow: number | null;
+	/** Whether this row is the very first/last row of the *whole* (possibly multi-row) pattern —
+	    the clef and the repeat barlines only ever belong on the true first bar of the first row and
+	    the true last bar of the last row, never on every row's own local first/last bar (reported
+	    directly, with a screenshot showing a stray clef + repeat-begin at the start of every row,
+	    and a repeat-end at the end of every row instead of just the final one). */
+	isFirstRow: boolean;
+	isLastRow: boolean;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [barRects, setBarRects] = useState<BarRect[]>([]);
-  const [totalWidth, setTotalWidth] = useState(0);
+	const containerRef = useRef<HTMLDivElement>(null);
+	const [barRects, setBarRects] = useState<BarRect[]>([]);
+	const [totalWidth, setTotalWidth] = useState(0);
 
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    el.innerHTML = "";
+	useEffect(() => {
+		const el = containerRef.current;
+		if (!el) return;
+		el.innerHTML = "";
 
-    // Pass 1: build each bar's own notes/voice and measure its own natural minimum width.
-    const barData = rowBars.map((cells, i) => {
-      const beamGroups = buildBeamGroups(cells);
-      const staveNotes = beamGroups.flatMap((g) => g.notes);
-      const voice = new Voice({ numBeats: beatsPerBar, beatValue: 4 });
-      voice.setStrict(false);
-      voice.addTickables(staveNotes);
-      const formatter = new Formatter().joinVoices([voice]);
-      const minWidth = formatter.preCalculateMinTotalWidth([voice]);
-      const leftPad = i === 0 ? LEFT_PAD_CLEF : LEFT_PAD_PLAIN;
-      const isLast = i === rowBars.length - 1;
-      const width = Math.ceil(minWidth) + leftPad + (isLast ? RIGHT_PAD : 0);
-      return { beamGroups, voice, formatter, minWidth, width };
-    });
+		// Pass 1: build each bar's own notes/voice and measure its own natural minimum width.
+		const barData = rowBars.map((cells, i) => {
+			const beamGroups = buildBeamGroups(cells);
+			const staveNotes = beamGroups.flatMap((g) => g.notes);
+			const voice = new Voice({ numBeats: beatsPerBar, beatValue: 4 });
+			voice.setStrict(false);
+			voice.addTickables(staveNotes);
+			const formatter = new Formatter().joinVoices([voice]);
+			const minWidth = formatter.preCalculateMinTotalWidth([voice]);
+			// Only the true first bar of the whole pattern gets a clef (and the room it needs) —
+			// every other row's own first bar starts with a plain barline, same as any interior bar.
+			const showClef = isFirstRow && i === 0;
+			const leftPad = showClef ? LEFT_PAD_CLEF : LEFT_PAD_PLAIN;
+			const isLast = i === rowBars.length - 1;
+			const width = Math.ceil(minWidth) + leftPad + (isLast ? RIGHT_PAD : 0);
+			return { beamGroups, voice, formatter, minWidth, width, showClef };
+		});
 
-    const fullWidth = barData.reduce((sum, b) => sum + b.width, 0);
+		const fullWidth = barData.reduce((sum, b) => sum + b.width, 0);
 
-    const renderer = new Renderer(el, Renderer.Backends.SVG);
-    renderer.resize(fullWidth, BAR_HEIGHT);
-    const context = renderer.getContext();
+		const renderer = new Renderer(el, Renderer.Backends.SVG);
+		renderer.resize(fullWidth, BAR_HEIGHT);
+		const context = renderer.getContext();
+		// Pass 2: lay every bar's own `Stave` side by side, each starting exactly where the previous
+		// one's own width ends.
+		const allBeams: Beam[] = [];
+		const allTuplets: Tuplet[] = [];
+		const rects: BarRect[] = [];
+		let x = 0;
+		for (let i = 0; i < barData.length; i++) {
+			const { voice, formatter, minWidth, width, beamGroups, showClef } = barData[i];
+			const stave = new Stave(x, STAVE_Y, width);
+			if (showClef) {
+				stave.setBegBarType(Barline.type.REPEAT_BEGIN);
+				stave.addClef("percussion");
+			}
+			if (isLastRow && i === barData.length - 1) {
+				stave.setEndBarType(Barline.type.REPEAT_END);
+			}
+			stave.setContext(context).draw();
 
-    // Pass 2: lay every bar's own `Stave` side by side, each starting exactly where the previous
-    // one's own width ends.
-    const allBeams: Beam[] = [];
-    const allTuplets: Tuplet[] = [];
-    const rects: BarRect[] = [];
-    let x = 0;
-    for (let i = 0; i < barData.length; i++) {
-      const { voice, formatter, minWidth, width, beamGroups } = barData[i];
-      const stave = new Stave(x, STAVE_Y, width);
-      if (i === 0) stave.addClef("percussion");
-      stave.setContext(context).draw();
+			formatter.format([voice], minWidth);
 
-      formatter.format([voice], minWidth);
+			// Beams (and tuplets) have to exist *before* the voice is drawn — see this file's own doc
+			// comment history; only the drawing of the beams/tuplets themselves happens after.
+			for (const group of beamGroups) {
+				if (group.notes.length < 2) continue;
+				allBeams.push(new Beam(group.notes));
+				if (group.isTriplet) allTuplets.push(new Tuplet(group.notes));
+			}
 
-      // Beams (and tuplets) have to exist *before* the voice is drawn — see this file's own doc
-      // comment history; only the drawing of the beams/tuplets themselves happens after.
-      for (const group of beamGroups) {
-        if (group.notes.length < 2) continue;
-        allBeams.push(new Beam(group.notes));
-        if (group.isTriplet) allTuplets.push(new Tuplet(group.notes));
-      }
+			voice.draw(context, stave);
+			rects.push({ x, width });
+			x += width;
+		}
+		allBeams.forEach((b) => b.setContext(context).draw());
+		allTuplets.forEach((t) => t.setContext(context).draw());
 
-      voice.draw(context, stave);
-      rects.push({ x, width });
-      x += width;
-    }
-    allBeams.forEach((b) => b.setContext(context).draw());
-    allTuplets.forEach((t) => t.setContext(context).draw());
+		const svg = el.querySelector("svg");
+		// `fullWidth` (VexFlow's own pre-calculated width, used to size the renderer's canvas above)
+		// can undershoot the actual drawn content by a pixel or so — a real, consistently reproduced
+		// ~1px gap between `Formatter.preCalculateMinTotalWidth`'s estimate and the true rendered
+		// geometry (confirmed directly via `getBBox()` against the real deployment, not assumed),
+		// small enough to be invisible most of the time but just enough to clip away a row's own
+		// plain end barline specifically — drawn flush at the stave's own right edge, with no margin
+		// of its own to absorb it — reported directly with a screenshot: every row except the whole
+		// pattern's true last one showed no end barline at all, exactly where a plain barline and
+		// this shortfall coincided. Rather than chase the precise VexFlow-internal rounding cause,
+		// measure the real drawn content's own bounding box *after* everything (notes, beams,
+		// tuplets, barlines) is already on the canvas, and size the final viewBox to that — self-
+		// correcting regardless of why the pre-draw estimate was off, with a small fixed safety
+		// margin (`RIGHT_SAFETY_PX`) on top for genuine robustness rather than shaving it to the
+		// exact pixel.
+		const contentBBox = svg?.getBBox();
+		const finalWidth = contentBBox
+			? Math.max(fullWidth, Math.ceil(contentBBox.x + contentBBox.width) + RIGHT_SAFETY_PX)
+			: fullWidth;
+		if (svg) {
+			svg.setAttribute("viewBox", `0 0 ${finalWidth} ${BAR_HEIGHT}`);
+			svg.removeAttribute("width");
+			svg.removeAttribute("height");
+			svg.style.width = "100%";
+			svg.style.height = "auto";
+			svg.style.display = "block";
+			// VexFlow's own SVG context hardcodes `fill="black" stroke="black"` on the root <svg> —
+			// every notehead/stem/beam/barline/annotation below it leaves its own fill/stroke unset and
+			// just inherits that, which reads fine against a light theme's own white page but is close
+			// to invisible against a dark theme's own dark background (reported directly, with a
+			// screenshot). `currentColor` resolves through the same CSS inheritance to the wrapping
+			// `containerRef` div below, which sets its own `color` to a slightly dimmed version of the
+			// theme's own foreground — not the full-strength color text uses — per a direct follow-up
+			// ("make the notes a little darker on both light and dark themes") once pure `--foreground`
+			// read as too stark/glary once actually seen. One override here recolors every one of those
+			// descendants at once, correctly following whichever theme is currently active.
+			svg.setAttribute("fill", "currentColor");
+			svg.setAttribute("stroke", "currentColor");
+		}
 
-    const svg = el.querySelector("svg");
-    if (svg) {
-      svg.setAttribute("viewBox", `0 0 ${fullWidth} ${BAR_HEIGHT}`);
-      svg.removeAttribute("width");
-      svg.removeAttribute("height");
-      svg.style.width = "100%";
-      svg.style.height = "auto";
-      svg.style.display = "block";
-      // VexFlow's own SVG context hardcodes `fill="black" stroke="black"` on the root <svg> —
-      // every notehead/stem/beam/barline/annotation below it leaves its own fill/stroke unset and
-      // just inherits that, which reads fine against a light theme's own white page but is close
-      // to invisible against a dark theme's own dark background (reported directly, with a
-      // screenshot). `currentColor` resolves through the same CSS inheritance to the wrapping
-      // `containerRef` div below, which sets its own `color` to a slightly dimmed version of the
-      // theme's own foreground — not the full-strength color text uses — per a direct follow-up
-      // ("make the notes a little darker on both light and dark themes") once pure `--foreground`
-      // read as too stark/glary once actually seen. One override here recolors every one of those
-      // descendants at once, correctly following whichever theme is currently active.
-      svg.setAttribute("fill", "currentColor");
-      svg.setAttribute("stroke", "currentColor");
-    }
+		setBarRects(rects);
+		setTotalWidth(finalWidth);
+		// `rowBars` only ever changes reference when the pattern itself is regenerated or the row
+		// layout changes — a tick-driven re-render for `activeIndexInRow` alone leaves it
+		// referentially stable, so this effect correctly skips redrawing the SVG for those.
+	}, [rowBars, beatsPerBar, isFirstRow, isLastRow]);
 
-    setBarRects(rects);
-    setTotalWidth(fullWidth);
-    // `rowBars` only ever changes reference when the pattern itself is regenerated or the row
-    // layout changes — a tick-driven re-render for `activeIndexInRow` alone leaves it
-    // referentially stable, so this effect correctly skips redrawing the SVG for those.
-  }, [rowBars, beatsPerBar]);
-
-  return (
-    <div className="relative mx-auto w-full" style={totalWidth ? { maxWidth: totalWidth } : undefined}>
-      <div ref={containerRef} style={{ color: NOTATION_COLOR }} />
-      {totalWidth > 0 &&
-        barRects.map((rect, i) => (
-          <div
-            key={i}
-            aria-hidden
-            className={`pointer-events-none absolute inset-y-0 rounded-md transition-colors ${
-              activeIndexInRow === i ? "bg-accent/10 ring-2 ring-inset ring-accent" : ""
-            }`}
-            style={{
-              left: `${(rect.x / totalWidth) * 100}%`,
-              width: `${(rect.width / totalWidth) * 100}%`,
-            }}
-          />
-        ))}
-    </div>
-  );
+	return (
+		<div
+			className="relative mx-auto w-full"
+			style={totalWidth ? { maxWidth: totalWidth } : undefined}
+		>
+			<div ref={containerRef} style={{ color: NOTATION_COLOR }} />
+			{totalWidth > 0 &&
+				barRects.map((rect, i) => (
+					<div
+						key={i}
+						aria-hidden
+						className={`pointer-events-none absolute inset-y-0 rounded-md transition-colors ${
+							activeIndexInRow === i
+								? "bg-accent/10 ring-2 ring-inset ring-accent"
+								: ""
+						}`}
+						style={{
+							left: `${(rect.x / totalWidth) * 100}%`,
+							width: `${(rect.width / totalWidth) * 100}%`,
+						}}
+					/>
+				))}
+		</div>
+	);
 }
 
 export default function StickControlStave({
-  pattern,
-  activeBarIndex,
-  background = "surface",
+	pattern,
+	activeBarIndex,
+	background = "surface",
 }: {
-  pattern: GeneratedPattern;
-  activeBarIndex: number | null;
-  /** "background" renders a slightly darker card than the default "surface" — used for the
+	pattern: GeneratedPattern;
+	activeBarIndex: number | null;
+	/** "background" renders a slightly darker card than the default "surface" — used for the
       upcoming-pattern preview below the current one, so it reads as a step removed from what's
       actually playing without needing a second visual treatment invented just for this. Both
       tokens are deliberately already-darker-background-than-surface in both themes (see
       `app/globals.css`), not a one-off opacity hack. */
-  background?: "surface" | "background";
+	background?: "surface" | "background";
 }) {
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const [containerWidth, setContainerWidth] = useState(DEFAULT_CONTAINER_WIDTH);
+	const wrapperRef = useRef<HTMLDivElement>(null);
+	const [containerWidth, setContainerWidth] = useState(DEFAULT_CONTAINER_WIDTH);
 
-  useLayoutEffect(() => {
-    const el = wrapperRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width;
-      if (width) setContainerWidth(Math.round(width));
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+	useLayoutEffect(() => {
+		const el = wrapperRef.current;
+		if (!el) return;
+		const observer = new ResizeObserver((entries) => {
+			const width = entries[0]?.contentRect.width;
+			if (width) setContainerWidth(Math.round(width));
+		});
+		observer.observe(el);
+		return () => observer.disconnect();
+	}, []);
 
-  const { beatsPerBar, bars } = pattern;
+	const { beatsPerBar, bars } = pattern;
 
-  // How many bars fit in one row, measured against the container's real width using each bar's
-  // own natural (unscaled) width — capped at `MAX_BARS_PER_ROW` regardless of how much room is
-  // available, and never below 1 even if a single bar alone would need to shrink to fit. Memoized
-  // since `bars`/`beatsPerBar` only change when the pattern is actually regenerated — without
-  // this, a tick-driven re-render for `activeBarIndex` alone (every playback tick) would rebuild
-  // every bar's `Voice`/`Formatter` just to re-derive the same answer.
-  const { rows, barsPerRow } = useMemo(() => {
-    function naturalBarWidth(cells: NoteCell[]): number {
-      const beamGroups = buildBeamGroups(cells);
-      const voice = new Voice({ numBeats: beatsPerBar, beatValue: 4 });
-      voice.setStrict(false);
-      voice.addTickables(beamGroups.flatMap((g) => g.notes));
-      return new Formatter().joinVoices([voice]).preCalculateMinTotalWidth([voice]);
-    }
+	// How many bars fit in one row, measured against the container's real width using each bar's
+	// own natural (unscaled) width — capped at `MAX_BARS_PER_ROW` regardless of how much room is
+	// available, and never below 1 even if a single bar alone would need to shrink to fit. Memoized
+	// since `bars`/`beatsPerBar` only change when the pattern is actually regenerated — without
+	// this, a tick-driven re-render for `activeBarIndex` alone (every playback tick) would rebuild
+	// every bar's `Voice`/`Formatter` just to re-derive the same answer.
+	const { rows, barsPerRow } = useMemo(() => {
+		function naturalBarWidth(cells: NoteCell[]): number {
+			const beamGroups = buildBeamGroups(cells);
+			const voice = new Voice({ numBeats: beatsPerBar, beatValue: 4 });
+			voice.setStrict(false);
+			voice.addTickables(beamGroups.flatMap((g) => g.notes));
+			return new Formatter()
+				.joinVoices([voice])
+				.preCalculateMinTotalWidth([voice]);
+		}
 
-    let perRow = Math.min(MAX_BARS_PER_ROW, bars.length);
-    while (perRow > 1) {
-      const widths = bars
-        .slice(0, perRow)
-        .map((cells, i) => Math.ceil(naturalBarWidth(cells)) + (i === 0 ? LEFT_PAD_CLEF : LEFT_PAD_PLAIN));
-      const rowWidth = widths.reduce((a, b) => a + b, 0) + RIGHT_PAD;
-      if (rowWidth <= containerWidth) break;
-      perRow--;
-    }
+		let perRow = Math.min(MAX_BARS_PER_ROW, bars.length);
+		while (perRow > 1) {
+			const widths = bars
+				.slice(0, perRow)
+				.map(
+					(cells, i) =>
+						Math.ceil(naturalBarWidth(cells)) +
+						(i === 0 ? LEFT_PAD_CLEF : LEFT_PAD_PLAIN),
+				);
+			const rowWidth = widths.reduce((a, b) => a + b, 0) + RIGHT_PAD;
+			if (rowWidth <= containerWidth) break;
+			perRow--;
+		}
 
-    const grouped: NoteCell[][][] = [];
-    for (let i = 0; i < bars.length; i += perRow) {
-      grouped.push(bars.slice(i, i + perRow));
-    }
-    return { rows: grouped, barsPerRow: perRow };
-  }, [bars, beatsPerBar, containerWidth]);
+		const grouped: NoteCell[][][] = [];
+		for (let i = 0; i < bars.length; i += perRow) {
+			grouped.push(bars.slice(i, i + perRow));
+		}
+		return { rows: grouped, barsPerRow: perRow };
+	}, [bars, beatsPerBar, containerWidth]);
 
-  return (
-    <div
-      ref={wrapperRef}
-      className={`flex w-full flex-col gap-3 rounded-xl p-2 ${
-        background === "background" ? "bg-background" : "bg-surface"
-      }`}
-    >
-      {rows.map((rowBars, rowIndex) => {
-        const rowStart = rowIndex * barsPerRow;
-        const activeIndexInRow =
-          activeBarIndex !== null && activeBarIndex >= rowStart && activeBarIndex < rowStart + rowBars.length
-            ? activeBarIndex - rowStart
-            : null;
-        return (
-          <StickControlRow
-            key={rowIndex}
-            rowBars={rowBars}
-            beatsPerBar={beatsPerBar}
-            activeIndexInRow={activeIndexInRow}
-          />
-        );
-      })}
-    </div>
-  );
+	return (
+		<div
+			ref={wrapperRef}
+			className={`flex w-full flex-col gap-3 rounded-xl p-2 ${
+				background === "background" ? "bg-background" : "bg-surface"
+			}`}
+		>
+			{rows.map((rowBars, rowIndex) => {
+				const rowStart = rowIndex * barsPerRow;
+				const activeIndexInRow =
+					activeBarIndex !== null &&
+					activeBarIndex >= rowStart &&
+					activeBarIndex < rowStart + rowBars.length
+						? activeBarIndex - rowStart
+						: null;
+				return (
+					<StickControlRow
+						key={rowIndex}
+						rowBars={rowBars}
+						beatsPerBar={beatsPerBar}
+						activeIndexInRow={activeIndexInRow}
+						isFirstRow={rowIndex === 0}
+						isLastRow={rowIndex === rows.length - 1}
+					/>
+				);
+			})}
+		</div>
+	);
 }

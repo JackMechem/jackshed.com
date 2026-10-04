@@ -1,26 +1,26 @@
 /**
- * Pattern data and pure generation logic for the Stick Control drum warmup tool — no React, no
- * audio, just "what are the sticking letters for this bar." Rendering lives in
+ * Pattern data and pure generation logic for this drum warmup tool — no React, no audio, just
+ * "what are the sticking letters for this bar." Rendering lives in
  * `components/StickControlStave.tsx` (VexFlow), playback in `lib/stickControlEngine.ts`.
  *
  * Deliberately narrowed to one single thing, per a direct "for simplicity, remove all the pattern
  * types except for strokes then a roll, and remove all the roll sizes except 9 stroke roll":
- * every pattern is now a stretch of straight strokes (from the book's own "Single Beat
- * Combinations," `SINGLE_BEAT_COMBINATIONS` below) followed by a 9-stroke open roll, written out
- * twice. Earlier versions of this file supported several other pattern types (plain single-beat
- * combinations, triplets, a standalone stroke-roll type, several roll sizes) — all removed here,
- * not hidden behind options, since the whole point of the request was fewer moving parts to get
- * the one remaining thing exactly right.
+ * every pattern is now a stretch of straight strokes (from a bank of transcribed sticking
+ * patterns, `SINGLE_BEAT_COMBINATIONS` below) followed by a 9-stroke open roll, written out
+ * twice. Earlier versions of this file supported several other pattern types (plain combinations,
+ * triplets, a standalone stroke-roll type, several roll sizes) — all removed here, not hidden
+ * behind options, since the whole point of the request was fewer moving parts to get the one
+ * remaining thing exactly right.
  *
- * The 72 `SINGLE_BEAT_COMBINATIONS` entries are each the full 16-stroke line as printed in the
- * book (not a 4-stroke "cell" meant to be tiled — several of the book's own exercises aren't
- * actually one cell repeated four times, e.g. #16 "RLRL RLRR LRLR LRLL" rotates through four
- * related but distinct groups) — transcribed by reading the scanned pages directly (not OCR'd, so
- * treat this as a careful best-effort transcription, not a guaranteed pixel-perfect one).
+ * The 72 `SINGLE_BEAT_COMBINATIONS` entries are each a full 16-stroke line (not a 4-stroke "cell"
+ * meant to be tiled — several of these aren't actually one cell repeated four times, e.g. one
+ * rotates through four related but distinct groups) — transcribed from a printed reference by
+ * reading scanned pages directly (not OCR'd, so treat this as a careful best-effort transcription,
+ * not a guaranteed pixel-perfect one).
  *
- * The roll itself is the standard PAS "9 stroke open roll" rudiment, not from Stick Control —
- * `rollSticking` is a one-line closed-form generator: the first 9 letters of the infinite
- * alternating-double-stroke stream "RRLLRRLLRRLL..." (RRLLRRLLR).
+ * The roll itself is the standard PAS "9 stroke open roll" rudiment — `rollSticking` is a one-line
+ * closed-form generator: the first 9 letters of the infinite alternating-double-stroke stream
+ * "RRLLRRLLRRLL..." (RRLLRRLLR).
  *
  * A roll's strokes are written at exactly *double* the surrounding note value (straight strokes
  * at 8th notes, roll strokes at double that, 16th notes — 8th notes used to be switchable to 16th
@@ -46,8 +46,8 @@
  *      ("RLRL RRLLRRLL RLRL RRLLRRLL" — the second bar restates the *same* straight sticking, not
  *      its mirror).
  *   3. Third version: made both bars' straight segments come from one continuous tiling of the
- *      exercise instead (`tileTo(full16, straightSlots * 2)`, split in half) rather than restating
- *      position 0 or mirroring — correct for an exercise built from plain period-2 alternation
+ *      pattern instead (`tileTo(full16, straightSlots * 2)`, split in half) rather than restating
+ *      position 0 or mirroring — correct for a pattern built from plain period-2 alternation
  *      (whose own straight segment always starts and ends on different hands already), but *not*
  *      for one whose straight segment starts and ends on the *same* hand — not just an obvious
  *      case like "RRRR," something like "RLLR" has this too — where the "just continue the tiling"
@@ -61,7 +61,7 @@
  *      that isn't itself a multiple of 9 shifts phase on every wrap, so the "ends where it
  *      started, basically" shortcut silently broke at other beats-per-bar/note-value
  *      combinations. Caught by an exhaustive script, not another screenshot — checking the
- *      seam/start-hand rules across every one of the 72 book exercises at several different
+ *      seam/start-hand rules across every one of the 72 transcribed patterns at several different
  *      meters, which the default meter's own test had never exercised.
  * Current approach keeps the continuous-tiling idea from version 3 (it's still the right behavior
  * whenever it's already safe) but replaces version 4's derived assumption with reading the real
@@ -69,7 +69,7 @@
  * own *actual* last cell — whatever hand that genuinely turns out to be, not a predicted one. If
  * it would collide, *only that segment* gets flipped (not the whole bar, and never the roll,
  * which is always re-derived fresh from whatever that segment turns out to be) before building
- * bar 2 for real. This keeps every seam clean regardless of which exercise or meter comes up,
+ * bar 2 for real. This keeps every seam clean regardless of which pattern or meter comes up,
  * with no assumption about the roll's own internal periodicity to get subtly wrong again, while
  * still reproducing the exact "RLRL RRLLRRLL RLRL RRLLRRLL" shape from version 2's own worked
  * example whenever that's already safe on its own.
@@ -91,7 +91,7 @@
  * One more seam sits *between* two different patterns, not within one: per a direct request
  * ("make sure the next pattern is always starting with a sticking opposite to what the previous
  * ended with"), `generatePattern` takes an optional `previousEndHand` — when given, the whole
- * exercise cell is flipped (the same `otherHand`-elementwise operation as `mirrorCells`, just
+ * straight-segment cell is flipped (the same `otherHand`-elementwise operation as `mirrorCells`, just
  * applied before anything else is built from the cell) whenever it doesn't already open on the
  * right hand, which is safe for the identical reason mirroring a finished 2-bar block was safe
  * above — every rule this function establishes is an inequality between two hands, and flipping
@@ -204,9 +204,9 @@ function hands(s: string): Hand[] {
   return s.split("") as Hand[];
 }
 
-/** All 72 "Single Beat Combinations" from Stick Control, each the full 16-stroke line as printed
-    (see this file's own doc comment for why the full line, not a shorter tileable cell). Index 0
-    = exercise 1. */
+/** All 72 transcribed sticking patterns, each the full 16-stroke line as printed in the original
+    source (see this file's own doc comment for why the full line, not a shorter tileable cell).
+    Index 0 = pattern 1. */
 export const SINGLE_BEAT_COMBINATIONS: Hand[][] = [
   "RLRLRLRLRLRLRLRL",
   "LRLRLRLRLRLRLRLR",
@@ -355,9 +355,6 @@ export interface GeneratedPattern {
       `generatePattern`'s own comment on that case. Never user-chosen or computed by any other
       rule. */
   bars: NoteCell[][];
-  /** Short, human-readable description shown next to the notation, e.g. "Exercise 14 + 9-stroke
-      roll" or "Exercise 8 + triplet roll". */
-  label: string;
 }
 
 function randomInt(max: number): number {
@@ -365,28 +362,23 @@ function randomInt(max: number): number {
 }
 
 /** Repeats (tiles) `cell` end to end until the result is exactly `length` long — the same "just
-    keep restarting the cell from the top" approach the book's own exercises use at their own bar
+    keep restarting the cell from the top" approach these patterns themselves use at their own bar
     seams (e.g. a 4-stroke cell's hand can repeat across the seam, like ...L R | R L...; that's how
-    the book itself is written, not an artifact of tiling). */
+    the original source itself is written, not an artifact of tiling). */
 function tileTo<T>(cell: T[], length: number): T[] {
   return Array.from({ length }, (_, i) => cell[i % cell.length]);
 }
 
-/** Picks a random one of the book's own 72 Single Beat Combinations — per a direct simplification
+/** Picks a random one of the 72 transcribed sticking patterns — per a direct simplification
     request ("get rid of sticking source and just always make it random"), the only way this
-    tool's straight segment is ever sourced now; the earlier "a specific exercise" and
+    tool's straight segment is ever sourced now; the earlier "a specific pattern" and
     "procedurally generated" alternatives (and the selector choosing between all three) are gone,
-    not hidden. */
-function randomExercise(): { full16: Hand[]; label: string } {
-  const index = randomInt(SINGLE_BEAT_COMBINATIONS.length);
-  return { full16: SINGLE_BEAT_COMBINATIONS[index], label: `Exercise ${index + 1}` };
+    not hidden. Returns just the sticking itself — a later round removed the "which pattern is
+    this" label this used to also return, per a direct request not to identify patterns by
+    number. */
+function randomPattern(): Hand[] {
+  return SINGLE_BEAT_COMBINATIONS[randomInt(SINGLE_BEAT_COMBINATIONS.length)];
 }
-
-const ROLL_TYPE_LABEL: Record<RollType, string> = {
-  single: "single-stroke roll",
-  double: `${ROLL_SIZE}-stroke roll`,
-  triplet: "triplet roll",
-};
 
 /** Builds one roll segment's cells — straight-8th-note-equivalent beats' worth, written at
     whichever speed `rollType` calls for — already guaranteed to open on `rollStartHand` (rule A;
@@ -414,7 +406,7 @@ function buildRollCells(rollType: RollType, rollStartHand: Hand, rollBeats: numb
     can call it directly with no shared state. `previousEndHand`, when given, is the hand a
     *previous* pattern's own last stroke actually ended on — this pattern's own first stroke is
     then forced to be the opposite of it (see this file's own doc comment for why flipping the
-    whole exercise cell for this is safe). */
+    whole straight-segment cell for this is safe). */
 export function generatePattern(options: StickControlOptions, previousEndHand?: Hand): GeneratedPattern {
   const { rollType } = options;
   // Always 4/4 — meter stopped being configurable per a direct simplification request.
@@ -425,14 +417,12 @@ export function generatePattern(options: StickControlOptions, previousEndHand?: 
   // request, the only note value this tool offers for it now.
   const straightSlots = straightBeats * (1 / CELL_BEAT_FRACTION.normal);
 
-  const singleCell = randomExercise();
-  const strokeLabel = singleCell.label;
-  let full16 = singleCell.full16;
+  let full16 = randomPattern();
   if (previousEndHand !== undefined && full16[0] === previousEndHand) {
     full16 = full16.map(otherHand);
   }
 
-  // Both bars' straight segments come from *one* continuous tiling of the exercise, split in
+  // Both bars' straight segments come from *one* continuous tiling of the pattern, split in
   // half, rather than each bar independently restarting at position 0 or mirroring the other
   // (both tried and reported wrong) — see this file's own doc comment for the full history.
   const allStraightHands = tileTo(full16, straightSlots * 2);
@@ -456,13 +446,13 @@ export function generatePattern(options: StickControlOptions, previousEndHand?: 
   // meter, but false in general once `rollSlotsFast` stops being a clean multiple of `ROLL_SIZE`,
   // which produced real, confirmed failures at other meters; reading the actual value sidesteps
   // needing that assumption to hold at all.) Continuing the tiling above already gets this right
-  // for exercises built from plain period-2 alternation (their own straight segment's start/end
-  // hands already differ), but not every exercise — one whose straight segment starts and ends on
+  // for patterns built from plain period-2 alternation (their own straight segment's start/end
+  // hands already differ), but not every pattern — one whose straight segment starts and ends on
   // the *same* hand (not just "RRRR," something like "RLLR" has this too) can still collide at
   // the seam otherwise, confirmed directly by a reported screenshot of exactly that collision.
   // When it would, flip just bar 2's straight segment (never its roll, which is always re-derived
   // fresh from whatever that segment turns out to be) rather than the whole bar, so the seam is
-  // clean no matter which exercise or meter comes up.
+  // clean no matter which pattern or meter comes up.
   const roll1EndHand = bar1[bar1.length - 1].hand;
   if (straightHands2[0] === roll1EndHand) {
     straightHands2 = straightHands2.map(otherHand);
@@ -484,9 +474,5 @@ export function generatePattern(options: StickControlOptions, previousEndHand?: 
   const loopCloses = bar2[bar2.length - 1].hand === bar1[0].hand;
   const bars = loopCloses ? [bar1, bar2, mirrorCells(bar1), mirrorCells(bar2)] : [bar1, bar2];
 
-  return {
-    beatsPerBar,
-    bars,
-    label: `${strokeLabel} + ${ROLL_TYPE_LABEL[rollType]}`,
-  };
+  return { beatsPerBar, bars };
 }

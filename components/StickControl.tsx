@@ -39,7 +39,8 @@ const DEFAULT_SETTINGS = {
   soundId: DEFAULT_CLICK_SOUND_ID,
   clickMode: "pulse" as ClickMode,
   countOffBars: 1,
-  // The book's own instruction: "practise each rhythm 20 TIMES WITHOUT STOPPING."
+  // 20 repeats without stopping is a well-worn, generically useful default for a warmup like
+  // this, not tied to any one specific set of instructions.
   repeats: 20,
   autoAdvance: false,
 };
@@ -111,10 +112,9 @@ export default function StickControl() {
 
   return (
     <ToolLayout
-      title="Random Stick Control Warmup"
+      title="Random Sticking Warmup"
       layout="stacked"
       topAligned
-      credit="Patterns from George Lawrence Stone's Stick Control"
       options={
         <OptionsCard id="stick-control">
           <OptionSection title="Pattern" icon={ListIcon}>
@@ -155,7 +155,7 @@ export default function StickControl() {
               max={100}
               step={1}
               onChange={(n) => updateSettings({ repeats: n })}
-              hint='The book: "practise each rhythm 20 TIMES WITHOUT STOPPING." Defaults to 20.'
+              hint="How many times the pattern repeats before stopping (or looping to a new one, with 'New pattern when done'). Defaults to 20."
             />
             <SwitchRow
               label="New pattern when done"
@@ -191,16 +191,11 @@ export default function StickControl() {
       <div className="flex w-full flex-col items-center gap-4">
         <TempoHero bpm={bpm} setBpm={setBpm} beatsPerBar={4} beatUnit={4} onTap={tap} />
 
-        {pattern && (
-          <div className="flex w-full flex-col items-center gap-2">
-            <p className="text-sm font-medium text-muted">{pattern.label}</p>
-            <StickControlStave pattern={pattern} activeBarIndex={currentBarIndex} />
-          </div>
-        )}
+        {pattern && <StickControlStave pattern={pattern} activeBarIndex={currentBarIndex} />}
 
         {nextPattern && (
           <div className="flex w-full flex-col items-center gap-2">
-            <p className="text-xs font-medium text-muted">Next: {nextPattern.label}</p>
+            <p className="text-sm font-semibold text-muted">Next</p>
             <StickControlStave
               pattern={nextPattern}
               activeBarIndex={null}
