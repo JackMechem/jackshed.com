@@ -12,7 +12,7 @@ import {
   Tuplet,
   Voice,
 } from "vexflow";
-import type { GeneratedPattern, NoteCell } from "@/lib/stickControl";
+import { CELL_BEAT_FRACTION, type CellSpeed, type GeneratedPattern, type NoteCell } from "@/lib/stickControl";
 
 // Renders a Stick Control pattern as actual engraved notation (via VexFlow, this app's first use
 // of a real sheet-music library — reused rather than hand-rolling a drum-notation renderer the
@@ -57,6 +57,17 @@ const DEFAULT_CONTAINER_WIDTH = 900;
 // in light mode.
 const NOTATION_COLOR = "color-mix(in srgb, var(--foreground) 80%, black)";
 
+// A normal (8th note) or fast (16th note) cell needs no tuplet bracket — VexFlow's own duration
+// string alone says how long it is. A triplet cell is written with the *next faster* duration
+// symbol ("8", same as normal — three of them fill the time two normally would) and only reads as
+// a triplet once three of them are wrapped in a `Tuplet` (3-in-the-time-of-2) below; the duration
+// string by itself doesn't carry that.
+const DURATION_BY_SPEED: Record<CellSpeed, string> = {
+  normal: "8",
+  fast: "16",
+  triplet: "8",
+};
+
 type BarRect = { x: number; width: number };
 
 function buildNote(hand: string, dur: string) {
@@ -67,24 +78,33 @@ function buildNote(hand: string, dur: string) {
   return note;
 }
 
-/** Groups `cells` into one beam per *beat*, tracked by accumulated time rather than a fixed cell
-    count — a beat of normal cells is exactly `subdivision` of them, but a beat of `fast` cells
-    (half a normal cell's time each) is `subdivision * 2` of them, so a fixed-count grouping would
-    split a roll segment's beats in the wrong place. */
-function buildBeamGroups(cells: NoteCell[], subdivision: number, duration: string, fastDuration: string) {
-  const groups: StaveNote[][] = [];
+/** One beat's worth of notes, plus whether they need a `Tuplet` bracket (a triplet beat always
+    does, uniformly — a bar's straight and roll segments each occupy whole beats of their own, so
+    one beat's cells are never a mix of triplet and non-triplet speeds). */
+type BeamGroup = { notes: StaveNote[]; isTriplet: boolean };
+
+/** Groups `cells` into one beam per *beat*, tracked by accumulated real beat-fraction
+    (`CELL_BEAT_FRACTION`) rather than a fixed cell count — a beat of normal (8th-note) cells is 2
+    of them, a beat of fast (16th-note) cells is 4, and a beat of triplet (8th-note-triplet) cells
+    is 3, so a fixed-count grouping would split a roll or triplet segment's beats in the wrong
+    place. */
+function buildBeamGroups(cells: NoteCell[]): BeamGroup[] {
+  const groups: BeamGroup[] = [];
   let current: StaveNote[] = [];
+  let currentIsTriplet = false;
   let timeInBeat = 0;
   cells.forEach((cell) => {
-    current.push(buildNote(cell.hand, cell.fast ? fastDuration : duration));
-    timeInBeat += cell.fast ? 0.5 : 1;
-    if (timeInBeat >= subdivision - 1e-6) {
-      groups.push(current);
+    current.push(buildNote(cell.hand, DURATION_BY_SPEED[cell.speed]));
+    if (cell.speed === "triplet") currentIsTriplet = true;
+    timeInBeat += CELL_BEAT_FRACTION[cell.speed];
+    if (timeInBeat >= 1 - 1e-6) {
+      groups.push({ notes: current, isTriplet: currentIsTriplet });
       current = [];
+      currentIsTriplet = false;
       timeInBeat = 0;
     }
   });
-  if (current.length > 0) groups.push(current);
+  if (current.length > 0) groups.push({ notes: current, isTriplet: currentIsTriplet });
   return groups;
 }
 
@@ -92,12 +112,10 @@ function buildBeamGroups(cells: NoteCell[], subdivision: number, duration: strin
     positioned side by side with no gap, same as the single-line version this was built from. */
 function StickControlRow({
   rowBars,
-  subdivision,
   beatsPerBar,
   activeIndexInRow,
 }: {
   rowBars: NoteCell[][];
-  subdivision: number;
   beatsPerBar: number;
   activeIndexInRow: number | null;
 }) {
@@ -110,13 +128,10 @@ function StickControlRow({
     if (!el) return;
     el.innerHTML = "";
 
-    const duration = subdivision === 4 ? "16" : "8";
-    const fastDuration = subdivision === 4 ? "32" : "16";
-
     // Pass 1: build each bar's own notes/voice and measure its own natural minimum width.
     const barData = rowBars.map((cells, i) => {
-      const beamGroups = buildBeamGroups(cells, subdivision, duration, fastDuration);
-      const staveNotes = beamGroups.flat();
+      const beamGroups = buildBeamGroups(cells);
+      const staveNotes = beamGroups.flatMap((g) => g.notes);
       const voice = new Voice({ numBeats: beatsPerBar, beatValue: 4 });
       voice.setStrict(false);
       voice.addTickables(staveNotes);
@@ -151,9 +166,9 @@ function StickControlRow({
       // Beams (and tuplets) have to exist *before* the voice is drawn — see this file's own doc
       // comment history; only the drawing of the beams/tuplets themselves happens after.
       for (const group of beamGroups) {
-        if (group.length < 2) continue;
-        allBeams.push(new Beam(group));
-        if (subdivision === 3) allTuplets.push(new Tuplet(group));
+        if (group.notes.length < 2) continue;
+        allBeams.push(new Beam(group.notes));
+        if (group.isTriplet) allTuplets.push(new Tuplet(group.notes));
       }
 
       voice.draw(context, stave);
@@ -190,7 +205,7 @@ function StickControlRow({
     // `rowBars` only ever changes reference when the pattern itself is regenerated or the row
     // layout changes — a tick-driven re-render for `activeIndexInRow` alone leaves it
     // referentially stable, so this effect correctly skips redrawing the SVG for those.
-  }, [rowBars, subdivision, beatsPerBar]);
+  }, [rowBars, beatsPerBar]);
 
   return (
     <div className="relative mx-auto w-full" style={totalWidth ? { maxWidth: totalWidth } : undefined}>
@@ -241,24 +256,20 @@ export default function StickControlStave({
     return () => observer.disconnect();
   }, []);
 
-  const { subdivision, beatsPerBar, bars } = pattern;
+  const { beatsPerBar, bars } = pattern;
 
   // How many bars fit in one row, measured against the container's real width using each bar's
   // own natural (unscaled) width — capped at `MAX_BARS_PER_ROW` regardless of how much room is
   // available, and never below 1 even if a single bar alone would need to shrink to fit. Memoized
-  // since `bars`/`subdivision`/`beatsPerBar` only change when the pattern is actually
-  // regenerated — without this, a tick-driven re-render for `activeBarIndex` alone (every
-  // playback tick) would rebuild every bar's `Voice`/`Formatter` just to re-derive the same
-  // answer.
+  // since `bars`/`beatsPerBar` only change when the pattern is actually regenerated — without
+  // this, a tick-driven re-render for `activeBarIndex` alone (every playback tick) would rebuild
+  // every bar's `Voice`/`Formatter` just to re-derive the same answer.
   const { rows, barsPerRow } = useMemo(() => {
-    const duration = subdivision === 4 ? "16" : "8";
-    const fastDuration = subdivision === 4 ? "32" : "16";
-
     function naturalBarWidth(cells: NoteCell[]): number {
-      const beamGroups = buildBeamGroups(cells, subdivision, duration, fastDuration);
+      const beamGroups = buildBeamGroups(cells);
       const voice = new Voice({ numBeats: beatsPerBar, beatValue: 4 });
       voice.setStrict(false);
-      voice.addTickables(beamGroups.flat());
+      voice.addTickables(beamGroups.flatMap((g) => g.notes));
       return new Formatter().joinVoices([voice]).preCalculateMinTotalWidth([voice]);
     }
 
@@ -277,7 +288,7 @@ export default function StickControlStave({
       grouped.push(bars.slice(i, i + perRow));
     }
     return { rows: grouped, barsPerRow: perRow };
-  }, [bars, subdivision, beatsPerBar, containerWidth]);
+  }, [bars, beatsPerBar, containerWidth]);
 
   return (
     <div
@@ -296,7 +307,6 @@ export default function StickControlStave({
           <StickControlRow
             key={rowIndex}
             rowBars={rowBars}
-            subdivision={subdivision}
             beatsPerBar={beatsPerBar}
             activeIndexInRow={activeIndexInRow}
           />

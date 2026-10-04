@@ -2049,6 +2049,87 @@ what exists, what's next, and the honest state of what's been verified.
   didn't silently break. A screenshot confirms the whole page reads cleanly end to end — title,
   sidebar, options panel (now just Playback/Sound) — with zero console errors throughout. `tsc`,
   `eslint`, and `next build` all pass.
+
+  **A real option came back, after two rounds of pure removal**: "make a dropdown to have single
+  stroke rolls (same notes as current double stroke roll but with single alternating sticking),
+  double stroke rolls (what it is now), and triplets (randomized sticking between alternating, RRL
+  RRL, and LLR, LLR)." `StickControlOptions` returns with exactly one field, `rollType`, and the
+  "Pattern" options section (gone since the "Sticking source" removal round) comes back too, now
+  holding this one real control instead of the old exercise picker.
+  - **"Single stroke roll"** — the *same* written rhythm/length as "Double stroke roll" (still
+    `fast`-speed cells, still however many fast slots the roll segment has), just plain
+    alternating single strokes (`alternatingSticking`, new) instead of the RRLLRRLLR rudiment —
+    "same notes... but with single alternating sticking," per the request's own wording. Generated
+    directly from the required start hand, the same way `rollSticking` already was, so it needs no
+    mirror-correction to satisfy rule A (the roll always opens opposite the straight segment's own
+    end).
+  - **"Double stroke roll"** — unchanged, still `rollSticking(ROLL_SIZE, rollStartHand)`.
+  - **"Triplets"** — structurally different, not just a different sticking over the same rhythm:
+    the roll segment is written as 8th-note triplets (a third of a beat each) instead of
+    double-speed 16ths, with its own sticking randomly picked from `TRIPLET_CELLS` — three named
+    cells, "RLR" (alternating), "RRL", and "LLR," per the request's own literal three-item list
+    ("randomized sticking between alternating, RRL RRL, and LLR, LLR"), kept as three separate
+    pool entries rather than collapsed into one "broken double" shape evaluated at two start hands
+    — a deliberate choice, with one documented, accepted consequence: since two of the three
+    (`RLR`, `RRL`) already open on R, a forced-R start hand resolves to the broken-double shape
+    about twice as often as the alternating shape (see `TRIPLET_CELLS`'s own comment for the full
+    reasoning) — not a bug, a direct consequence of the request's own three named options rather
+    than two evenly-weighted ones. Rule A for triplets is satisfied by an explicit mirror-if-needed
+    correction after the random pick (the same technique already used twice elsewhere in this file
+    — `previousEndHand` handling and the bar 1 → bar 2 seam fix — not a new one invented for this).
+
+  Introducing a genuinely different rhythmic value (a third-of-a-beat, next to the straight
+  segment's half-beat and the existing roll's quarter-beat) retired `NoteCell.fast: boolean` in
+  favor of `NoteCell.speed: CellSpeed` (`"normal" | "fast" | "triplet"`) plus a new
+  `CELL_BEAT_FRACTION` lookup table (`lib/stickControl.ts`, exported) — a boolean genuinely can't
+  express three distinct durations. This cascaded further than it might first look like, retiring
+  `GeneratedPattern.subdivision` entirely in the same pass: that field only ever existed to compute
+  a cell's own duration and detect beat boundaries, both of which `CELL_BEAT_FRACTION` now does
+  directly (`cellDuration = beatDuration * CELL_BEAT_FRACTION[cell.speed]`, beat-start detected via
+  `timeInBar % 1`) — it had already been reduced to an always-2 constant by the earlier "Note
+  value" removal, and tracking real beat-fractions directly removes the need for a subdivision
+  concept altogether, not just hides it. `lib/stickControlEngine.ts`'s scheduler (every duration/
+  beat-boundary computation) and `components/StickControlStave.tsx`'s `buildBeamGroups` (now
+  grouping by accumulated beat-fraction reaching 1.0, not a fixed per-beat cell count) both
+  updated accordingly — the renderer also gained real `Tuplet` support for triplet beats (VexFlow's
+  own `Tuplet`, the same class a since-deleted earlier pattern type in this file's own history had
+  already imported but never actually wired up for anything live — the `subdivision === 3`
+  dead-code branch checking for it is gone, replaced by a per-beam-group `isTriplet` flag computed
+  directly from whether that beat's own cells are triplet-speed, since a bar's straight and roll
+  segments each occupy whole beats of their own and never mix speeds within one beat).
+
+  Because `rollType` is a real structural option again (a different roll type can mean a different
+  cell count/rhythm within a bar, not just different sticking), `components/StickControl.tsx`'s
+  mount-only effect from the previous round reverted back into a `[rollType]`-keyed one — the same
+  "changing the meter restarts cleanly" shape this tool had for `beatsPerBar` two rounds ago, now
+  scoped to the one option that's actually configurable again.
+
+  Verified two ways. Logic-level: a 4,500-check exhaustive script (3 roll types × 1,500-pattern
+  continuity chains) — 0 failures across every hand-transition rule this tool enforces (rule A for
+  every bar, every within-pattern seam, every loop-closing seam, and cross-pattern continuity),
+  confirming all three roll types satisfy the exact same seam-safety guarantees without needing any
+  roll-type-specific exception anywhere in that logic. Beyond the seam rules, this script also
+  independently confirmed each roll type's own actual shape: "single" produces strict R/L
+  alternation with zero same-hand repeats across all 1,500 rolls checked; "double" matches the
+  RRLLRRLLR-family pattern exactly, letter for letter, relative to whatever hand it starts on,
+  across all 1,500; "triplet" produces exactly 6 triplet-speed cells per roll (never 8, never a
+  stray normal/fast cell), and every single one of those 1,500 rolls' letter sequences matched one
+  of the three `TRIPLET_CELLS` tiled-and-possibly-mirrored — confirming the "only ever these three
+  shapes" claim directly from generated output, not just from reading the generator's own code.
+  Real browser, against the actual dev deployment: confirmed the "Roll type" dropdown renders with
+  all three options; for each of the three, set via `localStorage` and reloaded, confirmed the
+  pattern's own label correctly reads "... + single-stroke roll" / "... + 9-stroke roll" / "... +
+  triplet roll," the roll segment's actual rendered letter count matches expectations (8 / 8 / 6),
+  the rendered sticking for "single" and "triplet" independently matches what the logic-level
+  script already proved those generators produce, and — specifically for "triplet," the one new
+  VexFlow code path this round touched — a real `Tuplet` bracket (visually, a "3" above a bracket
+  spanning the triplet group) is present for "triplet" and absent for "single"/"double." Screenshots
+  confirm the same thing by eye: clean, correctly-bracketed triplet notation with no visual
+  glitches, and — in both the single-stroke and triplet screenshots this round happened to catch —
+  a genuine 4-bar pattern (the loop-closing-seam fix from an earlier round, confirmed still firing
+  correctly under the new roll types too, not something this round had to separately re-verify by
+  hand since the exhaustive script above already covers it generically). Zero console errors
+  throughout every check. `tsc`, `eslint`, and `next build` all pass.
 - **Slow Downer** — load a local audio/video file, slow playback without pitch shift, loop
   sections, add named markers with notes, zoom/pan the waveform.
 - **Recorder** — multitrack recording: per-track clips, punch-in recording, trim/crop/repeat/move

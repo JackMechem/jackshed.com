@@ -108,20 +108,70 @@
  * takes no options argument at all now, just the optional `previousEndHand`. Always-4/4 was
  * already this tool's own default and by far its most common real use the whole time it *was*
  * configurable, so this removes a knob rather than changing default behavior.
+ *
+ * A real option came back, though: per a direct request, the roll segment now has three
+ * selectable `RollType`s, not just the one double-stroke rudiment — `StickControlOptions` returns
+ * with exactly one field, `rollType`. "Double stroke roll" is the original, unchanged
+ * RRLLRRLLR-family rudiment. "Single stroke roll" is new: the *same* written rhythm/length as the
+ * double-stroke roll (still `fast`-speed cells, still however many fast slots the roll segment
+ * has), just plain alternating single strokes (`alternatingSticking`) instead of the double-stroke
+ * sticking — "same notes... but with single alternating sticking," per the request. "Triplets" is
+ * structurally different, not just a different sticking over the same rhythm: the roll segment is
+ * written as 8th-note triplets (`CellSpeed: "triplet"`, a third of a beat each, Tuplet-wrapped in
+ * the renderer) rather than double-speed 16ths, with its own sticking randomly picked from
+ * `TRIPLET_CELLS` — "randomized sticking between alternating, RRL RRL, and LLR, LLR," per the
+ * request's own literal wording, which is why `TRIPLET_CELLS` keeps those three cells as separate
+ * named entries rather than collapsing "RRL"/"LLR" into one shape evaluated at two start hands
+ * (see that constant's own comment for the probability consequence of that literal choice). All
+ * three types reuse the exact same hand-continuity machinery already proven correct above — rule
+ * A (the roll must open opposite the straight segment's own end) is satisfied by construction for
+ * "single"/"double" (both generate directly from the required start hand) and by an explicit
+ * mirror-if-needed correction for "triplet" (the same technique already used twice elsewhere in
+ * this file), so every seam-safety guarantee this file establishes holds identically regardless of
+ * which roll type is selected — verified by re-running the full exhaustive seam-check script
+ * across all three.
+ *
+ * Introducing a genuinely different rhythmic value (the triplet's third-of-a-beat, next to the
+ * straight segment's half-beat and the existing roll's quarter-beat) retired the old
+ * `NoteCell.fast: boolean` in favor of `NoteCell.speed: CellSpeed` ("normal" | "fast" | "triplet")
+ * plus a `CELL_BEAT_FRACTION` lookup table — a boolean genuinely can't express three distinct
+ * durations. This also let `GeneratedPattern.subdivision` (which existed purely to compute a
+ * cell's own duration and detect beat boundaries, both now done directly from
+ * `CELL_BEAT_FRACTION` instead) be dropped entirely — it had already been reduced to an always-2
+ * constant by the earlier "Note value" removal, and tracking real beat-fractions directly removes
+ * the need for a subdivision concept altogether, not just hides it.
  */
 
 export type Hand = "R" | "L";
 
-/** One playable position in a bar: a stroke, plus whether it's written at double speed (the roll
-    segment) or the pattern's normal base speed (the straight segment). */
-export type NoteCell = { hand: Hand; fast: boolean };
+/** A stroke's own written speed — a third kind (`"triplet"`) is why this isn't just the `fast`
+    boolean it used to be; see this file's own doc comment for the full reasoning. */
+export type CellSpeed = "normal" | "fast" | "triplet";
+
+/** How much of one beat (a quarter note) each speed occupies — a normal (8th-note) stroke is half
+    a beat, a fast (16th-note, the roll's own double-speed default) stroke a quarter, and a triplet
+    (8th-note-triplet) stroke a third. Drives both playback duration (`lib/stickControlEngine.ts`)
+    and beat-boundary detection for beaming (`components/StickControlStave.tsx`) directly, with no
+    separate "subdivision" concept needed on top of it. */
+export const CELL_BEAT_FRACTION: Record<CellSpeed, number> = {
+  normal: 1 / 2,
+  fast: 1 / 4,
+  triplet: 1 / 3,
+};
+
+/** One playable position in a bar: a stroke, plus how fast it's written (see `CellSpeed`). */
+export type NoteCell = { hand: Hand; speed: CellSpeed };
 
 function normalCell(h: Hand): NoteCell {
-  return { hand: h, fast: false };
+  return { hand: h, speed: "normal" };
 }
 
 function fastCell(h: Hand): NoteCell {
-  return { hand: h, fast: true };
+  return { hand: h, speed: "fast" };
+}
+
+function tripletCell(h: Hand): NoteCell {
+  return { hand: h, speed: "triplet" };
 }
 
 function toCells(cell: Hand[]): NoteCell[] {
@@ -132,18 +182,22 @@ function toFastCells(cell: Hand[]): NoteCell[] {
   return cell.map(fastCell);
 }
 
+function toTripletCells(cell: Hand[]): NoteCell[] {
+  return cell.map(tripletCell);
+}
+
 function otherHand(h: Hand): Hand {
   return h === "R" ? "L" : "R";
 }
 
-/** Flips every cell's hand (R<->L), keeping `fast` as-is — used only to keep the pattern's own
+/** Flips every cell's hand (R<->L), keeping `speed` as-is — used only to keep the pattern's own
     *loop-closing* seam clean when it repeats (see `generatePattern`'s own comment on this below).
     Mirroring is safe to apply across a whole already-verified 2-bar block: every seam-cleanliness
     check in this file is of the form "hand A != hand B," and flipping both sides of an inequality
     with the same bijection can't turn it into an equality, so a mirrored block stays exactly as
     clean internally as the original was. */
 function mirrorCells(cells: NoteCell[]): NoteCell[] {
-  return cells.map((c) => ({ hand: otherHand(c.hand), fast: c.fast }));
+  return cells.map((c) => ({ hand: otherHand(c.hand), speed: c.speed }));
 }
 
 function hands(s: string): Hand[] {
@@ -230,26 +284,71 @@ export const SINGLE_BEAT_COMBINATIONS: Hand[][] = [
 
 /** A roll, built from the standard rudiment formula: the first `strokeCount` letters of the
     infinite alternating-double-stroke stream. Matches the real 9-stroke open roll sticking
-    exactly (RRLLRRLLR). */
+    exactly (RRLLRRLLR). Used only by the "Double stroke roll" `RollType`. */
 export function rollSticking(strokeCount: number, startHand: Hand = "R"): Hand[] {
   const other: Hand = startHand === "R" ? "L" : "R";
   const doubled = [startHand, startHand, other, other];
   return Array.from({ length: Math.max(1, strokeCount) }, (_, i) => doubled[i % 4]);
 }
 
-/** The one roll size this tool drills — per a direct simplification request. */
+/** The one roll length the "Double stroke roll" type drills — per a direct simplification
+    request. Not used by "Single stroke roll" (sized to match the roll segment's own fast-slot
+    count directly, see `alternatingSticking`) or "Triplets" (sized to the roll segment's own
+    triplet-note count instead, see `TRIPLET_CELLS`). */
 export const ROLL_SIZE = 9;
 
+/** Plain continuous alternation (R, L, R, L, ...) of exactly `length` strokes, starting on
+    `startHand` — the "Single stroke roll" option's own sticking: the *same* written rhythm/length
+    as the "Double stroke roll" option (still `fast`-speed cells, still however many fast slots the
+    roll segment has), just alternating single strokes instead of the RRLLRRLLR double-stroke
+    rudiment, per a direct request ("same notes as current double stroke roll but with single
+    alternating sticking"). Generated directly from `startHand`, the same way `rollSticking` is, so
+    it always already opens on the required hand with no mirror-correction needed. */
+function alternatingSticking(length: number, startHand: Hand): Hand[] {
+  const other = otherHand(startHand);
+  return Array.from({ length: Math.max(1, length) }, (_, i) => (i % 2 === 0 ? startHand : other));
+}
+
+/** Strokes per beat the "Triplets" roll type writes — 3 (8th-note triplets), vs. the "Single"/
+    "Double" roll types' 4 (16th notes, `1 / CELL_BEAT_FRACTION.fast`). */
+const TRIPLET_NOTES_PER_BEAT = 3;
+
+/** The three sticking shapes a "Triplets" roll randomly picks from, per the request's own literal
+    wording ("randomized sticking between alternating, RRL RRL, and LLR, LLR") — alternating, plus
+    both directions of the "broken double" shape, the same trio an earlier (now-removed) version of
+    this file's own `TRIPLET_CELLS` already used for a different, since-deleted pattern type.
+    Picked uniformly at `randomInt(TRIPLET_CELLS.length)`, tiled to fill the roll segment's own
+    triplet-note count, then — exactly like `generatePattern`'s own `previousEndHand` handling and
+    the bar 1 -> bar 2 seam fix, both elsewhere in this file — mirrored (every hand flipped) if the
+    tiled result doesn't already open on the hand rule A requires, rather than generated directly
+    from a start hand the way `rollSticking`/`alternatingSticking` are. One accepted, documented
+    consequence of keeping these as three separate literal cells rather than one "broken double"
+    shape evaluated at two start hands: two of the three (`RLR`, `RRL`) already open on R, so when
+    rule A requires an R start, `LLR` is the only pick that needs mirroring (into `RRL`) — making
+    the broken-double shape (`RRL`/`LLR`) about twice as likely as the alternating shape (`RLR`) to
+    actually appear whenever the required start hand is R, and the mirror image of that split when
+    it's L. Not a bug — a direct, transparent consequence of the request's own three named options,
+    not two evenly-weighted ones. */
+const TRIPLET_CELLS: Hand[][] = [hands("RLR"), hands("RRL"), hands("LLR")];
+
+/** How the roll segment (the second half of the pattern's own 4/4 bar) is written — see this
+    file's own doc comment for what each one means musically. */
+export type RollType = "single" | "double" | "triplet";
+
+export const ROLL_TYPES: { value: RollType; label: string }[] = [
+  { value: "single", label: "Single stroke roll" },
+  { value: "double", label: "Double stroke roll" },
+  { value: "triplet", label: "Triplets" },
+];
+
+export interface StickControlOptions {
+  rollType: RollType;
+}
+
 export interface GeneratedPattern {
-  /** Notes per beat at the straight segment's own (non-doubled, always-8th-notes) note value —
-      always 2 — used for both rendering (beam grouping) and playback timing. Still a field (not
-      inlined as a constant everywhere it's read) so the renderer/engine stay generic over
-      whatever this turns out to be, the same shape as before note value stopped being
-      configurable. */
-  subdivision: number;
   /** Always 4 now — meter stopped being configurable per a direct simplification request. Still a
-      field (not inlined as a constant everywhere it's read), same reasoning as `subdivision`
-      above. */
+      field (not inlined as a constant everywhere it's read), so the renderer/engine stay generic
+      over whatever this turns out to be. */
   beatsPerBar: number;
   /** Normally exactly 2 bars; 4 when the pattern's own loop-closing seam (bar 2's last stroke into
       bar 1's first, once the pattern repeats) would otherwise collide on the same hand — see
@@ -257,7 +356,7 @@ export interface GeneratedPattern {
       rule. */
   bars: NoteCell[][];
   /** Short, human-readable description shown next to the notation, e.g. "Exercise 14 + 9-stroke
-      roll". */
+      roll" or "Exercise 8 + triplet roll". */
   label: string;
 }
 
@@ -283,6 +382,32 @@ function randomExercise(): { full16: Hand[]; label: string } {
   return { full16: SINGLE_BEAT_COMBINATIONS[index], label: `Exercise ${index + 1}` };
 }
 
+const ROLL_TYPE_LABEL: Record<RollType, string> = {
+  single: "single-stroke roll",
+  double: `${ROLL_SIZE}-stroke roll`,
+  triplet: "triplet roll",
+};
+
+/** Builds one roll segment's cells — straight-8th-note-equivalent beats' worth, written at
+    whichever speed `rollType` calls for — already guaranteed to open on `rollStartHand` (rule A;
+    see this file's own doc comment) regardless of which type is picked, though "triplet" gets
+    there by an explicit mirror-correction while "single"/"double" generate directly from the
+    required hand (see `alternatingSticking`/`rollSticking`'s own comments). */
+function buildRollCells(rollType: RollType, rollStartHand: Hand, rollBeats: number): NoteCell[] {
+  if (rollType === "triplet") {
+    const base = TRIPLET_CELLS[randomInt(TRIPLET_CELLS.length)];
+    const tiled = tileTo(base, rollBeats * TRIPLET_NOTES_PER_BEAT);
+    const corrected = tiled[0] === rollStartHand ? tiled : tiled.map(otherHand);
+    return toTripletCells(corrected);
+  }
+  const rollSlotsFast = rollBeats * (1 / CELL_BEAT_FRACTION.fast);
+  const hands =
+    rollType === "single"
+      ? alternatingSticking(rollSlotsFast, rollStartHand)
+      : tileTo(rollSticking(ROLL_SIZE, rollStartHand), rollSlotsFast);
+  return toFastCells(hands);
+}
+
 /** Builds a fresh random pattern (always 4/4, straight 8th notes) — pure and deterministic given
     its own randomness (and, when passed, `previousEndHand`), so both the component (for an idle
     preview) and the playback engine (for precomputing the next pattern in the continuity chain)
@@ -290,17 +415,15 @@ function randomExercise(): { full16: Hand[]; label: string } {
     *previous* pattern's own last stroke actually ended on — this pattern's own first stroke is
     then forced to be the opposite of it (see this file's own doc comment for why flipping the
     whole exercise cell for this is safe). */
-export function generatePattern(previousEndHand?: Hand): GeneratedPattern {
+export function generatePattern(options: StickControlOptions, previousEndHand?: Hand): GeneratedPattern {
+  const { rollType } = options;
   // Always 4/4 — meter stopped being configurable per a direct simplification request.
   const beatsPerBar = 4;
-  // Straight strokes are always 8th notes (2 per beat) — per a direct simplification request, the
-  // only note value this tool offers now; the roll is always double that, 16th notes.
-  const subdivision = 2;
-
   const straightBeats = Math.max(1, Math.floor(beatsPerBar / 2));
   const rollBeats = Math.max(1, beatsPerBar - straightBeats);
-  const straightSlots = straightBeats * subdivision;
-  const rollSlotsFast = rollBeats * subdivision * 2;
+  // The straight segment is always 8th notes (2 per beat) — per an earlier simplification
+  // request, the only note value this tool offers for it now.
+  const straightSlots = straightBeats * (1 / CELL_BEAT_FRACTION.normal);
 
   const singleCell = randomExercise();
   const strokeLabel = singleCell.label;
@@ -320,8 +443,7 @@ export function generatePattern(previousEndHand?: Hand): GeneratedPattern {
     // The roll always opens on whichever hand this bar's own straight segment *didn't* just end
     // on, so the hand-off is a genuine alternation, never a repeat of the same hand.
     const rollStartHand = otherHand(straightHands[straightHands.length - 1]);
-    const rollCell = rollSticking(ROLL_SIZE, rollStartHand);
-    return [...toCells(straightHands), ...tileTo(toFastCells(rollCell), rollSlotsFast)];
+    return [...toCells(straightHands), ...buildRollCells(rollType, rollStartHand, rollBeats)];
   }
 
   const bar1 = buildBar(straightHands1);
@@ -363,9 +485,8 @@ export function generatePattern(previousEndHand?: Hand): GeneratedPattern {
   const bars = loopCloses ? [bar1, bar2, mirrorCells(bar1), mirrorCells(bar2)] : [bar1, bar2];
 
   return {
-    subdivision,
     beatsPerBar,
     bars,
-    label: `${strokeLabel} + ${ROLL_SIZE}-stroke roll`,
+    label: `${strokeLabel} + ${ROLL_TYPE_LABEL[rollType]}`,
   };
 }

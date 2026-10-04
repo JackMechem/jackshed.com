@@ -7,12 +7,13 @@ import StickControlStave from "@/components/StickControlStave";
 import SwitchRow from "@/components/SwitchRow";
 import AdvancedSlider from "@/components/AdvancedSlider";
 import { SteppedField, SoundOptions, TempoHero } from "@/components/MeterFields";
-import { RepeatIcon, SpeakerIcon } from "@/components/tools";
+import { ListIcon, RepeatIcon, SpeakerIcon } from "@/components/tools";
 import ToolLayout from "@/components/ToolLayout";
 import KeyHint from "@/components/KeyHint";
 import Hint from "@/components/Hint";
 import { DEFAULT_CLICK_SOUND_ID } from "@/lib/clickEngine";
 import { clampBpm, useTapTempo } from "@/lib/meterControls";
+import { ROLL_TYPES, type RollType, type StickControlOptions } from "@/lib/stickControl";
 import {
   type ClickMode,
   type StickControlSettings,
@@ -23,6 +24,7 @@ import {
   startStickControl,
   stopStickControl,
   subscribeStickControl,
+  updateStickControlOptions,
   updateStickControlSettings,
 } from "@/lib/stickControlEngine";
 import { useSyncedSettings } from "@/lib/useSyncedSettings";
@@ -32,6 +34,7 @@ const SETTINGS_KEY = "jam-practice-stick-control";
 
 const DEFAULT_SETTINGS = {
   bpm: 100,
+  rollType: "double" as RollType,
   volume: 0.8,
   soundId: DEFAULT_CLICK_SOUND_ID,
   clickMode: "pulse" as ClickMode,
@@ -50,8 +53,9 @@ const CLICK_MODE_OPTIONS: { value: ClickMode; label: string }[] = [
 export default function StickControl() {
   const [settings, updateSettings] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
   const bpm = clampBpm(settings.bpm);
-  const { volume, soundId, clickMode, countOffBars, repeats, autoAdvance } = settings;
+  const { rollType, volume, soundId, clickMode, countOffBars, repeats, autoAdvance } = settings;
 
+  const options: StickControlOptions = { rollType };
   const playbackSettings: StickControlSettings = {
     bpm,
     volume,
@@ -69,12 +73,16 @@ export default function StickControl() {
   );
   const { running, pattern, nextPattern, phase, currentBarIndex, currentRepeat } = snapshot;
 
-  // Seeds the very first idle pattern (and its "next" preview) once on mount — nothing about the
-  // pattern's own shape is configurable anymore (meter is always 4/4), so there's no longer a
-  // "structural option changed, regenerate fresh" case to react to beyond this one-time seed.
+  // Structural changes (what shape of pattern to show — currently just which roll type) regenerate
+  // a fresh one immediately, mid-playback or not — the same "changing the meter restarts cleanly"
+  // behavior Metronome's own structure mode has, needed here because the old pattern's own cell
+  // makeup might not even match the new roll type anymore (a different cell count/rhythm, not just
+  // different sticking).
   useEffect(() => {
+    updateStickControlOptions(options);
     regenerateStickControlPattern();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rollType]);
 
   // Playback-only settings (tempo, sound, repeat count, ...) apply live without touching whatever
   // is currently mid-play, the same way Metronome's own bpm/volume/soundId do.
@@ -109,6 +117,24 @@ export default function StickControl() {
       credit="Patterns from George Lawrence Stone's Stick Control"
       options={
         <OptionsCard id="stick-control">
+          <OptionSection title="Pattern" icon={ListIcon}>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium text-muted">Roll type</span>
+              <Select
+                value={rollType}
+                onChange={(v) => updateSettings({ rollType: v })}
+                options={ROLL_TYPES}
+              />
+            </label>
+            <Hint>
+              &quot;Single stroke roll&quot; is the same length/speed as the double-stroke roll,
+              just plain alternating R/L instead of the RRLLRRLLR rudiment. &quot;Triplets&quot;
+              writes the roll as 8th-note triplets instead, with a random sticking each time —
+              straight alternation, or a broken-double shape (RRL or LLR) — rather than always the
+              same rudiment.
+            </Hint>
+          </OptionSection>
+
           <OptionSection title="Playback" icon={RepeatIcon}>
             <SteppedField
               label="Count-off bars"

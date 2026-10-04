@@ -16,15 +16,22 @@
  * Timeline model: a count-off (only before the *first* repeat — one count-off happens once, at
  * the start, not before every loop back to bar 1) of plain beat clicks, then `repeats` passes
  * through the current pattern's bars, walked one *cell* at a time rather than through uniform
- * fixed-duration "slots" — a roll segment's cells are played at double speed (see
- * `lib/stickControl.ts`'s own `NoteCell`), so a bar's cells no longer all take the same amount of
- * time the way they did before that was added, and the schedule has to be built cell-by-cell to
- * reflect that rather than by dividing a bar into equal slots.
+ * fixed-duration "slots" — a roll segment's cells are played at double speed (16th notes) or, for
+ * the "Triplets" roll type, a third of a beat each (8th-note triplets) — see `lib/stickControl.ts`'s
+ * own `NoteCell`/`CellSpeed`/`CELL_BEAT_FRACTION` — so a bar's cells no longer all take the same
+ * amount of time the way they did before that was added, and the schedule has to be built
+ * cell-by-cell to reflect that rather than by dividing a bar into equal slots.
  */
 
 import { CLICK_SOUNDS, scheduleClick } from "@/lib/clickEngine";
 import { getAudioContext } from "@/lib/metronome";
-import { type GeneratedPattern, type Hand, generatePattern } from "@/lib/stickControl";
+import {
+  CELL_BEAT_FRACTION,
+  type GeneratedPattern,
+  type Hand,
+  type StickControlOptions,
+  generatePattern,
+} from "@/lib/stickControl";
 
 export type ClickMode = "pulse" | "everyNote" | "byHand";
 
@@ -52,6 +59,10 @@ export interface StickControlSnapshot {
   currentBarIndex: number | null;
   currentRepeat: number;
 }
+
+let options: StickControlOptions = {
+  rollType: "double",
+};
 
 let settings: StickControlSettings = {
   bpm: 100,
@@ -105,6 +116,10 @@ export function getStickControlServerSnapshot(): StickControlSnapshot {
 /** Same "push settings in, don't notify" shape as `updateMetronomeSettings` — the component
     already re-renders from its own synced settings, and notifying here on every render would
     risk the same infinite-loop class of bug that function's own doc comment describes. */
+export function updateStickControlOptions(next: StickControlOptions) {
+  options = next;
+}
+
 export function updateStickControlSettings(next: StickControlSettings) {
   settings = next;
 }
@@ -118,16 +133,15 @@ function endHand(p: GeneratedPattern): Hand {
 }
 
 /** Generates a completely fresh pattern (and a fresh upcoming preview to match), with no
-    continuity constraint against whatever was playing before — used only for the very first idle
-    preview, before anything has ever played (the one call site, in `components/StickControl.tsx`,
-    is a mount-only effect now that nothing about the pattern's own shape is configurable anymore).
-    The "New pattern" button and auto-advance instead call
-    `advanceStickControlPattern`/`promoteNextPattern`, which keep the hand-continuity chain between
-    consecutive patterns intact rather than resetting it — see that function's own comment. Safe to
-    call whether or not anything is currently running. */
+    continuity constraint against whatever was playing before — used when the roll type changes (a
+    structural option, since it can change a bar's own cell count/rhythm) and for the very first
+    idle preview, before anything has ever played. The "New pattern" button and auto-advance
+    instead call `advanceStickControlPattern`/`promoteNextPattern`, which keep the hand-continuity
+    chain between consecutive patterns intact rather than resetting it — see that function's own
+    comment. Safe to call whether or not anything is currently running. */
 export function regenerateStickControlPattern() {
-  pattern = generatePattern();
-  nextPattern = generatePattern(endHand(pattern));
+  pattern = generatePattern(options);
+  nextPattern = generatePattern(options, endHand(pattern));
   if (running) beginScheduling();
   notify();
 }
@@ -145,8 +159,8 @@ function stopInterval() {
     TypeScript can't narrow the mutable module-level `let`s through, since they might in principle
     be reassigned before the closure runs — can get a non-null value back by type. */
 function currentPattern(): GeneratedPattern {
-  if (!pattern) pattern = generatePattern();
-  if (!nextPattern) nextPattern = generatePattern(endHand(pattern));
+  if (!pattern) pattern = generatePattern(options);
+  if (!nextPattern) nextPattern = generatePattern(options, endHand(pattern));
   return pattern;
 }
 
@@ -159,8 +173,8 @@ function currentPattern(): GeneratedPattern {
     chain keeps extending one step ahead no matter how many times this runs. */
 function promoteNextPattern() {
   const base = currentPattern();
-  pattern = nextPattern ?? generatePattern(endHand(base));
-  nextPattern = generatePattern(endHand(pattern));
+  pattern = nextPattern ?? generatePattern(options, endHand(base));
+  nextPattern = generatePattern(options, endHand(pattern));
 }
 
 /** Advances to the next pattern in the continuity chain — see `promoteNextPattern`'s own comment.
@@ -180,18 +194,17 @@ function beginScheduling() {
   if (ctx.state === "suspended") void ctx.resume();
 
   const beatsPerBar = seedPattern.beatsPerBar;
-  const subdivision = seedPattern.subdivision;
   const countOffBeats = Math.max(0, Math.round(settings.countOffBars)) * beatsPerBar;
 
   let countOffLeft = countOffBeats;
   let repeatIndex = 0;
   let barIndex = 0;
   let cellIndex = 0;
-  // Accumulated time *within the current bar*, in normal-cell units (a `fast` cell — a roll
-  // segment, played at double speed — contributes 0.5, everything else 1) — this is what detects
-  // "a new beat just started" (whenever it sits on a whole multiple of `subdivision`) without
-  // assuming every cell in the bar takes the same amount of time, which no longer holds once a
-  // bar has a roll segment in it.
+  // Accumulated time *within the current bar*, in real beats (each cell contributes its own
+  // `CELL_BEAT_FRACTION[cell.speed]` — a half for a normal 8th note, a quarter for a fast 16th, a
+  // third for a triplet 8th) — this is what detects "a new beat just started" (whenever it sits on
+  // a whole number) without assuming every cell in the bar takes the same amount of time, which no
+  // longer holds once a bar mixes straight and roll (or triplet) cells.
   let timeInBar = 0;
   let nextTime = ctx.currentTime + 0.06;
   let stopRequested = false;
@@ -229,9 +242,9 @@ function beginScheduling() {
         const bar = currentPattern().bars[barIndex] ?? [];
         const thisCell = bar[cellIndex];
         const hand: Hand = thisCell?.hand ?? "R";
-        const fast = thisCell?.fast ?? false;
-        cellDuration = (beatDuration / subdivision) * (fast ? 0.5 : 1);
-        const isBeatStart = Math.abs(timeInBar % subdivision) < 1e-6;
+        const speed = thisCell?.speed ?? "normal";
+        cellDuration = beatDuration * CELL_BEAT_FRACTION[speed];
+        const isBeatStart = Math.abs(timeInBar % 1) < 1e-6;
         const isBarStart = cellIndex === 0;
 
         if (settings.clickMode === "pulse") {
@@ -252,7 +265,7 @@ function beginScheduling() {
             sound.wave,
             hand === "R" ? sound.accentFreq : sound.subFreq,
             (isBarStart ? 0.85 : 0.5) * vol,
-            sound.length * (fast ? 0.6 : isBeatStart ? 1 : 0.75),
+            sound.length * (speed !== "normal" ? 0.6 : isBeatStart ? 1 : 0.75),
           );
         } else {
           // "everyNote": plain 3-tier click, same loudness/pitch tiers the regular metronome's
@@ -288,7 +301,7 @@ function beginScheduling() {
 
       const bar = currentPattern().bars[barIndex] ?? [];
       const playedCell = bar[cellIndex];
-      timeInBar += playedCell?.fast ? 0.5 : 1;
+      timeInBar += CELL_BEAT_FRACTION[playedCell?.speed ?? "normal"];
       cellIndex++;
       if (cellIndex >= bar.length) {
         cellIndex = 0;
