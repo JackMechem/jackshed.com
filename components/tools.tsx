@@ -434,6 +434,16 @@ export function GlobeIcon({ className }: { className?: string }) {
   );
 }
 
+export function DrumIcon({ className }: { className?: string }) {
+  return (
+    <svg {...svgProps(className)}>
+      <ellipse cx="12" cy="7" rx="8" ry="3.5" />
+      <path d="M4 7v9a8 3.5 0 0016 0V7" />
+      <path d="M8 5L3 1M16 5l5-4" />
+    </svg>
+  );
+}
+
 export function UsersIcon({ className }: { className?: string }) {
   return (
     <svg {...svgProps(className)}>
@@ -451,6 +461,7 @@ export const CATEGORIES = [
   "Timing & Tuning",
   "Ear Training",
   "Practice",
+  "Drummers",
   "Audio",
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
@@ -463,6 +474,7 @@ export const CATEGORY_ICONS: Record<Category, (props: { className?: string }) =>
   "Timing & Tuning": MetronomeIcon,
   "Ear Training": EarIcon,
   Practice: BookIcon,
+  Drummers: DrumIcon,
   Audio: WaveIcon,
 };
 
@@ -572,6 +584,18 @@ export const NAV_LINKS = [
     category: "Audio" as Category,
     /** Needs a desktop-sized screen; it's greyed out in the mobile menu. */
     desktopOnly: true,
+  },
+  {
+    href: "/stick-control",
+    label: "Random Stick Control Warmup",
+    // Rewritten alongside the rename — the old copy ("random Stick Control patterns, triplets,
+    // and stroke rolls") had gone stale over several rounds of this tool's own simplification
+    // (triplets and standalone stroke rolls were both cut long before this), a real drift bug
+    // caught and fixed in the same pass, not just the label swapped.
+    description:
+      "A drummer's warmup: a random Stick Control sticking pattern paired with a 9-stroke roll, written out and counted in by a metronome.",
+    icon: DrumIcon,
+    category: "Drummers" as Category,
   },
   {
     href: "/community",
