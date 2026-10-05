@@ -55,7 +55,9 @@ const DEFAULT_SETTINGS = {
   // 20 repeats without stopping is a well-worn, generically useful default for a warmup like
   // this, not tied to any one specific set of instructions.
   repeats: 20,
-  autoAdvance: false,
+  // On by default — a continuous warmup session cycling through patterns is the common case;
+  // per a direct request ("make new pattern when done on by default").
+  autoAdvance: true,
   // Beat 1 accented, the rest normal — the same default `lib/meterControls.ts`'s own
   // `defaultAccents` would produce for a 4-beat bar, matching Metronome's own starting look.
   accents: [2, 1, 1, 1] as BeatLevel[],

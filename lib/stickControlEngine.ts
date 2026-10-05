@@ -89,7 +89,7 @@ let settings: StickControlSettings = {
   clickMode: "pulse",
   countOffBars: 1,
   repeats: 20,
-  autoAdvance: false,
+  autoAdvance: true,
   accents: [2, 1, 1, 1],
 };
 

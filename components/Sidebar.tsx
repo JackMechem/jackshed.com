@@ -674,7 +674,13 @@ export default function Sidebar() {
           <SearchBox query={query} onChange={setQuery} />
         )}
         <NavItems collapsed={collapsed} query={query} />
-        <div className="mt-1 flex flex-col gap-1 p-1 bg-background rounded-2xl">
+        {/* The grouping background/padding is only meaningful expanded — collapsed, with just an
+            icon-sized widget and the avatar link stacked tightly, it read as an unwanted rounded
+            box squeezed around the profile picture (reported directly, with a screenshot), so
+            collapsed drops to a plain unboxed stack instead. */}
+        <div
+          className={`mt-1 flex flex-col gap-1 ${collapsed ? "" : "bg-background rounded-2xl p-1"}`}
+        >
           <PracticeTimerWidget collapsed={collapsed} />
           <AccountMenu collapsed={collapsed} />
         </div>

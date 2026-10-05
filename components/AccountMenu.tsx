@@ -333,12 +333,17 @@ export default function AccountMenu({
     const email = username && user?.email ? user.email : null;
 
     if (collapsed) {
+      // Not `buttonClass` — no horizontal padding at all (the row's own width comes from the
+      // parent flex-col stretching it), and deliberately no `hover:bg-*`/rounded background at
+      // all either, per a direct request for the picture itself to be the only thing visible here,
+      // with no container showing even on hover — the avatar's own ring (`UserAvatar`'s own
+      // `ring-foreground/10`) is the only visual framing it gets.
       return (
         <Link
           href="/account"
           onClick={onNavigate}
           title={email ? `${label} — ${email}` : label}
-          className={buttonClass(true, large)}
+          className="flex items-center justify-center py-2"
         >
           <UserAvatar url={profile?.avatarUrl ?? null} size="sm" />
         </Link>

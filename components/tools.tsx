@@ -376,6 +376,16 @@ export function MetricModulationIcon({ className }: { className?: string }) {
   );
 }
 
+export function TempoTrainerIcon({ className }: { className?: string }) {
+  return (
+    <svg {...svgProps(className)}>
+      <path d="M8 21h8l-2.5-16h-3z" />
+      <path d="M12 16l4-8" />
+      <path d="M4 4l16 16" />
+    </svg>
+  );
+}
+
 export function ChordChartIcon({ className }: { className?: string }) {
   return (
     <svg {...svgProps(className)}>
@@ -549,6 +559,14 @@ export const NAV_LINKS = [
     description:
       "A metronome that jumps to a new, mathematically related tempo every few bars.",
     icon: MetricModulationIcon,
+    category: "Timing & Tuning" as Category,
+  },
+  {
+    href: "/tempo-trainer",
+    label: "Tempo Trainer",
+    description:
+      "A metronome that cuts out for a few bars at a time, so you can practice holding the tempo on your own.",
+    icon: TempoTrainerIcon,
     category: "Timing & Tuning" as Category,
   },
   {

@@ -519,6 +519,18 @@ function buildRollCells(
     *previous* pattern's own last stroke actually ended on — this pattern's own first stroke is
     then forced to be the opposite of it (see this file's own doc comment for why flipping the
     whole straight-segment cell for this is safe). */
+/** How many fresh random patterns `generatePattern` will try before giving up and falling back to
+    the 4-bar mirror-duplication (see that function's own comment on `loopCloses`) — per a direct
+    follow-up request ("doesn't have as many repeat lines when new pattern when done is on"): the
+    4-bar fallback is correct, but it visually reads as two lines of notation that are just
+    hand-mirrors of each other, and with patterns cycling continuously (autoAdvance on by default
+    now — see `StickControlSettings.autoAdvance`'s own comment), that fallback showing up on
+    roughly half of all generated patterns was worth cutting down. A different random pattern
+    choice usually doesn't collide at all, so retrying with a fresh one first — rather than
+    reaching for the fallback immediately — keeps the common case at a plain 2 bars; only a run of
+    unlucky picks in a row still falls back to the (still fully correct) 4-bar mirror. */
+const MAX_LOOP_RETRIES = 8;
+
 export function generatePattern(options: StickControlOptions, previousEndHand?: Hand): GeneratedPattern {
   const { enabledRollTypes, enabledTripletStickings } = options;
   // "Random" resolves once per pattern (both bars share the one concrete type, same as every
@@ -541,18 +553,6 @@ export function generatePattern(options: StickControlOptions, previousEndHand?: 
   // request, the only note value this tool offers for it now.
   const straightSlots = straightBeats * (1 / CELL_BEAT_FRACTION.normal);
 
-  let full16 = randomPattern();
-  if (previousEndHand !== undefined && full16[0] === previousEndHand) {
-    full16 = full16.map(otherHand);
-  }
-
-  // Both bars' straight segments come from *one* continuous tiling of the pattern, split in
-  // half, rather than each bar independently restarting at position 0 or mirroring the other
-  // (both tried and reported wrong) — see this file's own doc comment for the full history.
-  const allStraightHands = tileTo(full16, straightSlots * 2);
-  const straightHands1 = allStraightHands.slice(0, straightSlots);
-  let straightHands2 = allStraightHands.slice(straightSlots, straightSlots * 2);
-
   function buildBar(straightHands: Hand[]): NoteCell[] {
     // The roll always opens on whichever hand this bar's own straight segment *didn't* just end
     // on, so the hand-off is a genuine alternation, never a repeat of the same hand.
@@ -563,42 +563,68 @@ export function generatePattern(options: StickControlOptions, previousEndHand?: 
     ];
   }
 
-  const bar1 = buildBar(straightHands1);
+  // One attempt at a full 2-bar pattern from a fresh random pick — pulled into its own function so
+  // `generatePattern` can retry it (a different random pattern, mostly independent odds of
+  // colliding at the loop-closing seam) before reaching for the 4-bar fallback; see
+  // `MAX_LOOP_RETRIES`'s own comment.
+  function attempt(): { bar1: NoteCell[]; bar2: NoteCell[] } {
+    let full16 = randomPattern();
+    if (previousEndHand !== undefined && full16[0] === previousEndHand) {
+      full16 = full16.map(otherHand);
+    }
 
-  // For the bar 1 -> bar 2 seam to be a genuine hand change, bar 2's straight segment has to
-  // *start* on a different hand than bar 1's roll just *ended* on — read directly off bar 1's own
-  // actual last cell, not derived mathematically. (An earlier version here assumed a roll always
-  // ends on the same hand its own bar's straight segment did, true only when the roll cell's own
-  // length divides evenly into however many fast slots it's tiled to — true for the default
-  // meter, but false in general once `rollSlotsFast` stops being a clean multiple of `ROLL_SIZE`,
-  // which produced real, confirmed failures at other meters; reading the actual value sidesteps
-  // needing that assumption to hold at all.) Continuing the tiling above already gets this right
-  // for patterns built from plain period-2 alternation (their own straight segment's start/end
-  // hands already differ), but not every pattern — one whose straight segment starts and ends on
-  // the *same* hand (not just "RRRR," something like "RLLR" has this too) can still collide at
-  // the seam otherwise, confirmed directly by a reported screenshot of exactly that collision.
-  // When it would, flip just bar 2's straight segment (never its roll, which is always re-derived
-  // fresh from whatever that segment turns out to be) rather than the whole bar, so the seam is
-  // clean no matter which pattern or meter comes up.
-  const roll1EndHand = bar1[bar1.length - 1].hand;
-  if (straightHands2[0] === roll1EndHand) {
-    straightHands2 = straightHands2.map(otherHand);
+    // Both bars' straight segments come from *one* continuous tiling of the pattern, split in
+    // half, rather than each bar independently restarting at position 0 or mirroring the other
+    // (both tried and reported wrong) — see this file's own doc comment for the full history.
+    const allStraightHands = tileTo(full16, straightSlots * 2);
+    const straightHands1 = allStraightHands.slice(0, straightSlots);
+    let straightHands2 = allStraightHands.slice(straightSlots, straightSlots * 2);
+
+    const bar1 = buildBar(straightHands1);
+
+    // For the bar 1 -> bar 2 seam to be a genuine hand change, bar 2's straight segment has to
+    // *start* on a different hand than bar 1's roll just *ended* on — read directly off bar 1's
+    // own actual last cell, not derived mathematically. (An earlier version here assumed a roll
+    // always ends on the same hand its own bar's straight segment did, true only when the roll
+    // cell's own length divides evenly into however many fast slots it's tiled to — true for the
+    // default meter, but false in general once `rollSlotsFast` stops being a clean multiple of
+    // `ROLL_SIZE`, which produced real, confirmed failures at other meters; reading the actual
+    // value sidesteps needing that assumption to hold at all.) Continuing the tiling above already
+    // gets this right for patterns built from plain period-2 alternation (their own straight
+    // segment's start/end hands already differ), but not every pattern — one whose straight
+    // segment starts and ends on the *same* hand (not just "RRRR," something like "RLLR" has this
+    // too) can still collide at the seam otherwise, confirmed directly by a reported screenshot of
+    // exactly that collision. When it would, flip just bar 2's straight segment (never its roll,
+    // which is always re-derived fresh from whatever that segment turns out to be) rather than the
+    // whole bar, so the seam is clean no matter which pattern or meter comes up.
+    const roll1EndHand = bar1[bar1.length - 1].hand;
+    if (straightHands2[0] === roll1EndHand) {
+      straightHands2 = straightHands2.map(otherHand);
+    }
+
+    const bar2 = buildBar(straightHands2);
+    return { bar1, bar2 };
   }
 
-  const bar2 = buildBar(straightHands2);
-
   // The pattern repeats (bar 2 feeding straight back into bar 1 on the next lap), and that
-  // loop-closing seam — bar 2's own last stroke into bar 1's own first — was never checked by any
-  // of the seam logic above, which only ever looked at transitions *within* one lap. Reported
-  // directly, with a worked example: an R ending bar 2 and an R starting bar 1 over again. When
-  // that would collide, duplicate the whole 2-bar pattern into 4, with bars 3-4 the exact mirror
-  // (every hand flipped) of bars 1-2 — mirroring preserves every seam relationship already
-  // verified above (see `mirrorCells`'s own comment), so bars 3-4 stay internally clean on their
-  // own, and the *new* loop-closing seam (bar 4's last stroke into bar 1's first) is now a genuine
-  // hand change too, since bar 4 is bar 2 with every hand flipped — concretely, if bar 2 ended on
-  // R (the collision), bar 4 (mirrored) ends on L, which is no longer the same as bar 1's own
-  // (unflipped) first hand.
-  const loopCloses = bar2[bar2.length - 1].hand === bar1[0].hand;
+  // loop-closing seam — bar 2's own last stroke into bar 1's own first — isn't checked by any of
+  // the seam logic inside `attempt()`, which only ever looks at transitions *within* one lap.
+  // Reported directly, with a worked example: an R ending bar 2 and an R starting bar 1 over
+  // again. Retry with a fresh random pattern a few times first (see `MAX_LOOP_RETRIES`'s own
+  // comment on why); if every attempt still collides, fall back to duplicating the whole 2-bar
+  // pattern into 4, with bars 3-4 the exact mirror (every hand flipped) of bars 1-2 — mirroring
+  // preserves every seam relationship already verified inside `attempt()` (see `mirrorCells`'s own
+  // comment), so bars 3-4 stay internally clean on their own, and the *new* loop-closing seam (bar
+  // 4's last stroke into bar 1's first) is a genuine hand change too, since bar 4 is bar 2 with
+  // every hand flipped — concretely, if bar 2 ended on R (the collision), bar 4 (mirrored) ends on
+  // L, which is no longer the same as bar 1's own (unflipped) first hand.
+  let { bar1, bar2 } = attempt();
+  let loopCloses = bar2[bar2.length - 1].hand === bar1[0].hand;
+  for (let i = 1; loopCloses && i < MAX_LOOP_RETRIES; i++) {
+    ({ bar1, bar2 } = attempt());
+    loopCloses = bar2[bar2.length - 1].hand === bar1[0].hand;
+  }
+
   const bars = loopCloses ? [bar1, bar2, mirrorCells(bar1), mirrorCells(bar2)] : [bar1, bar2];
 
   return { beatsPerBar, bars };
