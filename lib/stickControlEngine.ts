@@ -23,10 +23,11 @@
  * cell-by-cell to reflect that rather than by dividing a bar into equal slots.
  */
 
-import { CLICK_SOUNDS, scheduleClick } from "@/lib/clickEngine";
+import { type BeatLevel, CLICK_SOUNDS, scheduleClick } from "@/lib/clickEngine";
 import { getAudioContext } from "@/lib/metronome";
 import {
   CELL_BEAT_FRACTION,
+  CONCRETE_ROLL_TYPES,
   type GeneratedPattern,
   type Hand,
   type StickControlOptions,
@@ -43,6 +44,16 @@ export interface StickControlSettings {
   countOffBars: number;
   repeats: number;
   autoAdvance: boolean;
+  /** Accent level per beat (0 = muted, 1 = normal, 2 = accent) — the same `BeatLevel` concept and
+      cycling interaction `lib/metronomeEngine.ts`'s own `accents` already uses, shown/edited via
+      the same `BeatIndicator` component, per a direct request ("make the metronome like the one in
+      the metronome tool... I should be able to do the same options"). Drives every plain per-beat
+      click this engine schedules — the count-off and the "pulse" click mode — the same way
+      `lib/clickEngine.ts`'s own generic main-beat accent logic does; "everyNote"/"byHand" click
+      modes are about hearing the actual sticking pattern's own notes, a different purpose, and
+      don't read this. Always exactly 4 long, since `beatsPerBar` is fixed at 4 — see
+      `lib/stickControl.ts`'s own doc comment for why meter stopped being configurable. */
+  accents: BeatLevel[];
 }
 
 export type StickControlPhase = "idle" | "countoff" | "playing";
@@ -58,10 +69,17 @@ export interface StickControlSnapshot {
   phase: StickControlPhase;
   currentBarIndex: number | null;
   currentRepeat: number;
+  /** Which beat (0-based, within the current 4/4 bar) is currently sounding — count-off beats
+      included, so the same `BeatIndicator` lights up correctly through both phases. `null` while
+      stopped. Independent of `currentBarIndex`, which instead tracks which bar of the *pattern*
+      (not the meter) is playing. */
+  currentBeat: number | null;
 }
 
 let options: StickControlOptions = {
   rollType: "double",
+  enabledRollTypes: CONCRETE_ROLL_TYPES,
+  enabledTripletStickings: ["alternating", "brokenDouble"],
 };
 
 let settings: StickControlSettings = {
@@ -72,6 +90,7 @@ let settings: StickControlSettings = {
   countOffBars: 1,
   repeats: 20,
   autoAdvance: false,
+  accents: [2, 1, 1, 1],
 };
 
 let pattern: GeneratedPattern | null = null;
@@ -80,6 +99,7 @@ let running = false;
 let phase: StickControlPhase = "idle";
 let currentBarIndex: number | null = null;
 let currentRepeat = 0;
+let currentBeat: number | null = null;
 
 let timerId: ReturnType<typeof setInterval> | null = null;
 const timeouts = new Set<ReturnType<typeof setTimeout>>();
@@ -88,7 +108,7 @@ const SCHEDULER_INTERVAL_MS = 25;
 const LOOKAHEAD_SEC = 0.12;
 
 function buildSnapshot(): StickControlSnapshot {
-  return { running, pattern, nextPattern, phase, currentBarIndex, currentRepeat };
+  return { running, pattern, nextPattern, phase, currentBarIndex, currentRepeat, currentBeat };
 }
 
 let cachedSnapshot = buildSnapshot();
@@ -218,22 +238,25 @@ function beginScheduling() {
 
       let shownPhase: StickControlPhase;
       let shownBar: number | null = null;
+      let shownBeat: number | null = null;
       let shownRepeat = repeatIndex + 1;
       let cellDuration: number;
 
       if (countOffLeft > 0) {
         shownPhase = "countoff";
         shownRepeat = 0;
-        const beatIndex = countOffBeats - countOffLeft;
-        const accent = beatIndex % beatsPerBar === 0;
-        scheduleClick(
-          ctx,
-          nextTime,
-          sound.wave,
-          accent ? sound.accentFreq : sound.normalFreq,
-          (accent ? 0.9 : 0.55) * vol,
-          sound.length,
-        );
+        const countOffBeatIndex = countOffBeats - countOffLeft;
+        const beatInBar = countOffBeatIndex % beatsPerBar;
+        shownBeat = beatInBar;
+        // The count-off is just plain metronome bars in the same meter, so it reads the same
+        // per-beat `accents` the "pulse" click mode below does — a muted beat (level 0) plays no
+        // click at all, same as `lib/clickEngine.ts`'s own generic main-beat accent logic.
+        const level = settings.accents[beatInBar] ?? 1;
+        if (level === 2) {
+          scheduleClick(ctx, nextTime, sound.wave, sound.accentFreq, 0.9 * vol, sound.length);
+        } else if (level === 1) {
+          scheduleClick(ctx, nextTime, sound.wave, sound.normalFreq, 0.55 * vol, sound.length);
+        }
         cellDuration = beatDuration;
         countOffLeft--;
       } else {
@@ -246,17 +269,17 @@ function beginScheduling() {
         cellDuration = beatDuration * CELL_BEAT_FRACTION[speed];
         const isBeatStart = Math.abs(timeInBar % 1) < 1e-6;
         const isBarStart = cellIndex === 0;
+        const beatInBar = Math.min(beatsPerBar - 1, Math.floor(timeInBar));
+        shownBeat = beatInBar;
 
         if (settings.clickMode === "pulse") {
           if (isBeatStart) {
-            scheduleClick(
-              ctx,
-              nextTime,
-              sound.wave,
-              isBarStart ? sound.accentFreq : sound.normalFreq,
-              (isBarStart ? 0.9 : 0.55) * vol,
-              sound.length,
-            );
+            const level = settings.accents[beatInBar] ?? 1;
+            if (level === 2) {
+              scheduleClick(ctx, nextTime, sound.wave, sound.accentFreq, 0.9 * vol, sound.length);
+            } else if (level === 1) {
+              scheduleClick(ctx, nextTime, sound.wave, sound.normalFreq, 0.55 * vol, sound.length);
+            }
           }
         } else if (settings.clickMode === "byHand") {
           scheduleClick(
@@ -283,11 +306,13 @@ function beginScheduling() {
       const delayMs = Math.max(0, (nextTime - ctx.currentTime) * 1000);
       const capturedPhase = shownPhase;
       const capturedBar = shownBar;
+      const capturedBeat = shownBeat;
       const capturedRepeat = shownRepeat;
       const t = setTimeout(() => {
         timeouts.delete(t);
         phase = capturedPhase;
         currentBarIndex = capturedBar;
+        currentBeat = capturedBeat;
         currentRepeat = capturedRepeat;
         notify();
       }, delayMs);
@@ -346,6 +371,7 @@ export function stopStickControl() {
   running = false;
   phase = "idle";
   currentBarIndex = null;
+  currentBeat = null;
   currentRepeat = 0;
   notify();
 }

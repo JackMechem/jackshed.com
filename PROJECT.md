@@ -2333,6 +2333,271 @@ what exists, what's next, and the honest state of what's been verified.
   internal identifiers listed above, nothing route-related), and that's the entire mechanism this
   lookup depends on. `tsc`, `eslint`, and `next build` all pass, with the build's own route listing
   directly confirming `/random-sticking-warmup` is present and `/stick-control` is gone.
+
+  **A real `BeatIndicator`, the same accent-cycling interaction Metronome has, and a matching max
+  width** — a direct follow-up: "make the metronome like the one in the metronome tool, it shuold
+  show the beats visually and i shuld be able to do the same options that I can do in the
+  metronopme tool. also there should be a max width for the metronome the same way it is in the
+  metronome tool." Three pieces, read as asking for Metronome's own beat-display/accent-cycling
+  convention specifically, not a new one invented for this tool:
+  - **`StickControlSettings` gained `accents: BeatLevel[]`** (`lib/stickControlEngine.ts`), the
+    same `BeatLevel` (0/1/2 = muted/normal/accent) concept and `BeatIndicator`-driven cycling
+    interaction Metronome's own `accents` already has — always exactly 4 long, since
+    `beatsPerBar` is permanently fixed at 4 here (meter configurability was removed in an earlier
+    round of this same tool). It drives the count-off and the "pulse" click mode's own per-beat
+    volume/pitch, reusing the *exact* accent/normal/muted volume-and-frequency numbers
+    `lib/clickEngine.ts`'s own generic `startClickEngine` already uses for this
+    (`accentFreq`/`0.9×vol` for accent, `normalFreq`/`0.55×vol` for normal, nothing scheduled —
+    silent — for muted) rather than inventing new ones; they already matched what this tool's own
+    pre-existing "pulse" mode had hardcoded (`isBarStart ? 0.9 : 0.55`), confirming this was a
+    clean, low-risk reuse. "Click every stroke" and "Distinct pitch per hand" are deliberately
+    left untouched — both are about hearing the actual sticking pattern's individual notes, a
+    different purpose than a generic metronome pulse, and don't read `accents` at all.
+    `StickControlSnapshot` gained a matching `currentBeat: number | null` (0-based within the
+    current 4/4 bar, tracked through both the count-off and playing phases, `null` while stopped)
+    — independent of the existing `currentBarIndex`, which tracks the *pattern's* bar, not the
+    meter's beat. Both are threaded through the same capture-then-`setTimeout` scheduling pattern
+    every other piece of this engine's displayed state already uses (`shownBeat`/`capturedBeat`,
+    alongside the existing `shownBar`/`capturedBar`), and reset to `null` in `stopStickControl()`.
+  - **`components/StickControl.tsx`** renders a real `<BeatIndicator accents={accents}
+    currentBeat={running ? currentBeat : null} onCycle={cycleBeat} />` right below `TempoHero` and
+    above the notation — the exact same component Metronome/Polyrhythm Metric Modulation
+    Metronome/Jam Practice already share, not a bespoke beat display built for this tool.
+    `cycleBeat` is copied verbatim from Metronome's own version (`accents.map((level, i) => i ===
+    index ? NEXT_LEVEL[level] : level)`, `lib/meterControls.ts`'s existing accent→normal→muted→
+    accent cycle). Deliberately **not** using `BeatIndicator`'s own `subdivision`/`subAccents`
+    props: this tool's bars mix multiple different `CellSpeed`s within one bar (a straight segment
+    at normal speed next to a roll segment at double speed or a triplet third) via
+    `lib/stickControl.ts`'s own `CELL_BEAT_FRACTION`, which doesn't fit `BeatIndicator`'s
+    single-uniform-subdivision-per-bar model the way Metronome's own meter does — so this tool
+    shows "which beat" (the thing both tools have in common) without claiming a subdivision
+    structure it doesn't actually have.
+  - **Max width**: `ToolLayout`'s `layout="stacked"` mode (what this tool, Slow Downer, and
+    Recorder all use) has no width cap of its own at all — unlike `layout="split"` (what Metronome
+    uses), which caps at `xl:max-w-5xl`. Rather than add a cap to the shared `stacked` branch of
+    `ToolLayout.tsx` itself (which would also narrow Slow Downer/Recorder, which legitimately need
+    the full width for their waveform-editing UIs and weren't part of this request), the cap was
+    applied locally within this tool's own JSX instead — the same established pattern Chord Charts'
+    own `mx-auto max-w-5xl` row already uses for the identical reason. Both halves of the page
+    needed their own wrapper, since `ToolLayout`'s `stacked` branch renders `children` inside a
+    centered flex `<section>` (so the content area just needed `max-w-5xl` added straight onto its
+    own existing wrapper `<div>`) but renders `options` inside a plain, non-centering
+    `<aside className="w-full">` (so the `OptionsCard` needed a new `<div className="mx-auto
+    w-full max-w-5xl">` wrapper around it to both cap and center it).
+
+  Verified against the real dev deployment (nix-chromium + playwright-core over CDP, same setup
+  used throughout this session). `tsc`, `eslint` (both changed files), and `next build` all pass
+  with zero issues. In the browser: the four beat buttons render with the correct accessible
+  labels ("Beat 1: accent. Click to change.", "Beat 2: normal...", etc.) and the expected default
+  look (beat 1 accent-colored, 2-4 plain); clicking beat 2 three times cycled its label through
+  exactly normal → muted → accent → normal (confirming `NEXT_LEVEL`'s three-step cycle) and
+  persisted into `localStorage`'s `jam-practice-stick-control` as `accents:[2,1,1,1]` (back to the
+  default after the 3rd click, consistent with a 3-state cycle); during a real Start → count-off →
+  playing run, inspecting each beat button's live `className` directly confirmed the active-beat
+  ring/scale/brightness classes move across the four buttons over time (not stuck on one), and
+  disappear entirely after Stop (`currentBeat` correctly reset to `null`) — the same treatment
+  Metronome's own current beat gets. A screenshot confirms the page content (BPM hero, beat
+  indicator, notation, and the Options panel below) all sit inside a visibly narrower, centered
+  column at a 1400px viewport rather than stretching full-bleed, matching Metronome's own capped
+  look; a second screenshot at a 390px phone width shows the same layout reflowing cleanly with
+  zero horizontal page overflow (checked via `scrollWidth`/`clientWidth`, not just by eye). Zero
+  console errors throughout every check.
+
+  **That max-width cap then forced the notation to wrap sooner than it needed to** — reported
+  directly, with a screenshot at 200 BPM/Triplets showing a 4-bar pattern split across two short
+  rows on a clearly wide screen: "the music lines should be able to be in one line if the screen
+  is big enough." Real, and a direct side effect of the previous round's own fix: `StickControlStave`
+  (`components/StickControlStave.tsx`) measures its *own* container's real width via
+  `ResizeObserver` to decide how many bars fit on one row (`MAX_BARS_PER_ROW`, see that
+  component's own doc comment) — wrapping the entire content area, notation included, in
+  `max-w-5xl` (1024px) to match Metronome's page width meant the stave never saw more than that
+  much room to work with, regardless of how much wider the actual screen was, so a dense
+  "Triplets" pattern wrapped well before it needed to.
+
+  Fixed by splitting the one capped wrapper into two: `max-w-5xl` now only wraps `TempoHero` and
+  `BeatIndicator` (components with a natural size, that gain nothing from extra width, and are
+  what the "match Metronome's width" request was actually about), while both `StickControlStave`
+  calls (the current pattern and the "Next" preview) sit outside that cap as plain `w-full`
+  siblings — getting the *full* width `ToolLayout`'s own `layout="stacked"` content section
+  already provides, uncapped, exactly as they did before the previous round's change. The Options
+  panel below (already wrapped in its own separate `mx-auto w-full max-w-5xl` div from the
+  previous round) is untouched — this was purely about the notation specifically, not a reversal
+  of the width cap generally.
+
+  Verified against the real dev deployment (nix-chromium + playwright-core over CDP). Reproduced
+  the exact reported scenario via a `localStorage` fixture matching the screenshot's own settings
+  (200 BPM, Triplets, 4x repeat, "New pattern when done" on) at a 2000px viewport: both the current
+  pattern (2 bars) and the "Next" preview (4 bars) now render as exactly one row each — confirmed
+  by counting each stave's own rendered row elements directly in the DOM, not just by eye — where
+  before this fix the same settings had wrapped into multiple short rows. A screenshot confirms the
+  same thing visually: both notation blocks span one continuous line at this width, while the BPM
+  hero/BeatIndicator/Options panel above and below stay at their own narrower, centered width,
+  unchanged. Re-checked at the previous round's own 1400px width (adapts sensibly — the shorter
+  current pattern still fits one row, the longer "Next" preview correctly still wraps to two,
+  exactly the "fits what actually fits" behavior this component was built for) and at a 390px phone
+  width (no horizontal page overflow at either width, confirmed via `scrollWidth`/`clientWidth`).
+  Zero console errors throughout. `tsc`, `eslint`, and `next build` all pass.
+
+  **A real musicality bug in "Triplets"' own "alternating" sticking, caught by eye against a
+  rendered example** (reported directly, with a cropped screenshot of two triplet groups reading
+  "L R L R R L R": "whenever there are alternating sticked triplets it does it, it should be
+  RLRLRL"). Traced to `buildRollCells`' own `tileTo(base, tripletLength)` call: the "alternating"
+  entry in `TRIPLET_CELLS` was the literal 3-letter cell `"RLR"`, tiled by simple repetition
+  (`cell[i % cell.length]`) the same way the two broken-double shapes (`RRL`/`LLR`) already are —
+  but unlike those two (whose own first and last letter are always opposite, so repeating the
+  group never collides), `"RLR"`'s first and last letter are *both* R, so tiling it puts two R's
+  back to back at every group boundary (`R,L,R | R,L,R` → positions 3-4 are `R,R`) — exactly the
+  reported "L R L R R L R" (the R,R seam sits right where the screenshot shows it). `RRL`/`LLR`
+  never had this problem, since their own last letter already differs from their first — the bug
+  was specific to the one shape whose own endpoints happen to match.
+
+  Fixed by no longer treating "alternating" as a tileable cell at all: `TRIPLET_CELLS` is now just
+  the two broken-double shapes (`RRL`/`LLR`), and `buildRollCells` makes an explicit 3-way choice
+  (`randomInt(3)`) — index 0 generates "alternating" directly via `alternatingSticking` (the same
+  continuous-toggle generator "Single stroke roll" already uses, which by construction can never
+  put two of the same hand adjacent regardless of how long the run is or where a group boundary
+  falls), indices 1-2 keep the previous tile-then-mirror-correct approach for the two genuinely
+  tileable broken-double shapes. The three-way split, and each option's own 50/50 chance within
+  "not alternating," matches the request's own literal "randomized... between alternating, RRL
+  RRL, and LLR, LLR" wording exactly as before — only *how* "alternating" is built changed, not
+  how often it's picked or what rule A (opening opposite the straight segment's own end) requires
+  of it, since `alternatingSticking` already satisfies that directly from whatever start hand it's
+  given, the same way it already did for "Single stroke roll."
+
+  Verified two ways. Logic-level: a 10,000-pattern synthetic script (run directly against the real
+  `generatePattern`, not a mock) isolated every triplet-speed run in every generated pattern,
+  classified each as "alternating" (opens with an immediate hand change) or "broken-double" (opens
+  with a double stroke — a reliable discriminator, since the two shapes' own construction never
+  produces an ambiguous case) — 8,477 alternating runs checked, zero adjacent-same-hand
+  collisions anywhere in any of them (the previous version would have failed this on effectively
+  every single one); 16,951 broken-double runs checked, every single one cleanly `RRL`/`LLR`
+  throughout, confirming the untouched path wasn't disturbed by the refactor. A separate
+  4,500-pattern run of the tool's full existing seam-safety script (rule A, every within-pattern
+  seam, the loop-closing seam, and cross-pattern continuity, across all three roll types) found
+  zero regressions. Real browser, against the actual dev deployment: reading every rendered R/L
+  annotation's actual on-screen text and x-position (not DOM order, this tool's own established
+  lesson) across 40 live "New pattern" regenerations at 200 BPM/Triplets (the report's own
+  settings), correctly splitting each bar into its real 4-straight/6-roll cell counts (traced
+  directly from `generatePattern`'s own math, not assumed — an early draft of this check wrongly
+  guessed an even 6/6 split and flagged nonsense failures as a result, caught and fixed before
+  trusting the result) found zero adjacent-same-hand collisions across all 29 genuinely
+  alternating roll segments encountered. A screenshot at the report's own settings directly
+  confirms it by eye too: one rendered bar's roll half reads "L R L R L R" (clean alternation) and
+  another's reads "R R L R R L" (the correct `RRL` broken-double shape), matching what the request
+  asked for exactly. `tsc`, `eslint`, and `next build` all pass, zero console errors throughout.
+
+  **Options panel back to full width, a "Random" roll type, and a triplet-sticking picker** —
+  three more direct requests landed together: "the options should also be the full width. also
+  make an option to give a random roll type, also give an option to pick what sticking for
+  triplets is included."
+  - **Full-width Options**: the `mx-auto w-full max-w-5xl` wrapper the previous round had put
+    around the `OptionsCard` (to match Metronome's own page width) is gone — removed outright,
+    not just widened, since `ToolLayout`'s own `<aside className="w-full">{options}</aside>`
+    already gives it full width with no wrapper needed at all. The BPM hero/`BeatIndicator` stay
+    in their own `max-w-5xl` wrapper, untouched — this request was specifically about the Options
+    panel (which had been capped the previous round, unlike the notation, which had already been
+    freed from the same cap one round before that), not a request to re-cap the notation again.
+  - **"Random" roll type**: `RollType` gained a fourth value, `"random"` — not a concrete shape to
+    render on its own, just a signal `generatePattern` resolves fresh, every time a pattern is
+    generated, into one of the other three via a new `CONCRETE_ROLL_TYPES` array
+    (`lib/stickControl.ts`). Resolved once per *pattern* (both of a pattern's own bars share the
+    one concrete type that call picked), not once per bar, so a pattern always reads as internally
+    consistent — but since `lib/stickControlEngine.ts` keeps a precomputed `pattern`/`nextPattern`
+    pair one step ahead (each its own independent `generatePattern` call), a chain of several
+    patterns genuinely varies which roll type shows up from one to the next.
+  - **Triplet-sticking picker**: `StickControlOptions` gained `enabledTripletStickings:
+    TripletSticking[]`, with a pill-button multi-select UI (`components/StickControl.tsx`) reusing
+    Scale Trainer's own "a pool of eligible choices, toggle to deselect" convention — shown only
+    when it's actually relevant (`rollType === "triplet" || rollType === "random"`, since
+    "single"/"double" never read it at all). Falls back to every option if the pool's ever emptied
+    out, the same safe-default Scale Trainer's own mode picker already uses.
+
+    **A real design bug, caught by this round's own verification before it ever shipped**: the
+    first draft offered three independently-toggleable stickings — "Alternating," "RRL," and
+    "LLR" — mirroring the three names in the original request that introduced "Triplets" at all.
+    A synthetic script restricting the pool to `["rrl"]` alone (expecting every triplet run to come
+    out RRL-shaped) instead found thousands of LLR-shaped groups leaking through. Traced to the
+    math, not a script bug this time: `RRL` and `LLR` are hand-mirror images of the exact same
+    rudiment, and rule A (the roll must open opposite the straight segment's own end) always
+    mirror-corrects whichever cell was picked to match the required start hand — so picking `RRL`
+    when an L-start is required gets flipped into `LLR` regardless, and vice versa. Working through
+    both cases by hand confirmed the output is **always** fully determined by the required start
+    hand alone, never by which of the two was "randomly chosen" — meaning the original, already-
+    shipped 2-way `TRIPLET_CELLS` pick (from the previous round's own bug fix) had silently never
+    mattered for the rendered output either, only for internal entropy. There's no real second
+    degree of freedom to expose as two checkboxes. Fixed by merging them into one `"brokenDouble"`
+    option — `TripletSticking` is now just `"alternating" | "brokenDouble"`, and `buildRollCells`
+    looks up whichever of `RRL`/`LLR` already matches `rollStartHand` directly (`TRIPLET_CELL:
+    Record<Hand, Hand[]>`) rather than randomly picking one and mirror-correcting it — simpler code
+    as a direct consequence of fixing the real bug, not a separate cleanup pass. The UI shows two
+    pills, "Alternating (RLR)" and "Broken double (RRL/LLR)," the label naming both hand directions
+    so deselecting it reads as "no broken-double roll at all" rather than implying a choice between
+    two sticking identities that don't actually exist independently.
+
+  Verified two ways. Logic-level: a six-part synthetic script run directly against the real
+  `generatePattern` (not a mock) — "random" roll type produces a roughly even 3-way split across
+  3000 patterns (1027/1012/961) with zero patterns whose own two bars disagree on which concrete
+  type was resolved; an `enabledTripletStickings: ["brokenDouble"]`-only pool produces zero
+  non-RRL/LLR groups across 5130 checked runs (confirming the redesign actually fixed the leak);
+  an `["alternating"]`-only pool produces zero adjacent-same-hand failures across 5022 runs (the
+  original bug this whole feature started from, re-confirmed still fixed); an empty pool falls
+  back safely with no throw; both options enabled together genuinely produces both shapes; and a
+  3200-pattern re-run of the full seam-safety/rule-A/continuity check (across all three concrete
+  roll types plus "random") found zero regressions. Real browser, against the actual dev
+  deployment: at a 2000px viewport, the Options panel's own `<aside>` now measures ~1701px wide
+  (previously capped at 1024px), visibly matching the notation's own full-bleed width in a
+  screenshot rather than sitting in a narrower centered column; "Random" appears in the Roll type
+  dropdown and is selectable; the triplet-sticking picker correctly stays hidden for "Single"/
+  "Double stroke roll" and correctly appears for "Triplets"; toggling a sticking pill updates its
+  `aria-pressed` state and persists the change into `localStorage`'s `enabledTripletStickings`
+  correctly; and a screenshot with "Random" selected shows the current pattern as triplets and the
+  "Next" preview as a plain double-stroke 16th-note roll — two different roll types, back to back,
+  directly confirming "Random" by eye. No horizontal overflow at a 390px phone width. Zero console
+  errors throughout. `tsc`, `eslint`, and `next build` all pass.
+
+  **A matching pool picker for "Random" itself** — a direct follow-up: "for random show the
+  different rolls below so i can disable some if i want." The exact same shape as the
+  triplet-sticking picker one level up, applied to the roll type itself:
+  `StickControlOptions.enabledRollTypes: ConcreteRollType[]`, read by `generatePattern` only when
+  `rollType === "random"` (a concrete `rollType` ignores it completely, same as
+  `enabledTripletStickings` already ignores "single"/"double"). `ConcreteRollType` and
+  `CONCRETE_ROLL_TYPES` both became real exports from `lib/stickControl.ts` (previously
+  module-private) so the component's own picker UI and default-settings object could reach them.
+  The picker itself (`components/StickControl.tsx`) reuses `ROLL_TYPES`' own three concrete
+  entries and labels directly (`ROLL_TYPE_PICKER_OPTIONS`, a module-level `.filter()` down to
+  everything but `"random"` itself) rather than retyping the same three labels a second time,
+  shown only once `rollType === "random"` is actually selected (no point showing "which of these
+  can 'Random' pick" when a concrete type is already fixed). Falls back to all three if the pool's
+  ever emptied, the same safe-default convention as every other pool in this tool.
+
+  The existing triplet-sticking picker's own visibility condition was tightened to match: it used
+  to show whenever `rollType === "triplet" || rollType === "random"`, with no awareness of whether
+  "Random" could even reach "Triplets" at all; now it also checks `enabledRollTypes` itself
+  (`enabledRollTypes.length === 0 || enabledRollTypes.includes("triplet")`) — so deselecting
+  "Triplets" from the new Roll types picker correctly hides the now-irrelevant triplet-sticking
+  controls beneath it, and re-selecting it brings them back.
+
+  Verified two ways. Logic-level: a five-part synthetic script against the real `generatePattern`
+  — `enabledRollTypes: ["single"]` under `rollType: "random"` produces zero non-single patterns
+  across 1000 trials; `["double", "triplet"]` produces zero single patterns and genuinely both of
+  the other two; an empty pool falls back safely with all three kinds still appearing; a *concrete*
+  `rollType` (e.g. `"triplet"`) completely ignores `enabledRollTypes` even when it's set to exclude
+  that very type (confirming the "only matters for random" scoping holds); and a 1800-pattern
+  re-run of the seam-safety/rule-A/continuity check across three different restricted pools found
+  zero regressions. Real browser, against the actual dev deployment: the "Roll types" picker stays
+  hidden for a concrete roll type and appears once "Random" is selected, with all three pills
+  starting selected; deselecting "Triplets" correctly hides the triplet-sticking picker beneath it
+  and persists `enabledRollTypes` into `localStorage`, and re-selecting it brings the triplet
+  picker back; and — after narrowing the pool down to `["triplet"]` only and clicking "New
+  pattern" several times — a screenshot directly confirms both the current pattern and the "Next"
+  preview render as genuine triplet notation (tuplet "3" brackets visible over every beat), with
+  the Roll types picker showing only "Triplets" selected, matching the restricted pool exactly. (A
+  first attempt at checking this same thing via a DOM query for literal `<text>` content containing
+  "3" came back empty even though the screenshot clearly showed the brackets — traced to VexFlow
+  drawing tuplet numerals as vector glyph paths, not literal SVG text content, so that specific
+  check was a test-instrumentation gap, not a real defect; the screenshot and the 1000-trial
+  synthetic check are what actually confirm this one.) `tsc`, `eslint`, and `next build` all pass,
+  zero console errors throughout every check.
 - **Slow Downer** — load a local audio/video file, slow playback without pitch shift, loop
   sections, add named markers with notes, zoom/pan the waveform.
 - **Recorder** — multitrack recording: per-track clips, punch-in recording, trim/crop/repeat/move

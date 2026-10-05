@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useSyncExternalStore } from "react";
+import BeatIndicator from "@/components/BeatIndicator";
 import { OptionsCard, OptionSection } from "@/components/OptionsCard";
 import Select from "@/components/Select";
 import StickControlStave from "@/components/StickControlStave";
@@ -11,9 +12,17 @@ import { ListIcon, RepeatIcon, SpeakerIcon } from "@/components/tools";
 import ToolLayout from "@/components/ToolLayout";
 import KeyHint from "@/components/KeyHint";
 import Hint from "@/components/Hint";
-import { DEFAULT_CLICK_SOUND_ID } from "@/lib/clickEngine";
-import { clampBpm, useTapTempo } from "@/lib/meterControls";
-import { ROLL_TYPES, type RollType, type StickControlOptions } from "@/lib/stickControl";
+import { type BeatLevel, DEFAULT_CLICK_SOUND_ID } from "@/lib/clickEngine";
+import { NEXT_LEVEL, clampBpm, useTapTempo } from "@/lib/meterControls";
+import {
+  CONCRETE_ROLL_TYPES,
+  ROLL_TYPES,
+  TRIPLET_STICKING_OPTIONS,
+  type ConcreteRollType,
+  type RollType,
+  type StickControlOptions,
+  type TripletSticking,
+} from "@/lib/stickControl";
 import {
   type ClickMode,
   type StickControlSettings,
@@ -35,6 +44,10 @@ const SETTINGS_KEY = "jam-practice-stick-control";
 const DEFAULT_SETTINGS = {
   bpm: 100,
   rollType: "double" as RollType,
+  // All three enabled by default — the original, unrestricted random choice.
+  enabledRollTypes: CONCRETE_ROLL_TYPES,
+  // All enabled by default — the original, unrestricted random choice.
+  enabledTripletStickings: TRIPLET_STICKING_OPTIONS.map((o) => o.value),
   volume: 0.8,
   soundId: DEFAULT_CLICK_SOUND_ID,
   clickMode: "pulse" as ClickMode,
@@ -43,6 +56,9 @@ const DEFAULT_SETTINGS = {
   // this, not tied to any one specific set of instructions.
   repeats: 20,
   autoAdvance: false,
+  // Beat 1 accented, the rest normal — the same default `lib/meterControls.ts`'s own
+  // `defaultAccents` would produce for a 4-beat bar, matching Metronome's own starting look.
+  accents: [2, 1, 1, 1] as BeatLevel[],
 };
 
 const CLICK_MODE_OPTIONS: { value: ClickMode; label: string }[] = [
@@ -51,12 +67,30 @@ const CLICK_MODE_OPTIONS: { value: ClickMode; label: string }[] = [
   { value: "byHand", label: "Distinct pitch per hand (R/L)" },
 ];
 
+// The three concrete roll types, with the same labels `ROLL_TYPES` already uses for them — reused
+// (not retyped by hand) so the "Roll types" picker's own labels can never drift from the Roll type
+// dropdown's own wording.
+const ROLL_TYPE_PICKER_OPTIONS = ROLL_TYPES.filter(
+  (o): o is { value: ConcreteRollType; label: string } => o.value !== "random",
+);
+
 export default function StickControl() {
   const [settings, updateSettings] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
   const bpm = clampBpm(settings.bpm);
-  const { rollType, volume, soundId, clickMode, countOffBars, repeats, autoAdvance } = settings;
+  const {
+    rollType,
+    enabledRollTypes,
+    enabledTripletStickings,
+    volume,
+    soundId,
+    clickMode,
+    countOffBars,
+    repeats,
+    autoAdvance,
+    accents,
+  } = settings;
 
-  const options: StickControlOptions = { rollType };
+  const options: StickControlOptions = { rollType, enabledRollTypes, enabledTripletStickings };
   const playbackSettings: StickControlSettings = {
     bpm,
     volume,
@@ -65,6 +99,7 @@ export default function StickControl() {
     countOffBars,
     repeats,
     autoAdvance,
+    accents,
   };
 
   const snapshot = useSyncExternalStore(
@@ -72,28 +107,58 @@ export default function StickControl() {
     getStickControlSnapshot,
     getStickControlServerSnapshot,
   );
-  const { running, pattern, nextPattern, phase, currentBarIndex, currentRepeat } = snapshot;
+  const { running, pattern, nextPattern, phase, currentBarIndex, currentRepeat, currentBeat } =
+    snapshot;
 
-  // Structural changes (what shape of pattern to show — currently just which roll type) regenerate
-  // a fresh one immediately, mid-playback or not — the same "changing the meter restarts cleanly"
-  // behavior Metronome's own structure mode has, needed here because the old pattern's own cell
-  // makeup might not even match the new roll type anymore (a different cell count/rhythm, not just
+  // Structural changes (what shape of pattern to show — which roll type, which concrete types
+  // "Random" can land on, or which triplet stickings are even eligible) regenerate a fresh one
+  // immediately, mid-playback or not — the same "changing the meter restarts cleanly" behavior
+  // Metronome's own structure mode has, needed here because the old pattern's own cell makeup
+  // might not even match the new options anymore (a different cell count/rhythm, not just
   // different sticking).
   useEffect(() => {
     updateStickControlOptions(options);
     regenerateStickControlPattern();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rollType]);
+  }, [rollType, enabledRollTypes, enabledTripletStickings]);
 
   // Playback-only settings (tempo, sound, repeat count, ...) apply live without touching whatever
   // is currently mid-play, the same way Metronome's own bpm/volume/soundId do.
   useEffect(() => {
     updateStickControlSettings(playbackSettings);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bpm, volume, soundId, clickMode, countOffBars, repeats, autoAdvance]);
+  }, [bpm, volume, soundId, clickMode, countOffBars, repeats, autoAdvance, accents]);
 
   const setBpm = (value: number) => updateSettings({ bpm: clampBpm(value) });
   const tap = useTapTempo(setBpm);
+
+  // Clicking a beat in the indicator cycles its accent level, the exact same interaction/semantics
+  // as Metronome's own `cycleBeat` — accent → normal → muted → accent.
+  function cycleBeat(index: number) {
+    updateSettings({
+      accents: accents.map((level, i) => (i === index ? NEXT_LEVEL[level] : level)),
+    });
+  }
+
+  // Same toggle-in-array shape as `toggleTripletSticking` below — "which of these are eligible to
+  // be picked when 'Random' is the roll type."
+  function toggleRollType(id: ConcreteRollType) {
+    updateSettings({
+      enabledRollTypes: enabledRollTypes.includes(id)
+        ? enabledRollTypes.filter((x) => x !== id)
+        : [...enabledRollTypes, id],
+    });
+  }
+
+  // Same toggle-in-array shape Scale Trainer's own mode picker already uses for "which of these
+  // are eligible to be picked."
+  function toggleTripletSticking(id: TripletSticking) {
+    updateSettings({
+      enabledTripletStickings: enabledTripletStickings.includes(id)
+        ? enabledTripletStickings.filter((x) => x !== id)
+        : [...enabledTripletStickings, id],
+    });
+  }
 
   function start() {
     startStickControl();
@@ -131,8 +196,72 @@ export default function StickControl() {
               just plain alternating R/L instead of the RRLLRRLLR rudiment. &quot;Triplets&quot;
               writes the roll as 8th-note triplets instead, with a random sticking each time —
               straight alternation, or a broken-double shape (RRL or LLR) — rather than always the
-              same rudiment.
+              same rudiment. &quot;Random&quot; picks a fresh roll type for every pattern instead
+              of sticking to one.
             </Hint>
+
+            {rollType === "random" && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-muted">Roll types</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {ROLL_TYPE_PICKER_OPTIONS.map((opt) => {
+                    const selected = enabledRollTypes.includes(opt.value);
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => toggleRollType(opt.value)}
+                        className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                          selected
+                            ? "bg-accent text-accent-foreground"
+                            : "bg-background text-foreground hover:bg-surface-hover"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <Hint>
+                  Which roll types &quot;Random&quot; can pick from. Falls back to all three if
+                  none are selected.
+                </Hint>
+              </div>
+            )}
+
+            {(rollType === "triplet" ||
+              (rollType === "random" &&
+                (enabledRollTypes.length === 0 || enabledRollTypes.includes("triplet")))) && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-muted">Triplet stickings</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {TRIPLET_STICKING_OPTIONS.map((opt) => {
+                    const selected = enabledTripletStickings.includes(opt.value);
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => toggleTripletSticking(opt.value)}
+                        className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                          selected
+                            ? "bg-accent text-accent-foreground"
+                            : "bg-background text-foreground hover:bg-surface-hover"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <Hint>
+                  Which of the two triplet stickings can be randomly picked. &quot;Broken
+                  double&quot; always plays whichever of RRL/LLR actually fits the hand it needs to
+                  start on. Falls back to both if neither is selected.
+                </Hint>
+              </div>
+            )}
           </OptionSection>
 
           <OptionSection title="Playback" icon={RepeatIcon}>
@@ -189,8 +318,22 @@ export default function StickControl() {
       }
     >
       <div className="flex w-full flex-col items-center gap-4">
-        <TempoHero bpm={bpm} setBpm={setBpm} beatsPerBar={4} beatUnit={4} onTap={tap} />
+        <div className="flex w-full max-w-5xl flex-col items-center gap-4">
+          <TempoHero bpm={bpm} setBpm={setBpm} beatsPerBar={4} beatUnit={4} onTap={tap} />
 
+          <BeatIndicator
+            accents={accents}
+            currentBeat={running ? currentBeat : null}
+            onCycle={cycleBeat}
+          />
+        </div>
+
+        {/* Deliberately NOT capped at max-w-5xl like the controls above: StickControlStave measures
+            its own container's real width (via ResizeObserver) to decide how many bars fit on one
+            row, and capping that width artificially forces it to wrap sooner than the screen
+            actually requires — reported directly ("the music lines should be able to be in one line
+            if the screen is big enough"). The notation gets the full width ToolLayout's own stacked
+            layout already gives this page's content section. */}
         {pattern && <StickControlStave pattern={pattern} activeBarIndex={currentBarIndex} />}
 
         {nextPattern && (

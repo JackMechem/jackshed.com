@@ -118,18 +118,23 @@
  * sticking — "same notes... but with single alternating sticking," per the request. "Triplets" is
  * structurally different, not just a different sticking over the same rhythm: the roll segment is
  * written as 8th-note triplets (`CellSpeed: "triplet"`, a third of a beat each, Tuplet-wrapped in
- * the renderer) rather than double-speed 16ths, with its own sticking randomly picked from
- * `TRIPLET_CELLS` — "randomized sticking between alternating, RRL RRL, and LLR, LLR," per the
- * request's own literal wording, which is why `TRIPLET_CELLS` keeps those three cells as separate
- * named entries rather than collapsing "RRL"/"LLR" into one shape evaluated at two start hands
- * (see that constant's own comment for the probability consequence of that literal choice). All
- * three types reuse the exact same hand-continuity machinery already proven correct above — rule
- * A (the roll must open opposite the straight segment's own end) is satisfied by construction for
- * "single"/"double" (both generate directly from the required start hand) and by an explicit
- * mirror-if-needed correction for "triplet" (the same technique already used twice elsewhere in
- * this file), so every seam-safety guarantee this file establishes holds identically regardless of
- * which roll type is selected — verified by re-running the full exhaustive seam-check script
- * across all three.
+ * the renderer) rather than double-speed 16ths, with its own sticking randomly picked three ways
+ * (`buildRollCells`) — "randomized sticking between alternating, RRL RRL, and LLR, LLR," per the
+ * request's own literal wording. "Alternating" is generated directly (`alternatingSticking`, the
+ * same continuous-toggle generator "Single stroke roll" uses) rather than by tiling a fixed 3-
+ * letter "RLR" cell the way `RRL`/`LLR` (`TRIPLET_CELLS`) are: tiling "RLR" puts two of the same
+ * hand back to back at every group boundary, since its own first and last letter are both R — a
+ * real bug caught and fixed after being reported directly, with a screenshot showing exactly that
+ * ("L R L R R L R" instead of strict "R L R L R L"); see `TRIPLET_CELLS`' and `buildRollCells`'
+ * own comments for the full reasoning. All three types reuse the exact same hand-continuity
+ * machinery already proven correct above — rule A (the roll must open opposite the straight
+ * segment's own end) is satisfied by construction for "single"/"double"/"alternating triplet"
+ * (all three generate directly from the required start hand) and by an explicit mirror-if-needed
+ * correction for the two tiled `TRIPLET_CELLS` shapes (the same technique already used twice
+ * elsewhere in this file), so every seam-safety guarantee this file establishes holds identically
+ * regardless of which roll type — or, within "Triplets," which of the three stickings — is
+ * selected, re-verified by re-running the full exhaustive seam-check script across all of them
+ * after this fix.
  *
  * Introducing a genuinely different rhythmic value (the triplet's third-of-a-beat, next to the
  * straight segment's half-beat and the existing roll's quarter-beat) retired the old
@@ -140,6 +145,37 @@
  * `CELL_BEAT_FRACTION` instead) be dropped entirely — it had already been reduced to an always-2
  * constant by the earlier "Note value" removal, and tracking real beat-fractions directly removes
  * the need for a subdivision concept altogether, not just hides it.
+ *
+ * Two more direct requests landed together: "give an option to give a random roll type" and "give
+ * an option to pick what sticking for triplets is included." `RollType` gained a fourth value,
+ * `"random"` — not a concrete shape of its own, just a signal `generatePattern` resolves (fresh,
+ * every time a pattern is generated) into one of the other three via `CONCRETE_ROLL_TYPES`, so a
+ * chain of several patterns genuinely varies which roll type shows up from one to the next, not
+ * just which sticking does within a fixed type. Separately, `StickControlOptions` gained
+ * `enabledTripletStickings: TripletSticking[]` — which of the "Triplets" roll's own two sticking
+ * *identities* (`TRIPLET_STICKING_OPTIONS`: "alternating" and "brokenDouble") `buildRollCells` is
+ * actually allowed to pick from, the same "a pool of eligible choices, deselectable down to a
+ * smaller set" convention Scale Trainer's own mode picker already established elsewhere in this
+ * app — falls back to both if the pool ever comes in empty, so there's always something to
+ * generate. Deliberately two options, not three: an earlier draft of this feature offered RRL and
+ * LLR as separately disable-able, but verifying it against the real generator caught a genuine
+ * design mistake — RRL and LLR are hand-mirror images of the same rudiment, and rule A always
+ * forces whichever one matches the required start hand regardless of which was "selected," so
+ * "RRL only" could still render LLR-shaped output constantly; see `TripletSticking`'s own comment
+ * for the full reasoning behind merging them into one "brokenDouble" choice. Both new options are
+ * independent of each other: picking "Random" for the roll type doesn't bypass the
+ * triplet-sticking pool whenever it happens to land on "Triplets," and narrowing the
+ * triplet-sticking pool has no effect at all unless "Triplets" (or "Random" landing on it) is
+ * actually in play.
+ *
+ * A direct follow-up extended "Random" the same way: "for random show the different rolls below
+ * so i can disable some if i want." `StickControlOptions.enabledRollTypes: ConcreteRollType[]` is
+ * the exact same pool-with-a-safe-fallback shape as `enabledTripletStickings` one level up —
+ * `generatePattern` only ever reads it when `rollType` actually is `"random"` (a concrete
+ * `rollType` ignores it entirely, same as `enabledTripletStickings` ignores "single"/"double").
+ * `ConcreteRollType` and `CONCRETE_ROLL_TYPES` both became exported exports for this (previously
+ * module-private, needed now so both the pool's own type and its full-set fallback value are
+ * reachable from the component's picker UI).
  */
 
 export type Hand = "R" | "L";
@@ -313,36 +349,83 @@ function alternatingSticking(length: number, startHand: Hand): Hand[] {
     "Double" roll types' 4 (16th notes, `1 / CELL_BEAT_FRACTION.fast`). */
 const TRIPLET_NOTES_PER_BEAT = 3;
 
-/** The three sticking shapes a "Triplets" roll randomly picks from, per the request's own literal
-    wording ("randomized sticking between alternating, RRL RRL, and LLR, LLR") — alternating, plus
-    both directions of the "broken double" shape, the same trio an earlier (now-removed) version of
-    this file's own `TRIPLET_CELLS` already used for a different, since-deleted pattern type.
-    Picked uniformly at `randomInt(TRIPLET_CELLS.length)`, tiled to fill the roll segment's own
-    triplet-note count, then — exactly like `generatePattern`'s own `previousEndHand` handling and
-    the bar 1 -> bar 2 seam fix, both elsewhere in this file — mirrored (every hand flipped) if the
-    tiled result doesn't already open on the hand rule A requires, rather than generated directly
-    from a start hand the way `rollSticking`/`alternatingSticking` are. One accepted, documented
-    consequence of keeping these as three separate literal cells rather than one "broken double"
-    shape evaluated at two start hands: two of the three (`RLR`, `RRL`) already open on R, so when
-    rule A requires an R start, `LLR` is the only pick that needs mirroring (into `RRL`) — making
-    the broken-double shape (`RRL`/`LLR`) about twice as likely as the alternating shape (`RLR`) to
-    actually appear whenever the required start hand is R, and the mirror image of that split when
-    it's L. Not a bug — a direct, transparent consequence of the request's own three named options,
-    not two evenly-weighted ones. */
-const TRIPLET_CELLS: Hand[][] = [hands("RLR"), hands("RRL"), hands("LLR")];
+/** A "Triplets" roll's own sticking identity — "alternating" (strict R/L toggling, via
+    `alternatingSticking`) or "brokenDouble" (the RRL/LLR rudiment, via `TRIPLET_CELL` below).
+    Exposed (not just an internal detail of `buildRollCells`) so
+    `StickControlOptions.enabledTripletStickings` can name which ones are actually eligible to be
+    picked — per a direct request ("give an option to pick what sticking for triplets is
+    included"). Deliberately just these two, not three: RRL and LLR are mirror images of the exact
+    same rudiment, and rule A (the roll must open opposite the straight segment's own end) always
+    forces whichever one actually matches the required start hand — picking "RRL" when the context
+    needs an L-start, or "LLR" when it needs an R-start, gets mirror-corrected into the *other* one
+    regardless, so the two always render identically once that correction is applied. A caught,
+    fixed design mistake from this feature's own first draft: offering RRL/LLR as two independently
+    disable-able checkboxes looked reasonable, but verifying it against the real generator showed
+    "RRL only" still produced LLR-shaped output constantly (every time an L-start was required) —
+    there's no way to suppress one without the other, so there's no real second degree of freedom
+    to expose. "Broken double" represents both hand directions of the one rudiment as a single
+    choice, always rendered correctly oriented. */
+export type TripletSticking = "alternating" | "brokenDouble";
+
+export const TRIPLET_STICKING_OPTIONS: { value: TripletSticking; label: string }[] = [
+  { value: "alternating", label: "Alternating (RLR)" },
+  { value: "brokenDouble", label: "Broken double (RRL/LLR)" },
+];
+
+/** The broken-double rudiment's two hand-mirrored forms — `buildRollCells` picks whichever one
+    already opens on the required start hand directly (no mirror-correction needed, unlike this
+    constant's own earlier, since-replaced design — see `TripletSticking`'s own comment for why).
+    Both forms are safe to tile by simple repetition: each one's own last letter is already the
+    opposite of its first (L vs. R / R vs. L), so repeating the group never puts two of the same
+    hand back to back at the seam — unlike "alternating," whose own fixed 3-letter "RLR" cell can't
+    be tiled the same way (see `buildRollCells`'s own comment). */
+const TRIPLET_CELL: Record<Hand, Hand[]> = {
+  R: hands("RRL"),
+  L: hands("LLR"),
+};
 
 /** How the roll segment (the second half of the pattern's own 4/4 bar) is written — see this
-    file's own doc comment for what each one means musically. */
-export type RollType = "single" | "double" | "triplet";
+    file's own doc comment for what each one means musically. `"random"` isn't itself a concrete
+    shape to render — `generatePattern` resolves it to one of the other three, freshly, each time a
+    pattern is generated (see that function's own comment) — per a direct request ("give an option
+    to give a random roll type"). */
+export type RollType = "single" | "double" | "triplet" | "random";
+
+/** The roll types `"random"` can actually resolve to — everything in `RollType` except `"random"`
+    itself, since resolving to "random" again would be meaningless. Exported so
+    `StickControlOptions.enabledRollTypes` (and its own UI picker) can be typed against exactly
+    this set, not the full `RollType` (which would wrongly admit `"random"` as something you could
+    "disable" from within random). */
+export type ConcreteRollType = Exclude<RollType, "random">;
+
+export const CONCRETE_ROLL_TYPES: ConcreteRollType[] = ["single", "double", "triplet"];
 
 export const ROLL_TYPES: { value: RollType; label: string }[] = [
   { value: "single", label: "Single stroke roll" },
   { value: "double", label: "Double stroke roll" },
   { value: "triplet", label: "Triplets" },
+  { value: "random", label: "Random" },
 ];
 
 export interface StickControlOptions {
   rollType: RollType;
+  /** Which of `CONCRETE_ROLL_TYPES` a `rollType: "random"` roll can actually land on — per a
+      direct follow-up request ("for random show the different rolls below so i can disable some
+      if i want"), the same "pool of eligible choices, toggle to deselect" picker
+      `enabledTripletStickings` already established one option up. Only read when `rollType` is
+      actually `"random"` — `generatePattern` never consults this for a concrete `rollType`, same
+      as `enabledTripletStickings` only matters once "Triplets" is actually in play. Falls back to
+      every concrete type if this ever comes in empty, the same safe-default convention as every
+      other "deselectable pool" setting in this app. */
+  enabledRollTypes: ConcreteRollType[];
+  /** Which of `TRIPLET_STICKING_OPTIONS` a "Triplets" roll (or a "Random" roll that happens to
+      land on "Triplets") can actually pick from — only meaningful when the roll ends up written as
+      triplets at all; `buildRollCells` simply never reads this for "single"/"double". Falls back
+      to both options (the full, original random choice) if this ever comes in empty — the same
+      safe-default convention Scale Trainer's own mode picker already uses for "nothing selected,"
+      so there's always something to pick from even if a device's synced settings end up with every
+      box unchecked. */
+  enabledTripletStickings: TripletSticking[];
 }
 
 export interface GeneratedPattern {
@@ -382,15 +465,44 @@ function randomPattern(): Hand[] {
 
 /** Builds one roll segment's cells — straight-8th-note-equivalent beats' worth, written at
     whichever speed `rollType` calls for — already guaranteed to open on `rollStartHand` (rule A;
-    see this file's own doc comment) regardless of which type is picked, though "triplet" gets
-    there by an explicit mirror-correction while "single"/"double" generate directly from the
-    required hand (see `alternatingSticking`/`rollSticking`'s own comments). */
-function buildRollCells(rollType: RollType, rollStartHand: Hand, rollBeats: number): NoteCell[] {
+    see this file's own doc comment) regardless of which type is picked: "triplet" gets there by a
+    direct `TRIPLET_CELL` lookup (for "brokenDouble") or direct generation (for "alternating")
+    while "single"/"double" generate directly from the required hand (see
+    `alternatingSticking`/`rollSticking`'s own comments) — every path here builds straight from
+    `rollStartHand`, with no mirror-correction step left anywhere in this function.
+    `enabledTripletStickings` only matters for "triplet" — ignored entirely otherwise, same as
+    `rollType` itself already excludes `"random"` by the time this is called (see
+    `generatePattern`'s own resolution step). */
+function buildRollCells(
+  rollType: ConcreteRollType,
+  rollStartHand: Hand,
+  rollBeats: number,
+  enabledTripletStickings: TripletSticking[],
+): NoteCell[] {
   if (rollType === "triplet") {
-    const base = TRIPLET_CELLS[randomInt(TRIPLET_CELLS.length)];
-    const tiled = tileTo(base, rollBeats * TRIPLET_NOTES_PER_BEAT);
-    const corrected = tiled[0] === rollStartHand ? tiled : tiled.map(otherHand);
-    return toTripletCells(corrected);
+    const tripletLength = rollBeats * TRIPLET_NOTES_PER_BEAT;
+    // Picks among whichever of the two `TRIPLET_STICKING_OPTIONS` are actually enabled — falling
+    // back to both if the caller passed none (see `StickControlOptions.enabledTripletStickings`'
+    // own comment for why). "Alternating" can't be built by tiling a fixed "RLR" cell the way a
+    // broken double is (see `TRIPLET_CELL`'s own comment): RLR's first and last letter are both R,
+    // so repeating it as a 3-note block puts two R's back to back at every group boundary —
+    // reported directly, with a screenshot showing exactly that ("L R L R R L R" instead of strict
+    // "R L R L R L"). Generated directly via `alternatingSticking` instead, the same continuous-
+    // toggle approach "Single stroke roll" already uses, which by construction can never repeat a
+    // hand regardless of group length.
+    const pool =
+      enabledTripletStickings.length > 0
+        ? enabledTripletStickings
+        : TRIPLET_STICKING_OPTIONS.map((o) => o.value);
+    const choice = pool[randomInt(pool.length)];
+    if (choice === "alternating") {
+      return toTripletCells(alternatingSticking(tripletLength, rollStartHand));
+    }
+    // "brokenDouble": look up whichever of RRL/LLR already opens on `rollStartHand` directly,
+    // rather than picking one at random and mirror-correcting it — the two forms always collapse
+    // to the identical output for a given start hand anyway (see `TripletSticking`'s own comment),
+    // so there's nothing left to randomize here once "alternating" has already been ruled out.
+    return toTripletCells(tileTo(TRIPLET_CELL[rollStartHand], tripletLength));
   }
   const rollSlotsFast = rollBeats * (1 / CELL_BEAT_FRACTION.fast);
   const hands =
@@ -408,7 +520,19 @@ function buildRollCells(rollType: RollType, rollStartHand: Hand, rollBeats: numb
     then forced to be the opposite of it (see this file's own doc comment for why flipping the
     whole straight-segment cell for this is safe). */
 export function generatePattern(options: StickControlOptions, previousEndHand?: Hand): GeneratedPattern {
-  const { rollType } = options;
+  const { enabledRollTypes, enabledTripletStickings } = options;
+  // "Random" resolves once per pattern (both bars share the one concrete type, same as every
+  // other roll type already did) — picked fresh on every call, so a chain of several patterns
+  // (via `lib/stickControlEngine.ts`'s own precomputed `pattern`/`nextPattern` pair) naturally
+  // varies which roll type shows up pattern to pattern, per a direct request ("give an option to
+  // give a random roll type"). Picks only from `enabledRollTypes` — falling back to every concrete
+  // type if that pool is ever empty — per a direct follow-up ("for random show the different
+  // rolls below so i can disable some if i want").
+  const rollTypePool = enabledRollTypes.length > 0 ? enabledRollTypes : CONCRETE_ROLL_TYPES;
+  const rollType: ConcreteRollType =
+    options.rollType === "random"
+      ? rollTypePool[randomInt(rollTypePool.length)]
+      : options.rollType;
   // Always 4/4 — meter stopped being configurable per a direct simplification request.
   const beatsPerBar = 4;
   const straightBeats = Math.max(1, Math.floor(beatsPerBar / 2));
@@ -433,7 +557,10 @@ export function generatePattern(options: StickControlOptions, previousEndHand?: 
     // The roll always opens on whichever hand this bar's own straight segment *didn't* just end
     // on, so the hand-off is a genuine alternation, never a repeat of the same hand.
     const rollStartHand = otherHand(straightHands[straightHands.length - 1]);
-    return [...toCells(straightHands), ...buildRollCells(rollType, rollStartHand, rollBeats)];
+    return [
+      ...toCells(straightHands),
+      ...buildRollCells(rollType, rollStartHand, rollBeats, enabledTripletStickings),
+    ];
   }
 
   const bar1 = buildBar(straightHands1);
