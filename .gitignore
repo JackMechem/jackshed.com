@@ -1,8 +1,14 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+#
+# No leading slashes on the path-specific entries below (apart from this file's own repo-root
+# anchoring, which no longer applies) — this is now a pnpm monorepo root, so these need to match
+# node_modules/.next/etc. at any depth (apps/web/node_modules, apps/mobile/.expo, ...), not just
+# at the literal repo root the way a single-package repo's .gitignore did before the Expo
+# migration's restructure.
 
 # dependencies
-/node_modules
-/.pnp
+node_modules
+.pnp
 .pnp.*
 .yarn/*
 !.yarn/patches
@@ -11,14 +17,24 @@
 !.yarn/versions
 
 # testing
-/coverage
+coverage
 
 # next.js
-/.next/
-/out/
+.next/
+out/
 
 # production
-/build
+build
+
+# expo / react native (apps/mobile, once scaffolded)
+.expo/
+.expo-shared/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
 
 # misc
 .DS_Store

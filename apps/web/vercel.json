@@ -1,0 +1,3 @@
+{
+  "buildCommand": "cd ../../packages/convex && npx convex deploy --cmd 'cd ../../apps/web && pnpm build'"
+}
