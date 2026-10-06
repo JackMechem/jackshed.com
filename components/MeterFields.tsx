@@ -11,9 +11,11 @@ import {
   MAX_BPM,
   MIN_BPM,
   NOTE_VALUES,
+  NOTE_VALUE_NAMES,
   SLIDER_STEPS,
   SUBDIVISIONS,
   bpmFromSlider,
+  convertTempo,
   groupsFromAccents,
   nearestNoteValue,
   parseGroups,
@@ -21,8 +23,8 @@ import {
   splitTenths,
 } from "@/lib/meterControls";
 
-// Shared UI atoms for the Metronome and Polyrhythm Metric Modulation Metronome tools'
-// meter/tempo controls.
+// Shared UI atoms for the Metronome, Polyrhythm Metric Modulation Metronome, and Tempo Trainer
+// tools' meter/tempo controls.
 
 export const CIRCLE_BUTTON =
   "flex h-9 w-9 items-center justify-center rounded-full bg-background text-lg font-semibold leading-none text-foreground hover:bg-surface-hover disabled:opacity-40";
@@ -416,6 +418,75 @@ export function NoteValueIcon({ value, className }: { value: number; className?:
         />
       ))}
     </svg>
+  );
+}
+
+// Short labels for the compact "tempo note value" picker sitting right next to the BPM digits —
+// `NOTE_VALUE_NAMES`' own full names ("Quarter note") are used for the longer readout sentence
+// below it instead, where there's room to spell it out. Shared by Metronome and Tempo Trainer —
+// per a direct request that the two tools' metronomes be identical, not two copies of this picker
+// that could quietly drift apart.
+const TEMPO_NOTE_MATCH = 0;
+const SHORT_NOTE_NAME: Record<number, string> = {
+  1: "Whole",
+  2: "Half",
+  4: "Quarter",
+  8: "Eighth",
+  16: "16th",
+  32: "32nd",
+  64: "64th",
+};
+const TEMPO_NOTE_OPTIONS = [
+  { value: TEMPO_NOTE_MATCH, label: "Beat unit" },
+  ...NOTE_VALUES.map((v) => ({
+    value: v,
+    label: SHORT_NOTE_NAME[v] ?? `1/${v}`,
+    icon: <NoteValueIcon value={v} className="h-5 w-2.5" />,
+  })),
+];
+
+/** The "quarter note = 140"-style picker meant for `TempoHero`'s own `aboveNumber` slot — lets the
+    displayed tempo refer to a different note value than the meter's own beat unit. `null` means
+    "match the beat unit" (the `TEMPO_NOTE_MATCH` sentinel's own "Beat unit" option); any other
+    value is one of `NOTE_VALUES`. */
+export function TempoNoteValuePicker({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (value: number | null) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <Select
+        value={value ?? TEMPO_NOTE_MATCH}
+        onChange={(v) => onChange(v === TEMPO_NOTE_MATCH ? null : v)}
+        options={TEMPO_NOTE_OPTIONS}
+      />
+      <span className="text-lg font-semibold text-muted">=</span>
+    </div>
+  );
+}
+
+/** The small "= 550 BPM at eighth note clicks" readout under the BPM number — shown only once the
+    chosen tempo note value actually differs from whatever beat unit it's being converted against.
+    `effectiveBeatUnit` is the plain meter's own beat unit, or (in structure mode) whichever
+    section is currently active, since that can differ bar to bar. */
+export function TempoNoteConversionHint({
+  bpm,
+  tempoNoteValue,
+  effectiveBeatUnit,
+}: {
+  bpm: number;
+  tempoNoteValue: number | null;
+  effectiveBeatUnit: number;
+}) {
+  if (tempoNoteValue === null || tempoNoteValue === effectiveBeatUnit) return null;
+  return (
+    <p className="-mt-2 text-xs text-muted">
+      = {Math.round(convertTempo(bpm, tempoNoteValue, effectiveBeatUnit))} BPM at{" "}
+      {(NOTE_VALUE_NAMES[effectiveBeatUnit] ?? `1/${effectiveBeatUnit} note`).toLowerCase()} clicks
+    </p>
   );
 }
 

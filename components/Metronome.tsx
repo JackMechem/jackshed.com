@@ -6,11 +6,11 @@ import PanelsToggle from "@/components/PanelsToggle";
 import CollapsiblePanel from "@/components/CollapsiblePanel";
 import {
   MeterOptions,
-  NoteValueIcon,
   SoundOptions,
   TempoHero,
+  TempoNoteConversionHint,
+  TempoNoteValuePicker,
 } from "@/components/MeterFields";
-import Select from "@/components/Select";
 import StructureEditor from "@/components/StructureEditor";
 import SwitchRow from "@/components/SwitchRow";
 import { MeterIcon, SpeakerIcon } from "@/components/tools";
@@ -20,11 +20,8 @@ import { BeatLevel, DEFAULT_CLICK_SOUND_ID } from "@/lib/clickEngine";
 import { MAX_BEATS } from "@/lib/meters";
 import {
   NEXT_LEVEL,
-  NOTE_VALUES,
-  NOTE_VALUE_NAMES,
   accentsFromGroups,
   clampBpm,
-  convertTempo,
   defaultAccents,
   defaultSubAccents,
   nearestNoteValue,
@@ -51,30 +48,6 @@ import { useSpaceToggle } from "@/lib/useSpaceToggle";
 
 const DEFAULT_BPM = 100;
 
-// `0` isn't a real note value, so it's a safe sentinel for "match beat unit" (persisted as `null`
-// — see DEFAULT_SETTINGS' own comment) in the Select below, which needs a real value either way.
-const TEMPO_NOTE_MATCH = 0;
-// Short labels for the compact "tempo note value" picker sitting right next to the BPM digits —
-// `NOTE_VALUE_NAMES`' own full names ("Quarter note") are used for the longer readout sentence
-// below it instead, where there's room to spell it out.
-const SHORT_NOTE_NAME: Record<number, string> = {
-  1: "Whole",
-  2: "Half",
-  4: "Quarter",
-  8: "Eighth",
-  16: "16th",
-  32: "32nd",
-  64: "64th",
-};
-const TEMPO_NOTE_OPTIONS = [
-  { value: TEMPO_NOTE_MATCH, label: "Beat unit" },
-  ...NOTE_VALUES.map((v) => ({
-    value: v,
-    label: SHORT_NOTE_NAME[v] ?? `1/${v}`,
-    icon: <NoteValueIcon value={v} className="h-5 w-2.5" />,
-  })),
-];
-
 const PANEL_IDS = ["meter", "metronome-sound"];
 const SETTINGS_KEY = "jam-practice-metronome";
 const DEFAULT_SETTINGS = {
@@ -92,11 +65,15 @@ const DEFAULT_SETTINGS = {
   // it always has while it's off.
   useStructure: false,
   structure: EMPTY_STRUCTURE as Structure,
-  // `null` means "BPM means the meter's own beat unit" (today's behavior, unchanged) — the
-  // explicit, persisted override lets the tempo number instead refer to a *different* note value
-  // than the beat unit, e.g. "quarter note = 275" while the meter itself is in 4/8 (so the engine
-  // actually clicks eighth notes at 550). See `convertTempo` in lib/meterControls.ts.
-  tempoNoteValue: null as number | null,
+  // Defaults to the quarter note explicitly (rather than `null`, "match the beat unit") per a
+  // direct request — most real metronomes read as "quarter note = 110" by default, not a generic
+  // "beat unit" label, even though the two mean the same thing while the meter's own beat unit is
+  // already a quarter note (the default `beatUnit` above). `null` still means "match the beat
+  // unit" for anyone who explicitly picks it — the persisted override lets the tempo number
+  // instead refer to a *different* note value than the beat unit, e.g. "quarter note = 275" while
+  // the meter itself is in 4/8 (so the engine actually clicks eighth notes at 550). See
+  // `convertTempo` in lib/meterControls.ts.
+  tempoNoteValue: 4 as number | null,
 };
 
 export default function Metronome() {
@@ -288,24 +265,9 @@ export default function Metronome() {
           beatsPerBar={activeSection?.beatsPerBar ?? beatsPerBar}
           beatUnit={activeSection?.beatUnit ?? beatUnit}
           onTap={tap}
-          aboveNumber={
-            <div className="flex items-center gap-1.5">
-              <Select
-                value={tempoNoteValue ?? TEMPO_NOTE_MATCH}
-                onChange={(v) => setTempoNoteValue(v === TEMPO_NOTE_MATCH ? null : v)}
-                options={TEMPO_NOTE_OPTIONS}
-              />
-              <span className="text-lg font-semibold text-muted">=</span>
-            </div>
-          }
+          aboveNumber={<TempoNoteValuePicker value={tempoNoteValue} onChange={setTempoNoteValue} />}
         />
-        {tempoNoteValue !== null && tempoNoteValue !== effectiveBeatUnit && (
-          <p className="-mt-2 text-xs text-muted">
-            = {Math.round(convertTempo(bpm, tempoNoteValue, effectiveBeatUnit))} BPM at{" "}
-            {(NOTE_VALUE_NAMES[effectiveBeatUnit] ?? `1/${effectiveBeatUnit} note`).toLowerCase()}{" "}
-            clicks
-          </p>
-        )}
+        <TempoNoteConversionHint bpm={bpm} tempoNoteValue={tempoNoteValue} effectiveBeatUnit={effectiveBeatUnit} />
         {useStructure && activeSection && (
           <p className="text-sm font-medium text-muted">
             Section <span className="text-foreground">{activeSection.name}</span> · bar{" "}
