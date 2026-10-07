@@ -130,16 +130,90 @@ A few non-obvious things worth knowing before touching this structure again:
   the pnpm workspace with no errors — confirming the monorepo's module resolution genuinely works
   for Expo, not just for Next.
 
-### The Expo app itself (`apps/mobile`) — day-one scaffold only, not yet wired to anything
+### The Expo app itself (`apps/mobile`)
 
 `pnpm create expo mobile` (SDK 57, the Expo Router + TypeScript default template, `@expo/ui`
 included out of the box), renamed from the template's generic "mobile" to "sheddex" in both
-`package.json` (`name`) and `app.json` (`expo.name`/`slug`/`scheme`, all now `"sheddex"`). This is
-genuinely just the stock scaffold — none of the actual migration work (Phase 1's screen assess,
-the audio-engine/mic-input/Convex-Auth spikes, Phase 2's real navigation shell, Phase 3's DOM-shell
-sweep) has started yet; `src/app/index.tsx`/`explore.tsx` are still the template's own placeholder
-screens. The point of this pass was specifically "get something Jack can open on his phone," not
-to jump ahead into later phases.
+`package.json` (`name`) and `app.json` (`expo.name`/`slug`/`scheme`, all now `"sheddex"`). The
+first pass (above) was genuinely just the stock scaffold — "get something Jack can open on his
+phone," not real migration work yet.
+
+**A direct follow-up request** — "start the migration... to start, just migrate the general layout
+of the site, home page, menu, and searching" — is where the first real screens landed: a native
+navigation shell, a native Home screen, and a combined browse/search "Tools" screen. Still none of
+the plan's audio-engine/mic-input/Convex-Auth spikes, and no individual *tool* has a real native
+screen yet — tapping anything from the menu lands on a generic placeholder (below). What exists so
+far:
+
+- **Navigation shell** (`src/app/_layout.tsx`) — a plain `Stack`, deliberately not tabs. The web
+  app's own "menu" isn't a handful of top-level destinations (what a bottom tab bar is for) — it's
+  ~16 tools across 6 categories, much closer to `Sidebar.tsx`'s own categorized, searchable list
+  than to a tab bar. `index` (Home) hides its own header (it's the landing screen, nothing to go
+  "back" from yet); `menu` and `tool/[slug]` get the real native Stack header (large title, back
+  button, theming).
+- **Home** (`src/app/index.tsx`) — a native *redesign*, not a port, of `apps/web/components/
+  Home.tsx`'s own hero: the same pitch (free, no ads/paywalls/popups, built for musicians,
+  accounts are optional and only for cross-device sync), but as a plain centered screen instead of
+  a scrolling marketing page with a floating tool-preview cluster — that cluster depended on
+  previewing real tool UI (`BeatIndicator` etc.) that doesn't exist natively yet, so it's left for
+  later rather than faked. Account/sign-in state isn't wired up at all yet (no "Welcome back,
+  {name}"), since Convex Auth's own Expo integration is still an unstarted spike (see the
+  migration plan's own spike #3) — this screen doesn't claim to know who's signed in.
+- **Tools / search** (`src/app/menu.tsx`) — "menu" and "searching" turned out to be one screen, not
+  two, matching how the web app actually works: `Sidebar.tsx`'s own search box always sits directly
+  above its always-visible categorized list in the *same* panel; `CommandPalette.tsx`'s separate
+  ⌘K overlay is a power-user shortcut to that *same* list, not a second, differently-organized one.
+  The native equivalent of "a search field permanently anchored above a browsable list" is a
+  large-title header's own native search bar (`headerSearchBarOptions`, part of Expo Router's own
+  forked-in native-stack — confirmed by reading its real `.d.ts`, not assumed; there's no
+  `@react-navigation/*` package in this SDK at all anymore, Expo Router vendors its own fork now),
+  set dynamically from inside the screen (its `onChangeText` needs to close over local query
+  state, which a static `_layout.tsx`-level option can't reach) — not a second screen, not a modal.
+  A `SectionList` below it groups the filtered results by category, reusing `groupByCategory`/
+  `filterNavLinks` directly.
+- **Tool placeholder** (`src/app/tool/[slug].tsx`) — one dynamic route standing in for all ~16
+  tools (not 16 near-identical stub files), looked up by slug against the same shared data; shows
+  the tool's real label/description plus a plain "Not migrated yet" notice. Adding a real screen
+  for a specific tool later is just adding a differently-named route that shadows this fallback for
+  that one slug — nothing here needs to change when that happens.
+- **`packages/core/navLinks.ts`** (new) — `CATEGORIES`/`Category`/`NAV_LINKS_DATA`/
+  `filterNavLinks`/`groupByCategory`/`hrefToSlug` pulled out of `apps/web/components/tools.tsx`,
+  since this is the first moment something outside `apps/web` (the menu/search screen above)
+  genuinely needed this exact data — the same "pull, don't push" extraction rule `packages/core`
+  was already following for the Convex-needed files in Phase 0. Deliberately *not* the icon
+  components (those stay web-only SVG JSX, no native equivalent yet) — `apps/web/components/
+  tools.tsx` now builds its own `NAV_LINKS` by mapping the shared plain data through a local
+  `href -> icon component` lookup, re-exports `CATEGORIES`/`Category`/`groupByCategory` straight
+  from the shared package, and keeps `filterLinks(query)`'s exact original signature as a one-line
+  wrapper around the shared `filterNavLinks` — every other file that already imports from
+  `components/tools.tsx` (Sidebar, CommandPalette, ToolLayout, TilingLayout, Home, AccountMenu,
+  ...) needed zero changes, confirmed by `apps/web`'s own full `tsc`/`eslint`/`next build` passing
+  clean after the refactor, not just assumed from the diff being "mechanical."
+- **Theming** — `src/constants/theme.ts`'s `Colors.light.accent`/`Colors.dark.accent` now match
+  `apps/web/app/globals.css`'s own `--accent` exactly (`#6366f1`/`#818cf8`) instead of the
+  template's default Expo blue, so the one brand color that's easy to get right for free is right.
+  Everything else from the template (`ThemedText`/`ThemedView`/`useTheme`/`Spacing`/the splash
+  animation) was kept and built on rather than replaced — it's a perfectly good foundation, not
+  template cruft.
+- **Removed outright** (not left as unreferenced dead code): the template's own tab layout
+  (`app-tabs.tsx`/`app-tabs.web.tsx`) and its second tab screen (`explore.tsx`), plus the
+  components that only existed to support them (`hint-row.tsx`, `web-badge.tsx`,
+  `components/ui/collapsible.tsx`). `external-link.tsx` was left alone despite being unreferenced
+  right now — generic enough (open a URL in the browser) to likely get used again soon (a GitHub/
+  Privacy link somewhere), unlike the others, which were specific to the stock template's own demo
+  content.
+
+Verified for real, the same way Phase 0 was: `tsc --noEmit` clean in all four workspace packages;
+`npx expo export --platform web` bundled successfully (1150+ modules) with the new route list
+correctly showing `/`, `/menu`, `/tool/[slug]` (and `/explore` correctly gone); the exported static
+HTML was grepped directly for real content (`dist/index.html` contains "sheddex", "Search tools",
+"Advanced, customizable"; `dist/menu.html` contains "Metronome" and "TIMING", the uppercased
+section header) rather than just trusting the build succeeded; and the live dev server was
+restarted fresh and re-bundled with zero console errors (an earlier in-session edit briefly broke
+`index.tsx` with a stale `Colors` reference — caught via the dev server's own live error log, fixed
+immediately, and reconfirmed clean on a fresh restart rather than trusted from a stale HMR log).
+**Not verified**: how any of this actually looks/feels on a real device through Expo Go — this
+sandbox can only check bundling and rendered HTML content, not physically see or tap through it.
 
 **To actually open it**: the dev server was left running in the background during this session
 (`cd apps/mobile && npx expo start`, or `pnpm mobile` from the repo root) — install **Expo Go**
@@ -151,6 +225,1120 @@ session's own shell access can't render one) or open Expo Go and manually enter
 `pnpm mobile` from the repo root starts it fresh. This only works for as long as both devices stay
 on the same local network — there's no tunnel/remote connection set up (Expo supports one via
 `--tunnel`, not configured here).
+
+### Strategic pivot: "look exactly the same," NativeWind, and a real theme port
+
+A direct follow-up reversed one of the migration plan's own stated principles: "it doesn't look
+the same as the nextjs site at all... I want it to look exactly the same as I want to eventually
+just use the expo project and get rid of the nextjs site. make the home page look exactly the
+same, have the same side bar and everything, and most importantly have the same themes." The
+`expo-web-to-native` skill's own `native-patterns.md` explicitly argues for the opposite ("a
+nativized screen should look more native than the web, never identical" — "redesign, don't
+reskin"), but that's a *default*, not a mandate, and Jack's stated end goal here is different from
+that skill's own assumption: one shared UI (built once, shipped as web/iOS/Android alike via
+`react-native-web`) replacing the Next.js app entirely, not two platform-appropriate UIs bridged by
+DOM-shelling. Noted here as a real, deliberate departure from the plan's own prior framing, not a
+quiet reversal — future sessions should treat "match the web app's exact look" as the standing
+instruction for `apps/mobile`'s own screens from this point forward, not the skill's own default
+"redesign" posture.
+
+**NativeWind**, not hand-written `StyleSheet`s, is what makes this actually tractable:
+`className="bg-accent text-foreground"` means close to the same thing in both apps now, letting
+native screens be adapted from the web component's own JSX/class strings directly rather than
+hand-translated into a parallel styling system. Installed at SDK 57: `nativewind@4.2.7` paired
+with `tailwindcss@3.4.19` (a deliberate downgrade from whatever `expo install` resolved by
+default) — confirmed directly: NativeWind v4 is built for Tailwind v3's config format; v4 (CSS-
+native `@theme`, no JS `tailwind.config.js`) is only supported by NativeWind's own v5, still a
+release candidate as of this session, not the stable line. `apps/mobile/tailwind.config.js` maps
+the same 10 color tokens `apps/web/app/globals.css`'s own `@theme` block defines (`background`,
+`surface`, `accent`, ...) to identically-named CSS custom properties, supplied at runtime via
+NativeWind's own `vars()` (`ThemeProvider.tsx`, below) — deliberately plain hex `var(--x)`
+references, not the RGB-triplet-plus-alpha trick Tailwind's opacity modifiers (`bg-accent/20`)
+need, since this app's shared color format (hex strings) wasn't worth reworking for that this
+round; native screens use a precomputed solid color instead wherever the web version leans on one.
+
+**A real, reproducible pnpm bug was hit and fixed, not just worked around with a retry** — worth
+specifically remembering, since it'll resurface on a fresh clone otherwise: NativeWind's babel
+plugin (`jsxImportSource: 'nativewind'`) rewrites every JSX-using file to import
+`react-native-css-interop/jsx-runtime` directly, resolved from *that file's own* location. Since
+`react-native-css-interop` is only ever a transitive dependency of `nativewind` here, pnpm's strict
+node_modules doesn't expose it to `apps/mobile`'s own source files by default — expected, and
+normally fixed by adding it as an explicit direct dependency. That fix didn't work here: both
+`pnpm add` and a plain `pnpm install` deterministically created a **dangling symlink** at
+`apps/mobile/node_modules/react-native-css-interop`, pointing at an *unqualified*
+`.pnpm/react-native-css-interop@0.2.7` store entry that — confirmed directly, repeatedly, even
+after `rm -rf node_modules && pnpm install --force` — never actually gets populated with real
+files, while the real, fully-populated copy sits one level deeper inside `nativewind`'s own
+`node_modules`, under a peer-dependency-qualified hash pnpm clearly already knows how to resolve
+correctly (it's used successfully as a transitive dependency). The actual fix, in
+`apps/mobile/metro.config.js`: resolve the *real* path at config-load time the same way Node
+itself would (`require.resolve('react-native-css-interop/package.json', { paths: [...] })`,
+anchored on wherever `nativewind`'s own `package.json` actually lives — not a hardcoded hash, which
+would go stale on the next install) and hand Metro that real path directly via
+`resolver.extraNodeModules`, sidestepping the broken symlink entirely regardless of whether pnpm
+ever fixes its own resolution for this package. `react-native-css-interop` is *not* listed as a
+direct dependency in `package.json` — adding it is what triggers the bug in the first place; the
+Metro-level fix needs no package.json entry at all.
+
+**What was actually built this round**, verified by real `expo export` bundles for **all three
+platforms** (`--platform web`, `--platform ios`, `--platform android` — not just web, since this
+round touches Metro/babel config that could plausibly behave differently per platform) plus the
+live dev server restarted fresh and re-bundled with zero errors:
+
+- **`packages/core/themes.ts`** (moved from `apps/web/lib/themes.ts`, byte-for-byte — it was
+  already pure data/math with zero DOM dependency) — the *entire* theme system: 10 color tokens,
+  10 quick-pick `PRESETS` + 20 more in `MORE_PRESETS` (light/dark/midnight/forest/.../gruvbox/
+  monokai/tokyo-night/catppuccin/rosé-pine/kanagawa/..., 30 total), `getPreset`/`isValidHex`/
+  `isDarkColors`. The usual re-export shim sits at the old `apps/web/lib/themes.ts` path so every
+  existing web import keeps working unchanged — confirmed via `apps/web`'s own full `tsc`/
+  `eslint`/`next build`.
+- **`apps/mobile/src/theme/ThemeProvider.tsx`** — the native side of `apps/web/lib/theme.ts`: same
+  storage key (`jam-practice-theme`, now in `AsyncStorage` instead of `localStorage` — two
+  genuinely separate stores, no actual cross-device sync, just a matching name), same resolve rule
+  (custom-if-set, else the chosen preset, else "light"), built on the exact same shared preset
+  list. Applies the resolved colors as real CSS custom properties via NativeWind's `vars()`,
+  wrapping the whole app once near the root. **Deliberately not ported yet**: font selection
+  (`lib/fonts.ts`'s web-only `var(--font-x)` stacks tied to `next/font/google` — a native
+  equivalent needs real font files via `expo-font`, a separate task), the custom-theme color
+  *editor* (`setCustomColor`/`setCustomColors` aren't exposed — every preset is pickable, including
+  landing on "custom" once something has seeded it, which nothing does yet), and no system-
+  color-scheme fallback on first launch (defaults straight to `"light"`, same as web's own
+  `DEFAULT_STATE` before its own `matchMedia` check runs).
+- **The sidebar** (`apps/mobile/src/components/Sidebar.tsx`) — a real `Drawer`
+  (`react-native-drawer-layout`'s own component, not `expo-router/drawer`'s file-based nested-
+  layout convention, which would need every route split into a sub-`_layout.tsx` for no benefit
+  here), reachable from any screen via a left-edge swipe or the header's own hamburger button
+  (`MenuButton`). Its content mirrors `Sidebar.tsx`'s own shape: a "sheddex" header, a search box
+  directly above the categorized tool list in the same panel (not a separate modal) — the same
+  `groupByCategory`/`filterNavLinks` the `/menu` screen already used, pulled into a shared
+  `ToolList` component so both render tool rows identically rather than drifting apart. A "Theme"
+  row at the bottom opens the new `/theme` screen. **Deliberately scoped down** from the real
+  `Sidebar.tsx` (712 lines on web) — not ported this round: favorites, the account menu, the
+  practice timer widget, collapsible/expandable categories (sections render always-expanded), and
+  resize-by-drag (there's nothing to resize on mobile). This is the structural shell, not full
+  parity.
+- **`apps/mobile/src/app/theme.tsx`** (new route) — a native port of `ThemeModal.tsx`'s own
+  two-tier structure (the 10 quick-pick presets, then "More themes" below) as a full screen rather
+  than a popover/modal (no modal-sheet primitive wired up yet, and a full screen is the more
+  natural native shape for "pick one of 30 things" regardless). Each row previews *that preset's
+  own* colors directly (not the currently-active theme's tokens) so you can see what you're about
+  to pick, with a checkmark on whichever one's actually selected and a small "active theme" strip
+  pinned to the bottom using the live resolved colors, confirming the whole app re-themes instantly
+  on tap.
+- **Home** (`apps/mobile/src/app/index.tsx`) — restyled with NativeWind to match
+  `apps/web/components/Home.tsx`'s actual copy/structure/colors directly (the "sheddex" title, the
+  tagline, the search-trigger pill, the accent-bordered "free, no ads" pitch card, the accounts-
+  are-optional note, the footer line) rather than the earlier from-scratch native redesign. The
+  web hero's floating tool-preview cluster (real `BeatIndicator`/chord-chip previews) still isn't
+  ported — it depends on real tool UI that doesn't exist natively yet.
+- `menu.tsx`/`tool/[slug].tsx` were also rewritten onto NativeWind classNames (dropping the
+  template's own `ThemedText`/`ThemedView` style-prop approach); `ToolList` is now shared between
+  `/menu` and the sidebar drawer rather than each rendering its own copy.
+- **Removed outright** (now fully superseded, not left as dead code): the template's own
+  `ThemedText.tsx`/`ThemedView.tsx`/`use-theme.ts`/`use-color-scheme.ts`(`.web.ts`) and
+  `constants/theme.ts`'s old light/dark-only `Colors` object — confirmed nothing else referenced
+  any of them before deleting (`grep`, not assumed).
+
+Verified concretely, not just by a clean build: the exported `index.html` (from a real
+`expo export --platform web`, and separately fetched live from the running dev server) contains
+the literal string `--background:#f4f4f6` — the light preset's own hex value, inline on the root
+`View`'s own style attribute — proving the whole chain (shared preset data → `ThemeProvider` →
+NativeWind's `vars()` → compiled CSS referencing `var(--background)`) resolves correctly end to
+end, not just that it type-checks. The compiled CSS output was independently grepped for
+`var(--accent)`/`var(--foreground)`/`var(--surface)`, confirming the color *tokens* (not just one
+hardcoded value) are wired through correctly. **Not verified**: how any of this actually looks on
+a real device through Expo Go — this sandbox can only check bundling and rendered
+HTML/CSS content, never see or tap through it; native-only behavior specifically (the Drawer's own
+swipe gesture, `AsyncStorage` persistence actually surviving an app restart on-device) is entirely
+unconfirmed beyond "the bundle for that platform builds."
+
+### The "base" pass: responsive layout, the real wordmark, exact copy — verified by actual screenshot this time
+
+A direct follow-up, with real screenshots of both apps side by side: "they dont look very
+similar... again I want the expo site to look exactly the same as the nextjs one... I want at
+least the base to be good here." Two genuine structural gaps, not just missing polish:
+
+- **No responsive layout at all** — the Expo app always used the hamburger-triggered overlay
+  drawer, even in a wide desktop browser window, where the web app shows a *persistent* sidebar
+  instead (no hamburger, sidebar and content side by side). This was the single biggest cause of
+  "doesn't look similar" — the screenshot comparison was a wide desktop window with a hamburger
+  and a huge empty page next to the web app's own persistent-sidebar desktop view. Fixed with
+  `useIsWideScreen` (`apps/mobile/src/hooks/useIsWideScreen.ts`), the exact same `min-width: 1024px`
+  breakpoint `apps/web/lib/useIsDesktop.ts` already gates its own desktop/mobile split on, driving
+  `react-native-drawer-layout`'s own built-in `drawerType="permanent"` (real support for "sidebar,
+  not overlay," not something hand-built) above that width, `"front"` (the usual overlay) below
+  it. `MenuButton` (the hamburger) renders nothing at all once the sidebar's permanent, same as the
+  web hamburger never shows up next to the web desktop sidebar either.
+- **The wordmark itself didn't exist** — `apps/web/components/Wordmark.tsx`'s own waveform-bars-
+  behind-the-text effect (and the fact that "sheddex" is `accent`-colored, not `foreground`-colored
+  — a real, visible mismatch caught directly against a screenshot) was simply missing; Home just had
+  plain bold neutral-colored text. Ported directly as `apps/mobile/src/components/Wordmark.tsx` —
+  the *exact* two hand-picked bar-height arrays from the web version (not re-derived), sized against
+  a fixed-height container the same percentage-based way the web version sizes them against its own
+  CSS box. Shared by both the Home hero (`size="lg"`) and the sidebar header (`size="sm"`), the same
+  "one definition, not two drifting copies" reasoning the web version's own doc comment already
+  states.
+- **Home's copy didn't match** — an earlier pass used paraphrased/shortened text instead of the
+  real copy. Rewritten to match `Home.tsx` word for word: the real tagline, the full "free
+  all-in-one solution" pitch paragraph, a real "☕ Buy me a coffee" button (opens
+  `buymeacoffee.com/jackmechem` via `Linking.openURL`), the accounts note, and the full footer line
+  (`Made by Jack Mechem · GitHub · Privacy · Terms · Credits` — each a real `Linking.openURL` to
+  the actual deployed web page, since none of those have native screens yet; "Jack Mechem" and
+  "GitHub" link out, "Privacy"/"Terms"/"Credits" currently open the *web* versions at
+  `sheddex.com/...` as a deliberate interim bridge rather than dead links).
+- **A simplified, static `PreviewCluster`** was added too (the same five tool-preview chips —
+  Metronome/Jam Practice/Chord Charts/Guess the Interval/Polyrhythm — `Home.tsx` itself shows),
+  matching the *mobile* web view's own 2-column grid shape specifically (not the desktop-only
+  scattered/rotated absolute layout) since that's the shape this app's screens already need
+  regardless of width. Static content (no live `BeatIndicator`/audio — real tool UI this app
+  doesn't have yet), but genuinely tappable through to that tool's placeholder screen.
+- **`hexWithOpacity()`** (`apps/mobile/src/app/index.tsx`) — a small hand-rolled hex-to-rgba
+  helper, needed because this app's theme colors are plain hex `var(--x)` strings (see
+  `tailwind.config.js`'s own comment on why), which NativeWind's `bg-accent/10`-style opacity
+  modifiers can't apply to the way they can to an rgb()-triplet color. Used for the hero preview
+  card's translucent accent tint — a flat `opacity` style would have faded the card's own text
+  along with its background, not just the background.
+- **A real layout bug, caught only because this round's verification actually looked at a
+  screenshot for the first time** (see below) **and not before**: Home's content used to be a
+  plain `flex-1` block with `justifyContent: 'center'` and no way to scroll — on a short/narrow
+  viewport where the content (now taller, with the preview cluster and full copy) didn't fit, it
+  silently overflowed *upward* past the top of the screen instead of scrolling, clipping the
+  wordmark and visually overlapping the footer into the paragraph above it. Fixed by wrapping
+  everything in a real `ScrollView` (`contentContainerStyle`'s own `justifyContent: 'center'` still
+  centers content when there's room to spare — identical to before whenever it fits — and now
+  scrolls instead of overflowing when it doesn't).
+
+**Verification finally included real screenshots, not just bundle/content greps** — this sandbox's
+nix-chromium + `playwright-core`-over-CDP setup (documented elsewhere in this file, previously only
+used against the Next.js web app) was pointed at the Expo dev server's own web output for the first
+time this round, and **it's what actually caught the ScrollView bug above** — grepping rendered
+HTML for the right strings, as every earlier round in this section did, would never have surfaced a
+purely visual clipping/overlap problem. Confirmed directly, at real viewport sizes: a 1400px-wide
+screenshot shows the permanent sidebar + centered hero, matching the real web desktop screenshot's
+own layout closely; a 390px-wide screenshot shows the hamburger-only mobile layout with no
+permanent sidebar, matching the real web mobile screenshot; clicking the hamburger (a coordinate
+click — a text-locator click failed first, intercepted by an overlapping pointer-events layer, not
+an app bug, just a test-script targeting issue) actually opens the drawer, showing the categorized
+list + Theme row; a full-page (not just viewport) screenshot at narrow width confirms the pitch
+card, accounts note, and footer all render in order with no overlap after the `ScrollView` fix.
+Zero console errors throughout. **Still not verified**: real device/Expo Go rendering (this is
+still react-native-web specifically, not true native iOS/Android — the same screens were also
+re-confirmed to bundle cleanly for `--platform ios`/`--platform android`, but bundling clean and
+rendering identically-correctly on-device aren't the same claim), and genuine touch/swipe gesture
+feel for the drawer on a real screen.
+
+### Theming on native was broken in a way this sandbox's own verification couldn't catch — found and fixed against a real device
+
+Jack reported the styling looking wrong in Expo Go itself (text rendering near-invisible/unstyled)
+despite every earlier round's own `--platform ios`/`--platform android` bundle checks passing
+clean — a real, concrete gap in this whole section's own verification method up to this point:
+"the bundle builds" and "the CSS variable mechanism actually resolves on a real device's JS
+runtime" are different claims, and only the first had ever actually been checked. Diagnosed this
+time against Jack's own physical Pixel 10 Pro, plugged in over USB — `adb`/`scrcpy`
+(`nix shell nixpkgs#android-tools nixpkgs#scrcpy`, no root needed) gave this sandbox, for the
+first time, a way to screenshot and interact with a *real* native Android runtime rather than only
+`react-native-web` through a browser, which is all the nix-chromium setup documented elsewhere in
+this file could ever exercise — worth remembering as a second real-device verification path
+alongside that one.
+
+**Root cause, traced through `react-native-css-interop`'s (0.2.7, what this NativeWind 4.2.7
+ships) actual source, not guessed**: `ThemeProvider.tsx`'s original design matched the web app's
+own mechanism as closely as possible — resolved theme colors applied as real CSS custom properties
+via NativeWind's `vars()`, so `className="bg-accent"` would mean the same thing on both platforms.
+This *looked* right (confirmed correct in every `react-native-web` bundle/screenshot check this
+file already documents) but was never actually correct on true native: `vars()` creates a fresh,
+WeakMap-identity-keyed observable for every CSS variable on every call, and switching themes
+(`useMemo(() => vars({...}), [colors])`) produces a *brand-new* set of observables each time — any
+already-rendered descendant `className` (`bg-background`, `text-foreground`, ...) had subscribed
+to the *old* observable on its first render and is never notified when a *new* one is created, and
+`react-native-css-interop`'s own guard system only re-resolves a component's styles when that
+component's *own* `className`/`style` prop changes, not when an ancestor's provided variable value
+does — so a static className gets stuck on whichever color it first resolved to, forever. Confirmed
+directly on-device: anything reading `colors` as a plain JS value (icon `color` props, inline
+`style`) updated instantly on a theme switch; anything styled via a `className` color token did
+not. A `:root` CSS fallback (added first, to fix an even more basic problem — nothing resolved to
+*any* color at all without one) made this worse, not better: it turned out to be
+`global.__css_interop`'s `rootVariables` store, not the `vars()`-scoped context override, actually
+driving resolution — confirmed with a deliberately absurd test value (`--background: #ff00ff`),
+which rendered on-device regardless of which theme was actually selected.
+
+**Fixed by not using `vars()`/CSS custom properties for color at all** — rather than chase
+`react-native-css-interop`'s internals (a `StyleSheet.registerCompiled({rootVariables})` runtime
+API exists and would plausibly work, since `injectData` correctly `.set()`s existing observables
+in place rather than creating new ones, but reaches deeper into unstable/undocumented territory
+for a problem with a much simpler standard answer). Color now flows entirely through
+`useAppTheme().colors` (the plain React Context this file already had, which was never actually
+broken) applied as inline `style` props — the ordinary, "native to Expo" way color theming is done
+in React Native (the same shape react-navigation's or react-native-paper's own theme objects use),
+per Jack's own explicit direction once the `vars()` rabbit hole became clear: get the Expo app
+using the *same theme data* as the web app (still true — `@jam-practice/core/themes` is
+unchanged, still the one shared source of truth) without needing the same *mechanism* to apply it.
+`className`/NativeWind is still used everywhere for *layout* (flex, spacing, rounded corners, type
+scale) — only color moved off it. Touched: `ThemeProvider.tsx` (dropped `vars()`/the `nativewind`
+import entirely, now just resolves `colors` and renders a plain `<View style={{backgroundColor:
+colors.background}}>`), `tailwind.config.js` (dropped the `theme.extend.colors` block pointing at
+`var(--x)`), `global.css` (dropped the color `:root` block, keeping only the pre-existing font
+vars), and every screen/component that had a color `className` — `Home` (`index.tsx`), `Sidebar`,
+`ToolList`, `Wordmark`, `MenuButton`, `theme.tsx`, `tool/[slug].tsx` — converted to inline
+`style={{color: colors.x}}`/`style={{backgroundColor: colors.x}}`, with `active:bg-x-hover`
+press-state classNames replaced by `Pressable`'s own functional `style={({pressed}) => ({...})}`
+prop (a plain React Native mechanism, not dependent on NativeWind's CSS-interop at all).
+
+**Verified for real, on the actual device, not just reasoned through**: cold-reloaded the app
+(Expo Go's own dev-menu "Reload," not Fast Refresh, to rule out any hot-reload-specific
+artifact) on "Gruvbox Dark" — background, wordmark, nav row text, icons, section headers all
+correctly dark/orange from the very first frame. Then, with zero reload, opened the drawer →
+Theme → picked "Midnight" (a completely different hue) and confirmed *live*, in place: the Theme
+screen itself, the drawer, and — navigating back — the Home screen's background, wordmark, tagline,
+search pill, and every nav row all switched to the new navy/blue theme immediately, the exact
+scenario that was silently broken before (screenshots of both the broken and fixed states were
+compared directly, not just described). `tsc --noEmit` and `eslint` both clean across every
+touched file, and all three `expo export --platform {web,ios,android}` still bundle cleanly after
+the rewrite. **Not verified**: how this looks/feels on a real iOS device (only Android was
+available to test against this session), and whether the `Pressable` functional-`style`
+press-state replacement feels identical to the original `active:` classNames — reasoned to be
+behaviorally equivalent (both are "a different background while actively pressed"), not
+specifically tapped-and-held to confirm by feel.
+
+### Home and the menu redesigned into a card-based "app-like" look — plus a second real device-only bug, worse than suspected
+
+A direct follow-up, after installing the `expo-ui` and `vercel-react-native-skills` skills:
+"redesign the home page and menu to be more mobile friendly and app like." The skills' own default
+advice (native `@expo/ui` `List`/`BottomSheet`, a native large-title header + search bar) was
+proposed first and explicitly turned down — "fully native components tend to look very generic
+... think of apps like instagram, airbnb," with a few Dribbble references (most usefully, a
+smart-home app's 2-column grid of rounded "Favorite Actions" tiles). The `frontend-design` skill
+was loaded for the actual build, adapted for a mobile app with a pre-existing, fixed 30-preset
+color system rather than a from-scratch brand palette — structural/layout choices (cards, grid,
+grouping, a featured banner) carry the "distinctive, not templated" goal here, not new colors.
+
+**What shipped**: `ToolList.tsx` (flat rows) was replaced outright by `components/ToolGrid.tsx` — a
+plain `ScrollView` over hand-chunked 2-column rows (not `SectionList`'s own `numColumns`-less
+layout, and not a `FlatList`/`FlashList` switch either — this is a small, fixed-length list of 16
+tools, not a feed, so none of the virtualization machinery either would earn its keep), each tile a
+rounded card with an accent-tinted icon chip, plus a "featured" Community banner (solid `accent`
+background) above the category grid. `Home` (`app/index.tsx`) and `Sidebar.tsx` both shrank to a
+fixed (non-scrolling) compact top bar + fixed search pill, with `ToolGrid` as the only scrolling
+content beneath — the "search always reachable, chrome doesn't scroll away" pattern the reference
+apps use. A new floating pill tab bar (`components/FloatingTabBar.tsx`, Home/Community/Profile, a
+filled accent circle behind the active icon) was added per a direct follow-up with its own
+reference screenshot — mounted once in `_layout.tsx` as a sibling of `Stack` inside `Drawer`'s own
+main-content slot, so the drawer sliding open naturally covers it with no manual z-index/visibility
+logic, and persists correctly across navigation since it's outside any one screen. It's a plain
+hand-built `View`/`Pressable` row, not `expo-router`'s `Tabs`/native-tabs layout — same "not fully
+native" steer, and the existing single flat `Stack` (not per-tab stacks) didn't need restructuring
+to get it. "Profile" has no screen of its own yet (no auth on the Expo side — still an unstarted
+spike), so `app/profile.tsx` is a plain placeholder, the same honest "not built yet" treatment
+`tool/[slug].tsx` already uses for every unported tool, not a faked signed-out state.
+
+**A second real, confirmed-on-device bug, found immediately once there was something to actually
+look at**: the very first version of the new Community banner rendered as a conspicuous empty gap
+— no visible background, no visible text, despite `uiautomator`'s own UI dump confirming the text
+nodes genuinely existed with correct bounds and content. Root-caused by elimination, not guessed:
+swapping the banner's dynamic `style={({pressed}) => ({backgroundColor: ...})}` for a *hardcoded*
+`style={{backgroundColor: 'red'}}` still rendered nothing, which ruled out a bad color value and
+pointed at the function itself — confirmed by then testing a plain *static* object in place of the
+function, which rendered correctly immediately. **A NativeWind-wrapped `Pressable`'s functional
+`style` prop (`style={(state) => ({...})}`, React Native's own documented, standard way to vary a
+`Pressable`'s style by press state) is silently dropped outright on this device/version — not even
+its initial, unpressed value ever applies.** This is the same underlying class of bug as the
+`vars()`/CSS-variable issue two rounds earlier in this file (`react-native-css-interop` mishandling
+a *dynamic*, non-compiled value passed through `style`) — different code path, same root category:
+this version of the library's style-interception layer only reliably handles compile-time-known
+inputs (literal classNames, plain style objects), not anything decided at runtime inside a
+function. Directly connects to an open, under-examined caveat from the *previous* round's own
+entry (above): "whether the `Pressable` functional-`style` press-state replacement feels identical
+... not specifically tapped-and-held to confirm by feel" — it didn't just feel different, it never
+worked at all, on *any* of the four Pressables using that pattern (`MenuButton`, `Sidebar`'s close
+button and Theme row, `ToolGrid`'s own tiles), confirming this was a real, pre-existing, silent gap
+in every one of this session's own earlier "it's probably fine, just unconfirmed by feel" caveats,
+not a new regression introduced by this round's redesign.
+
+**Fixed project-wide, not just on the one banner that happened to get noticed**: every Pressable in
+`MenuButton.tsx`, `Sidebar.tsx`, and `ToolGrid.tsx` moved to a plain (non-function) `style` object
+plus `android_ripple` for Android's own native press feedback — sidesteps the bug entirely rather
+than working around it, and `android_ripple` is itself a genuinely native touch cue, not a step
+down in "app-like" feel. iOS has no equivalent replacement here and so has no visual press feedback
+on these elements for now — not independently verified, no iOS device available this session
+either. The same fix also directly explains why the grid's tiles looked "flat, no real card
+background" when first reported (a direct quote: "the cards in the grid you currently have dont
+look like cards they need a background") — their own card fill was never actually applying either,
+for the identical reason; tiles also gained a 1px `surface-hover`-colored border on top of the fix,
+for crisp card definition even in whichever of the 30 presets happen to keep `surface` and
+`background` very close in value (several do, by design).
+
+**Verified for real, on the actual device** (adb/scrcpy over USB, per
+[[android-device-verification-possible]]) at every step, not just reasoned through — this is
+exactly the kind of bug no amount of `expo export --platform ios/android` bundle-compiles-clean
+checking would ever catch, since it's a runtime styling behavior, not a build error: the red/static
+test isolating the actual bug; the real redesign (accent Community banner, bordered surface tiles,
+all legible) rendering correctly afterward across at least two different active presets; all three
+floating tab bar destinations (Home/Community/Profile) navigating correctly and showing the right
+active state via `usePathname()`; the tab bar correctly persisting across in-app navigation
+(visible on a pushed tool-detail screen, none of the three tabs active, as expected) and correctly
+hidden behind the opened drawer; and `ToolGrid`'s scroll content clearing the floating bar with
+clean space at the very last row, confirming the `bottomInset` prop actually does its job. `tsc`
+and `eslint` both clean, and all three `expo export --platform {web,ios,android}` bundle cleanly
+afterward, with `/profile` now showing up as a genuine fourth static route.
+
+This exact "does the floating tab bar collide with a screen's own bottom-pinned content" concern
+was real, not hypothetical — checked directly, right after writing it down as an open question
+rather than left as a guess: `theme.tsx`'s own "Active theme" strip, already pinned to the bottom
+of that screen, sat partially *underneath* the tab bar (the strip's own text, and part of the
+"Monokai" preset row above it, visibly obscured). Fixed with `marginBottom: insets.bottom + 80` on
+the strip itself (`useSafeAreaInsets`, the same input `FloatingTabBar.tsx`'s own `insets.bottom +
+16` offset uses) — pushes the strip up to clear the bar instead of sitting under it, re-confirmed
+on-device afterward showing clean separation between the two. `tool/[slug].tsx` wasn't similarly
+checked (its content is short and top-anchored, a much lower-risk shape for this exact collision,
+but genuinely not tapped through this round either). **Not verified**: iOS rendering/feel at all
+(no device available this session); and genuine touch/swipe feel for the ripple effects and the
+floating tab bar's own tap targets on a real finger rather than a scripted `adb` tap.
+
+### Home collapsed into the menu, Convex actually connected, Profile made real, and the Metronome fully ported
+
+Three direct follow-ups in one session: "I don't really want a home page at all, I want the menu
+to be the home page, also remove the community link from the menu since its at the bottom, also I
+want you to figure out how to get convex connected, also implement the profile page" — then,
+separately, "fully implement the metronome... all the same features as the nextjs app but
+optimized for mobile."
+
+**Home *is* the menu now.** The separate hamburger-triggered drawer (`Sidebar.tsx`) is gone
+outright, along with `MenuButton.tsx` and `DrawerController`/`react-native-drawer-layout` — `Home`
+(`app/index.tsx`) now renders exactly what the drawer used to (wordmark, search, the tool grid,
+a "Theme" row), since `FloatingTabBar` already gives Home its own permanent tab and nothing was
+left for a second "get back to the menu" panel to do. Community is gone from the grid entirely too
+(not just de-featured) — it has its own tab now, so a second entry in the list would just be a
+duplicate. `_layout.tsx` simplified to a plain `Stack` + `FloatingTabBar`, no `Drawer` wrapper.
+
+**Convex is genuinely connected**, not just planned: `apps/mobile` now depends on
+`@jam-practice/convex` (the same backend `apps/web` already uses — one Convex deployment, not two)
+via `@convex-dev/auth/react`'s `ConvexAuthProvider`, with an `expo-secure-store`-backed token
+storage on native (that package's own doc comment is explicit that a browser-storage default
+"must" be replaced for React Native) and a plain `localStorage` fallback on web specifically —
+`expo-secure-store`'s own web implementation doesn't actually implement the method this storage
+interface calls (confirmed directly: `ExpoSecureStore.default.getValueWithKeyAsync is not a
+function`, a real thrown error, not a guess), and since web is this sandbox's own most reliable
+verification path (see below), that fallback isn't optional polish — without it, every screen
+crashed the moment anything touched auth, in a real browser.
+
+**A real, easy-to-hit gotcha found and fixed along the way, saved to memory**
+([[expo-dev-server-stale-env-vars]]): the dev server had been running continuously since early in
+the session, *before* `.env.local`/`EXPO_PUBLIC_CONVEX_URL` ever existed. `npx expo start` reads
+`.env.local` exactly once, at its own startup — adding the file afterward did nothing until the
+process was actually restarted, so every screen in the running app was silently serving a 500
+(`No address provided to ConvexReactClient`) for a while, invisible to `tsc`/`eslint`/`expo export`
+(a fresh one-shot process each time, which always picks the env up fine) — exactly the kind of gap
+this project's own usual verification habits don't catch, since none of them touch a long-running
+dev server specifically. Fixed by killing and restarting it; worth checking for first next time
+something that type-checks and bundles clean still behaves wrong at runtime.
+
+**Profile is real, not a placeholder** (`app/profile.tsx`): email/password sign-in and sign-up with
+the same `@convex-dev/auth` email-verification-code state machine `apps/web`'s own `AuthForm`
+already uses (same backend, same `flow`/`step` shape, same honest-but-generic per-flow error
+messages) — ported as a full screen instead of a flyout, since there's no sidebar for a flyout to
+anchor to and `FloatingTabBar` already points straight here. Once signed in: who's signed in
+(`@username` if claimed, else name/email) and a sign-out button. Deliberately scoped down from
+web's fuller `/account` page for this pass — no password change, no Google linking, no account
+deletion yet, and Google sign-in itself is deferred (on native it needs an in-app browser + deep-
+link redirect handshake, a separate task from plain email+password) — real, documented gaps, not
+forgotten corners.
+
+**The Metronome is fully ported** — `app/tool/metronome.tsx`, shadowing the generic `[slug]`
+placeholder for that one route (the exact mechanism this app's own placeholder screen was always
+built to allow). Same settings shape, same tempo/meter math, same five click sounds, same
+Structures (chained odd-meter sections) feature as `apps/web/components/Metronome.tsx` — the pure
+logic (`@jam-practice/core/clickSounds`, `meterControls`, `meters`, `structure`) is pulled into the
+shared package verbatim from the web files, the same "pull, don't push" rule this package has
+followed since Phase 0, since this is the first time something outside `apps/web` has needed it.
+
+**The one piece that couldn't just be ported: audio.** There's no Web Audio API on native — no
+`AudioContext`, no `OscillatorNode` to synthesize a click's exact frequency on the fly the way
+`apps/web/lib/clickEngine.ts` does. `scripts/generate-click-sounds.mjs` pre-renders one short WAV
+per `CLICK_SOUNDS` entry at build time (baked with the *exact* exponential-decay envelope the web
+engine's own `GainNode` ramp produces), each at that sound's own `accentFreq` — always the
+*highest* of its three frequencies — so the lower `normalFreq`/`subFreq` can be reached at playback
+time by pitch-shifting that one sample down via `expo-audio`'s `AudioPlayer.playbackRate`
+(`shouldCorrectPitch: false`, so rate genuinely changes pitch rather than just speed) — the same
+"one reference sample + playbackRate" trick `apps/web/lib/sampledTones.ts` already uses for
+arbitrary note frequencies from a sparse sample set, and specifically rendering at the *highest*
+frequency keeps every needed ratio comfortably inside `expo-audio`'s 0.1–2.0 range rather than
+needing to exceed it. A small round-robin pool of `AudioPlayer`s per sound (not one) avoids an
+audible cutoff when subdivisions retrigger faster than one click's own playback finishes — the same
+voice-stealing idea a polyphonic synth uses. `lib/metronomeClickEngine.ts`'s own doc comment is
+explicit about the one real, accepted precision gap this leaves versus web: scheduling happens
+against wall-clock `Date.now()` (the same class of precision most JS-timer-based mobile metronome
+apps use), not a sample-accurate audio clock, since `expo-audio` exposes no equivalent to
+schedule a click for an exact future sample the way `osc.start(time)` does — tight under normal
+load, but not literally sample-accurate, and not yet confirmed by ear on a real device.
+
+**Two deliberate mobile-specific simplifications, not cut corners**: no continuous BPM/volume drag
+slider (large ±1 steppers, direct numeric entry, and Tap Tempo instead — genuinely easier to hit
+precisely with a finger than a log-scaled slider, and how most real mobile metronome apps are
+built in the first place); and the Structure editor's form reordering is plain ‹ › move buttons
+instead of the web version's drag-to-reorder gesture — a risk call, not a feature gap, made because
+this session's own device connection was too unreliable to trust a hand-rolled touch-drag
+implementation without being able to iterate against a real finger.
+
+**Verified for real, end to end, in a real browser** — the phone's own USB connection dropped
+again partway through this work (same flakiness as earlier in the session), so the nix-chromium +
+playwright-core setup ([[browser-verification-possible]]) carried the *entire* verification load
+this time, not just a spot-check: the full settings/tempo/sound UI renders with real values (not
+just mounting — actual beat-level colors, the correct single "4" accent-grouping readout for the
+default `[2,1,1,1]` accents, etc.); Start → Stop → Start toggling works; tapping a beat bar cycles
+its level in the correct accent→muted→normal order and updates its own accessible label
+immediately; enabling "Use a structure" swaps in the real `StructureEditor`, adding a section and
+appending it to the form both work, expanding a section card reveals its own embedded meter
+controls, and starting a structure-driven run correctly shows "Section A · bar 1 of 4"; zero
+console/page errors through all of it. `tsc` and `eslint` are both clean, and all three
+`expo export --platform {web,ios,android}` bundle cleanly, with the five generated WAV files
+correctly showing up as real bundled assets for iOS/Android. **Not verified, and the one thing that
+actually matters most here**: how any of this *sounds* — real native audio playback through
+`expo-audio`'s actual native players (AVAudioEngine/AAudio under the hood, a genuinely different
+code path from whatever `expo-audio` does on web, which is what the browser-based check above
+exercised instead) has not been heard on a real device this session. The pitch-shifted click
+timbres, the pool's voice-stealing at fast subdivisions, and the wall-clock scheduler's real-world
+tightness are all reasoned through and internally consistent, but genuinely unconfirmed by ear.
+
+**Two real on-device-only bugs, found the moment Jack actually ran it, neither catchable from this
+sandbox**: (1) `AudioPlayer.playbackRate` is read-only at runtime — "Cannot assign to property
+'playbackRate' which has only a getter" — despite its own type declarations showing it as a plain,
+seemingly-settable `playbackRate: number` field sitting right next to the real setter,
+`setPlaybackRate()`; fixed by calling that method instead of assigning the property directly. (2)
+`BeatIndicator`'s active-bar highlight set `transform: active ? [...] : undefined` — RN's native
+style validator crashed on the `undefined` branch ("Cannot read property 'forEach' of null" inside
+`processTransform.js`), which only reproduces on a real device, not through `react-native-web`;
+fixed by spreading the `transform` key in only when there's an actual value (`...(active ? {...} :
+null)`), so the key is genuinely *absent* rather than present-with-an-undefined-value. Both
+confirm the limits of this session's own web-only verification — neither would ever have surfaced
+there.
+
+**The pitch-shifting approach itself turned out to be wrong, not just unverified** — reported
+directly once actually heard: "the click sounds weird and too beep like, it should be clicky." The
+cause was exactly the risk its own doc comment had flagged, just bigger in practice than expected:
+slowing `playbackRate` down to reach `normalFreq`/`subFreq` stretches a sample's *duration* right
+along with its pitch, and since "normal" is the most commonly heard level (3 of 4 beats in the
+default accent pattern), most clicks were audibly ringing out longer than intended — a soft beep,
+not a short click. Fixed properly rather than tuned around: `scripts/generate-click-sounds.mjs` now
+bakes all four `ClickVariant`s (`accent`/`normal`/`subAccent`/`subNormal`) as their own real files
+per sound (20 total, still trivially small), each already at its own correct frequency *and*
+length; the engine plays every one back at a flat rate of 1.0, no pitch-shifting, no duration
+coupling, no `playbackRate` left anywhere in the engine at all. `@jam-practice/core/clickSounds`'s
+`resolveMainBeatClick`/`resolveSubClick` now return which `ClickVariant` to play directly, so the
+engine doesn't need to reverse-engineer "which file" from a frequency match.
+
+Re-verified after all three fixes: `tsc`/`eslint` clean, all three `expo export` platforms bundle
+cleanly with all 20 per-variant assets showing up as real bundled files, and a browser smoke-test
+(Start → Stop, no console errors) confirms the engine rewrite didn't regress anything structurally.
+**Still the one thing that actually matters most and still isn't confirmed**: whether the new
+fixed-length-per-variant samples genuinely read as "clicky" rather than "beepy" now, by ear, on the
+real device that reported the problem in the first place.
+
+### A new, generalized tool-screen layout: no scrolling, essentials on the main display, everything else in a tabbed sheet
+
+A direct follow-up, explicitly meant to apply to every future mobile tool, not just this one: "make
+it so that the options for the metronome (all all tools in the future for the mobile app) are in
+some kind of menu drawer. I want the mobile app to avoid scrolling on main tool pages. the tool
+should have the most common options built into the main display of the tool... and everything else
+will be in a menu that can be opened with a button somewhere and that menu will have tabs for the
+different sections."
+
+**`components/ToolOptionsSheet.tsx` is the new, generic piece** — a hand-built `Modal` + dimmed
+backdrop + sliding-up panel (not a native bottom sheet; same "fully native looks generic" steer as
+the rest of this redesign), taking a `tabs: {key, label, content}[]` prop. The tab row itself only
+renders when there's more than one tab, so a simpler tool with one options group doesn't show a
+pointless single-tab row. Each tab's own content scrolls independently inside the sheet — "avoid
+scrolling" was specifically about a tool's *main* page, not its secondary options, which are
+expected to scroll normally once there's more than a screen's worth, the same as any settings panel.
+
+**The Metronome screen itself was restructured around it, not just given a drawer bolted on**:
+`MetronomeControls.tsx` split into main-display pieces (`TimeSignatureControls` — just the beats/
+unit steppers, compact enough to sit directly under the tempo, per the request's own literal
+example; `TempoControls` — BPM + steppers + Tap Tempo, with the note-value picker and conversion
+hint pulled *out* into their own `TempoNoteValueControls`) and options-sheet pieces
+(`TempoNoteValueControls`, `AccentAndSubdivisionControls`, `SoundOptions`) — `MeterOptions` (the
+full bundle) is kept as its own unchanged export too, since `StructureEditor`'s own section cards
+still want everything in one place and have no "main display" of their own to split fields out of.
+The screen's main view is now a plain `View` (no `ScrollView` at all): a small Options button
+(new `SlidersIcon`, top-right) opens the sheet with two tabs — "Meter" (subdivision, accent
+grouping, tempo note value, the "Use a structure" toggle + `StructureEditor`) and "Sound" (tone +
+volume) — while time signature, tempo, the beat indicator, and Start/Stop stay directly on the main
+screen, now visually grouped as one centered cluster (`flex-1 items-center justify-center gap-10`)
+rather than spread to the screen's own edges.
+
+Verified for real, via the same nix-chromium + playwright-core setup carrying this whole session's
+verification load: the main screen's `scrollHeight === clientHeight` at a real 390×844 phone
+viewport (844 === 844, exactly) — no scrolling is actually possible, not just visually absent; the
+Options button opens the sheet, both tabs switch correctly and show their own real content (Accent
+grouping/Subdivision/Tempo note value/Use-a-structure on "Meter," Tone/Volume on "Sound"); zero
+console errors throughout. `tsc`, `eslint`, and both native platform bundles are clean. **Not
+verified**: how this feels to actually open/swipe/tap through on a real phone — the sheet's own
+slide-up animation and backdrop-tap-to-dismiss are standard, well-understood RN `Modal` behavior,
+but genuinely unconfirmed by touch in this session.
+
+**A direct follow-up reordered the main screen and replaced the tempo-note-value picker's pill row
+with a real dropdown**: "tempo note value should be above the tempo number and time signature
+should be under tap tempo, tempo note value should be a drop down and it should have the Beat unit
+option, the default option should be quarter." Three changes: `TempoNoteValueControls` (BPM's own
+note-value picker) moved from the Options sheet's "Meter" tab onto the main screen, rendered
+*first*, above `TempoControls`; `TimeSignatureControls` moved from first to last in the main-screen
+cluster, now sitting directly below `TempoControls`'s own Tap Tempo button. New
+`components/Dropdown.tsx` is a small, generic `Dropdown<T>` (a pill button showing the current
+selection, opening a centered `Modal` list on tap — not an anchored popover measured off the
+trigger's own layout, simpler to get right without a real device to iterate anchor math against) —
+`TempoNoteValueControls` now renders through it instead of a row of pills, with options built from
+`NOTE_VALUES` plus a `{value: null, label: "Beat unit"}` entry for the "match beat unit" default.
+`tempoNoteValue`'s own default (`DEFAULT_SETTINGS.tempoNoteValue = 4`, quarter note) was already
+correct from the original port and needed no change.
+
+Verified the same way as every other round of this feature, via the nix-chromium +
+playwright-core setup: at a real 390×844 viewport, `scrollHeight === clientHeight` still holds
+(844 === 844, still no scrolling introduced); the rendered order reads dropdown → BPM/Tap tempo →
+time signature steppers → beat indicator → Start, confirmed both via a body-text dump and two
+screenshots; opening the dropdown shows "Beat unit" first, then every note value with "Quarter
+note" correctly highlighted as the current selection; zero console errors. `tsc` and `eslint` both
+clean, all native platform bundles export cleanly. **Not verified**: how the dropdown's modal-list
+style (versus a true anchored popover) feels to open/tap through on a real phone.
+
+**Two more direct follow-ups, reported together against a real device screenshot**: "put a label
+on the options button. also can you vertically center the whole metronome thing so that the
+bottom is the top of the bottom tab menu?" Both small, targeted fixes in `app/tool/metronome.tsx`:
+the Options button (previously an icon-only round button) became a labeled pill — the same
+`flex-row items-center gap-1.5 rounded-full px-4 py-2` shape `Dropdown.tsx`'s own trigger button
+already uses, icon plus a "Options" `<Text>` — rather than inventing a new button shape. Separately,
+the main centered cluster's `flex-1 items-center justify-center` previously centered against the
+*full* screen height inside the `SafeAreaView`, which includes the area the floating tab bar
+(`FloatingTabBar.tsx`, a global overlay sibling of `Stack` in `_layout.tsx`, not part of this
+screen's own layout) visually sits on top of — so the true empty space actually usable for
+centering was smaller than what React Native's centering math assumed, pulling the whole content
+cluster visually low and unevenly balanced relative to the tab bar. Fixed with a new
+`TAB_BAR_RESERVE = 80` constant (`FloatingTabBar.tsx`'s own gap-16 + pill-height-64, reasoned from
+its real `h-12`/`p-2` classes, not guessed) applied as `paddingBottom` on the centered `View` —
+`insets.bottom` itself is deliberately *not* added a second time here, since the screen's own
+`SafeAreaView edges={['bottom']}` already reserves that separately; stacking both would have
+double-counted it. This shrinks the box the centering math operates on to stop exactly at the tab
+bar's own top edge, so the empty space above the dropdown and the empty space below Start are now
+symmetric relative to that boundary, not the true (partly-hidden) screen bottom.
+
+Verified against the real dev deployment via the nix-chromium + playwright-core setup: a 390×844
+screenshot confirms the "Options" label renders next to the icon; and visually, the gap between
+the top of the "Quarter note" dropdown and the header matches the gap between the bottom of
+"Start" and the floating tab bar's own top edge, with the tab bar no longer visually crowding or
+overlapping the Start button. `tsc` and `eslint` both clean, zero console errors. **Not verified**:
+how this reads on a real device, where `insets.bottom` is actually nonzero (this headless browser
+environment reports it as 0, so the real-device balance — while reasoned through the same way the
+constant itself was derived — hasn't been seen with a genuine safe-area inset in the mix).
+
+### The whole app switched from the system default font to Inter
+
+A short back-and-forth over the Metronome's new "=" conversion hint (now just a bold "=" sign, no
+BPM number or trailing text — two quick direct follow-ups: "no converted bpm, literally just a
+bold equel sign," then "make it bigger and bold") led into a broader request: "i dont like the
+font its using... can you use inter?" — confirmed, when asked, to mean **the entire app**, not just
+that one hint.
+
+**Nothing in this app had ever actually loaded a custom font before this** — `global.css`'s own
+`--font-display` CSS variable (`Spline Sans, Inter, ui-sans-serif, ...`) was dead weight, grepped
+for directly and confirmed to be referenced by zero `fontFamily` anywhere in `src/`; every screen
+was rendering in whichever system default React Native falls back to (Roboto/San Francisco).
+
+**The obvious fix doesn't work on this React Native version**: the usual "set a global default
+font" trick, `Text.defaultProps.style = {...}`, no longer applies at all — confirmed directly by
+reading RN's own `Text.js` source (`node_modules/react-native/Libraries/Text/Text.js`): `Text` is
+now a plain function component, not a class, so it has no `defaultProps` mechanism for React to
+merge in — and separately confirmed by `tsc`, which correctly refuses `Text.defaultProps` as a
+type error (a first attempt at this hit exactly that error and had to be reworked). There's also no
+CSS-style inheritance from a wrapping `<View>` the way a real stylesheet would give a whole page a
+default font — RN `Text` only inherits style from an *ancestor `Text`*, never from a `View`.
+
+**Fixed per-element instead, via NativeWind classNames** — `@expo-google-fonts/inter` (Inter_400
+Regular/600SemiBold/700Bold/800ExtraBold, the four weights this app's own `font-bold`/
+`font-semibold`/`font-extrabold`/unweighted classes actually need) is loaded once in `_layout.tsx`
+via `useFonts`, gating the whole tree behind `if (!fontsLoaded) return null;` so the native splash
+screen (already held via the existing `SplashScreen.preventAutoHideAsync()`) stays up rather than
+flashing the system font for one frame before Inter swaps in. `tailwind.config.js` gained a
+`fontFamily` extension mapping four new utility classes — `font-inter`/`font-inter-semibold`/
+`font-inter-bold`/`font-inter-extrabold` — to the four loaded font names directly. Critically, a
+single static-weight TTF has no synthetic-bold fallback the way a system font does (`fontWeight:
+'700'` on a custom one-weight font just renders that font's only cut, not a bolded version of it),
+so every one of this app's existing `font-bold`/`font-semibold`/`font-extrabold` classNames needed
+its own matching `font-inter-*` companion to actually look bold rather than silently falling back
+to Inter's regular-weight glyphs — grepped and confirmed mechanically (`perl -pi -e` across all 11
+files using a font-weight utility) rather than left for `font-bold` to quietly lose its boldness
+app-wide. Every remaining plain (unweighted) `<Text>`/`<TextInput>` — the ~28 left over, mostly
+captions, hints, and small glyphs (`‹ › × − + ▾ ▸`) — got a `font-inter` companion class by hand
+instead, one file at a time (`profile.tsx`, `theme.tsx`, `metronome.tsx`, `[slug].tsx`,
+`index.tsx`, `Dropdown.tsx`, `MetronomeControls.tsx`, `StructureEditor.tsx`, `ToolGrid.tsx`), since
+a blind regex over full JSX tags (several spanning multiple lines, several sharing identical
+className text for genuinely different elements) was judged too fragile to trust unreviewed —
+`BeatIndicator.tsx`'s one `Text` (a plain inline `style` object, no `className` at all) got
+`fontFamily: 'Inter_700Bold'` added directly instead, matching its own existing mechanism. One
+nested `<Text>` (inside the Structure "Section X · bar Y of Z" sentence) was deliberately **left
+alone** — it's a child of another `Text`, which already inherits that parent's own weighted font
+via RN's normal nested-Text style inheritance, so adding `font-inter` there would have wrongly
+downgraded it back to regular weight.
+
+A final automated sweep (a small Node script scanning every `<Text`/`<TextInput>` tag across every
+file containing one) confirmed zero remaining tags without a `font-inter*`/`fontFamily` reference
+— the four flagged "misses" it surfaced were all false positives from the script's own crude
+regex (two were the `_layout.tsx` doc comment's own literal `` `<Text>` `` text, one was a
+multi-line arrow function's `=>` token being mistaken for a tag's closing `>`, and one was the
+deliberately-inherited nested Section/bar `Text` described above) — each checked by hand and
+confirmed correct, not just dismissed.
+
+Verified for real: `tsc` and `eslint` both clean across every touched file; all three
+`expo export --platform {web,ios,android}` bundle cleanly, with the real `Inter_400Regular`/
+`600SemiBold`/`700Bold`/`800ExtraBold` `.ttf` files (and their generated codepoint names) both
+present as real bundled assets and referenced by name in the compiled web bundle — not just
+assumed from the import succeeding. Against the real running dev server (nix-chromium +
+playwright-core over CDP): `getComputedStyle().fontFamily` on the Metronome's "Options" pill
+resolves to the literal string `Inter_700Bold`, the BPM hero number resolves to `Inter_800ExtraBold`,
+and the Home screen's own "sheddex" wordmark resolves to `Inter_700Bold` — three different
+components, two different weights, all genuinely rendering through the loaded Inter files rather
+than a same-looking system-font coincidence; zero console errors throughout. A screenshot of the
+Metronome screen confirms the same thing by eye. **Not verified**: how this looks/feels on a real
+device (only react-native-web, through this sandbox's one working browser path, has actually been
+seen) — whether Inter reads as a clear, intentional improvement over the system default once seen
+on an actual phone, and whether any of the ~28 hand-edited "regular" spots were missed by eye
+despite the automated sweep finding none.
+
+### Offline-first account sync for tool settings, and a real account page
+
+A direct request bundling three things together: "the options for metronome shuld be pulled from
+the account that is signed in, along with all the other tools. i also want the tools to work if
+offline so if the account data is noty avaliable resort to using whatever is stored on the device.
+also make the account page more completed with all the same features as the nextjs app." Since
+Metronome is still the only real ported tool on mobile (everything else is still `tool/[slug].tsx`'s
+generic placeholder — see that section's own doc comment), "along with all the other tools" is
+covered by building the *mechanism* generically now, applied to the one tool that exists; it'll
+need no changes when a second tool lands.
+
+**`lib/useSyncedSettings.ts` is not a straight port of `apps/web/lib/useSyncedSettings.ts`** — web
+has no offline story at all (signed in, it reads *only* an in-memory/Convex cache, nothing ever
+persists to `localStorage`), which doesn't satisfy "fall back to whatever is stored on the device"
+for a cold, offline app launch. This hook always keeps `AsyncStorage` as a real local cache, signed
+in or not, with a three-step precedence per settings `key`, reset at each sign-out so a different
+account signing in later re-seeds fresh rather than quietly inheriting a previous session's cache:
+1. `AsyncStorage`'s own stored value, applied the instant it loads — alone enough for a fully
+   offline cold start, same as `lib/useDeviceSettings.ts` already was.
+2. The account's own synced value (`convex/syncedSettings.ts`'s existing `get`/`set` — the same
+   generic one-JSON-blob-per-`(user, key)` table every synced web tool already uses), applied
+   **once**, the first time a real query result arrives — allowed to override #1 (a device's local
+   cache might be stale relative to the account), but only up until #3.
+3. A real local edit (`update()`), which always wins from then on for the rest of the session and
+   blocks #2 from ever overwriting it later — the same "last touch wins, no merge" rule
+   `apps/web/lib/syncedStore.ts` already documents for its own stale-closure-race fix, just with a
+   local-storage read ahead of the server one instead of starting every signed-in session from
+   nothing. A debounced (600ms) push to Convex fires on every edit while signed in, same
+   module-level-cache-plus-single-collapsed-write shape as web's own fix for "adding several tunes
+   quickly silently drops all but the last" — failures (genuinely offline, or any other rejection)
+   are caught and ignored: the edit already landed in `AsyncStorage`, so nothing is lost, it just
+   doesn't reach the account until the next successful write.
+
+`lib/useSyncedTunes.ts` is the tune-list sibling — `createSyncedTuneListHook(key, accountOnly)` is
+the one engine behind both `useSyncedTunes` (`"tunes"`, same key web's own Jam Practice list uses)
+and `useTunesToLearn` (`"jam-practice-tunes-to-learn"`, `accountOnly: true` — matching web's own
+`useTunesToLearn.ts`, this one has no signed-out local fallback at all, since the only way to ever
+add to it is visiting someone else's public profile, which already requires being signed in).
+`app/tool/metronome.tsx` switched from `useDeviceSettings` to `useSyncedSettings` as a one-line
+swap — identical `[settings, update]` contract, nothing else in the component changed.
+
+**One real import question, chased down rather than left ambiguous**: both new hooks pull
+`useConvexAuth` from `@convex-dev/auth/react` (matching every other call site in this app) after
+briefly importing it from plain `convex/react` instead — both actually work (traced through
+`@convex-dev/auth/react`'s own `ConvexAuthProvider` source: it wraps children in its own
+`AuthProvider` *and*, nested inside that, `ConvexProviderWithAuth` fed the same internal `useAuth`
+hook, so the generic Convex-level auth context plain `convex/react` reads is populated from the
+exact same state, not a different or stale one), but every other file in this app reaches for
+`@convex-dev/auth/react`'s own copy, so this switched to match rather than leave one inconsistent
+import source for a future reader to wonder about.
+
+**The account page itself (`app/profile.tsx`) is now a real multi-section page**, not just sign-in
++ a bare signed-in summary — a horizontal pill tab bar (the same "pool of choices" convention this
+app's option pickers already use) switches between five sections mirroring web's own
+`AccountPage.tsx` sidebar nav:
+- **Profile** (`components/account/ProfileTab.tsx`) — username (live availability check via
+  `api.profiles.usernameAvailable`), a picture (`components/account/AvatarUpload.tsx`), instruments
+  played (free-text chips + `@jam-practice/core/profileInstruments`'s suggestion list — moved there
+  from `apps/web/lib/profileInstruments.ts`, the usual re-export shim left at that path, the first
+  time something outside `apps/web` needed it), live tune/tunes-to-learn counts, and the public/
+  private toggle (`components/SwitchRow.tsx`, new — RN's own native `Switch` instead of web's
+  hand-built track/thumb). Same `upsertProfile`/`getMine` Convex functions web's own
+  `PublicProfileEditor.tsx` uses, same "seed local form state once from the query, then the form
+  owns it" pattern (the one legitimate `react-hooks/set-state-in-effect` exception, same as web's
+  own version already documents).
+- **Avatar upload** reaches for Expo's own platform facilities instead of web's `<canvas>`
+  crop/resize: `expo-image-picker` (newly installed, with its own config plugin added to
+  `app.json` for the iOS/Android photo-permission strings) gives a native square-crop UI at pick
+  time (`allowsEditing: true, aspect: [1, 1]`), then `expo-image-manipulator` (also newly installed)
+  resizes+compresses that already-square result down to a fixed 400px JPEG before the same two-step
+  Convex upload flow (`generateAvatarUploadUrl` → POST → `setAvatar`) web already uses.
+  `components/UserAvatar.tsx` (new, `expo-image` for its own disk/memory caching of the remote
+  Convex-storage URL) is the shared "picture, or a plain fallback icon" renderer, same role as
+  web's own.
+- **Tunes** / **Tunes to Learn** (`components/account/TunesTab.tsx`/`TunesToLearnTab.tsx`, both
+  thin wrappers around a shared `components/account/TuneListManager.tsx`) — search, add, edit
+  (name/time signature/tempos/keys/notes), delete. The *same* `Tune` shape
+  (`@jam-practice/core/types`, already shared) round-trips correctly either direction with web,
+  including a tune's multiple possibly-enabled tempos/keys — just edited through one
+  comma-separated text field each instead of web's own `TempoPicker`/`KeyPicker` chip UI.
+  **Deliberately scoped down from web's `TuneListManager.tsx`, both documented in that file's own
+  doc comment rather than silently dropped**: no jazz-standards picker (porting web's own ~630-song
+  `lib/standards.ts` dataset and its search UI is a separate, sizeable task on its own — `+` here
+  always opens a blank tune editor instead of a standards browser), and no CSV import/export or
+  multi-select/bulk-delete (the latter existed on web mainly to support the former — a
+  desktop-shaped feature with no obvious native-share-sheet equivalent attempted here yet; without
+  it, bulk selection had little left to do).
+- **Security** (`components/account/SecurityTab.tsx`) — change/set password, the same two-step
+  emailed-confirmation flow as web (`requestPasswordConfirmation`/`confirmPassword`, the new
+  password never leaving component state until the second call succeeds). **Google sign-in
+  connect/disconnect is deliberately not ported** — Google itself still isn't wired up anywhere on
+  mobile (needs an in-app-browser + deep-link redirect handshake, a separate, already-documented
+  unstarted spike), so a "Connect Google" button here would have nothing to actually do.
+- **Danger zone** (`components/account/DangerZoneTab.tsx`) — delete account, same two-path flow as
+  web depending on `linkedProviders` (a password account needs the emailed-code confirmation;
+  Google-only — not currently reachable on mobile in practice, but handled correctly regardless —
+  just needs typing `DELETE`). Same `requestDeleteConfirmation`/`confirmDelete`/`deleteAccount`
+  Convex actions, same sign-out-then-redirect-home finish.
+- **Web's own "Following" tab is also deliberately not ported** — there's no way to follow anyone
+  yet without a Community search or public-profile-viewing screen, neither of which exist on
+  mobile yet, so an empty Following list here would have nothing real to show.
+
+New shared primitives, each a native sibling of an existing web component: `ConfirmDialog.tsx` (a
+real `Modal` instead of a `fixed inset-0` div), `LoadingSpinner.tsx` (a plain native
+`ActivityIndicator` rather than reimplementing web's hand-animated beat-indicator-styled dots —
+the platform's own spinner already reads as "native" the way that animation was built to read as
+"on-brand," so there was nothing to gain copying it), and three new icons ported 1:1 from web's own
+path data (`PlusIcon`, `TrashIcon`, `CheckIcon`, added to `icons.tsx`'s existing `strokeIcon`
+helper).
+
+Verified for real: `tsc` and `eslint` both clean across every touched/new file; all three
+`expo export --platform {web,ios,android}` bundle cleanly; `apps/web`'s own `tsc` is unaffected by
+the `profileInstruments.ts` move (confirmed directly, not assumed from the shim pattern alone).
+Against the real running dev server (nix-chromium + playwright-core over CDP): the signed-out
+`/profile` screen renders with zero console errors and the Sign in/Sign up toggle still works;
+more importantly, a direct functional check of the new sync hook itself — bump the Metronome's BPM
+by one, reload the whole page, confirm the new value survived — passed (100 → 101 → still 101
+after reload), reading the actual `TextInput`'s DOM value directly rather than `body.innerText()`
+(which, as this file's own earlier Metronome-dropdown verification already noted, never includes a
+`TextInput`'s live value on react-native-web). **Not verified, and this is the big one**: none of
+the actual signed-in behavior — this sandbox has no way to authenticate as a real user, so nothing
+about the three-step AsyncStorage/server precedence, the debounced push actually reaching the
+account, username availability checking live, the avatar upload round-trip, or any of the five
+account-page tabs' own Convex calls succeeding end to end has been clicked through. Every one of
+these is verified only as far as "type-checks against the real generated Convex API, and renders
+with no console errors in whatever state is reachable signed out" — the same honest limit this
+whole document has applied to every other signed-in Convex flow since Phase 1.
+
+**Two real layout bugs in the new account page's own tab bar, both caught from real screenshots
+and both root-caused rather than patched at the symptom.** First: every pill in the horizontal tab
+row rendered as a tall vertical capsule instead of its own natural pill shape, and tapping a
+different tab made *every* pill (not just the newly active one) grow tall. Root cause: a horizontal
+`ScrollView`'s children default to `alignItems: 'stretch'` on the cross axis (the standard React
+Native gotcha for exactly this symptom) — fixed by adding `alignItems: 'center'` to the tab row's
+own `contentContainerStyle`. Second, immediately after that fix: a large empty gap appeared *above*
+the tab row. Root cause, confirmed by reading RN's own `ScrollView.js` source directly rather than
+guessing: `ScrollView` bakes in a default `flexGrow: 1` on its own outer wrapper regardless of
+orientation — inside this screen's column layout, that made the *horizontal* tab-bar ScrollView
+compete with the vertical content `ScrollView` below it for the column's own leftover height, so it
+ballooned vertically with the (now correctly-sized, centered) pills floating inside a mostly-empty
+box. Fixed with `style={{ flexGrow: 0, flexShrink: 0 }}` on the tab row's own `ScrollView` (the
+`flexShrink: 0` added defensively after the first fix, once a synthetic test — see below —
+confirmed `flexGrow: 0` alone already fully immunized the row against height changes in the content
+below it). Verified both times via a temporary, deleted-after-use debug route
+(`_debug-tabbar.tsx`, outside the real account page, so none of it needed real sign-in) rendering
+the exact same tab-row JSX in isolation: the final check swapped the simulated content below
+between 60px and 500px tall (mimicking Profile's brief loading-spinner moment vs. Tunes' fuller
+list) and measured the tab row's own pill height via Playwright — exactly 32px in every case, no
+squish, confirming the fix is robust rather than coincidentally working in whatever state the
+screenshot happened to catch.
+
+### Home's tool browser: a flat list (grid reserved for Favorites), real capitalization, and account-synced favorites
+
+Three more direct requests landed together, all screenshot-driven: "make that search bar more
+porportional so bigger text and less y padding. also get rid of the section logos and just have
+the titles but make sure the titles are not all uppercase and just capitalized. Also I want all
+the tools to be in a list not a grid, except for the favorites section which will be at the top in
+a grid; there shuold be a way to favorite and unfavorite tools and make sure you get the favorites
+from convex." This reverses the specific redesign an earlier round of this same file made (the
+2-column icon-card grid, itself a deliberate departure from an even earlier flat list) — not a
+contradiction, just the next round of the same "show Jack a screenshot, adjust" cycle this whole
+migration runs on.
+
+- **Search bar**: `index.tsx`'s own search pill went from `px-4 py-3`/`text-sm` to `px-4 py-2`/
+  `text-base`, with the leading `SearchIcon` bumped `16 → 18` to stay proportional to the larger
+  text — less vertical padding, bigger text, exactly as asked.
+- **Category headers**: lost their small leading icon entirely, and the `.toUpperCase()` +
+  `tracking-wide` styling that was making them shout — `@jam-practice/core/navLinks`'s own
+  `CATEGORIES` array was *already* properly capitalized ("Timing & Tuning," not "TIMING & TUNING"),
+  confirmed directly rather than assumed; the all-caps look was coming entirely from this
+  component's own rendering, not the source data, so removing one `.toUpperCase()` call and one
+  className was the whole fix. `CATEGORY_ICONS` (`icons.tsx`) became fully unreferenced once the
+  header icon was dropped and was deleted outright rather than left as dead code, grepped first to
+  confirm nothing else used it.
+- **List, not grid, for everything except Favorites**: every category's own tools now render as
+  plain rows (`ToolRow` — icon, name, a star toggle) via a straightforward `.map()`, not the
+  previous `chunk(items, 2)`-into-card-rows grid. **Favorites** (new) renders *first*, still as the
+  original 2-column `ToolTile` card grid — the one place that style still earns its keep, since a
+  short, hand-picked set of favorites is exactly the "a few special things deserve more visual
+  weight" case a card grid suits, unlike a long flat list of everything. Both `ToolRow` and
+  `ToolTile` now carry a `StarIcon` toggle (filled once favorited, in the theme's own accent color)
+  — nested inside each row/card's own `Pressable` (RN, unlike web's `<button>`-in-`<a>` DOM
+  nesting rule, hit-tests touches to whichever interactive element is actually under the finger,
+  so a star `Pressable` nested inside a row `Pressable` works correctly with no sibling-not-child
+  workaround needed).
+- **`lib/useFavorites.ts`** (new) is the native sibling of `apps/web/lib/useFavorites.ts` — the
+  *same* fixed `"jam-practice-favorites"` `syncedSettings` key and `{hrefs: string[]}` shape, built
+  on this app's own `useSyncedSettings` (already offline-first/AsyncStorage-backed), but
+  **deliberately account-only, matching web's own explicit design choice rather than this app's
+  usual offline-first default**: the returned `favorites` array is forced to `[]` whenever
+  signed out, exactly like web's own doc comment reasons through ("which tools you reach for most
+  is tied to *you*, not a particular device") — `useSyncedSettings`'s own `AsyncStorage` cache still
+  exists underneath regardless, it's just never surfaced in this one case, same as web's own
+  "technically still exists, never surfaced" note. A tool favorited on mobile shows up favorited on
+  web too, and vice versa — one shared list, not a second mobile-only one.
+
+Verified two ways. `tsc`/`eslint` clean, all three `expo export --platform {web,ios,android}`
+bundle cleanly. Against the real running dev server (nix-chromium + playwright-core over CDP),
+signed out: the new list renders with zero console errors, category headers read correctly
+capitalized with no icon, every row shows its star, and tapping a star while signed out doesn't
+crash (a real no-op, matching `useFavorites`'s own documented signed-out behavior — the tap does
+write through `useSyncedSettings`'s local cache, but the hook's own forced-`[]` return while signed
+out means nothing visibly changes, exactly as intended). Since the Favorites grid specifically
+can't be seen this way (always empty signed out), it was verified separately by temporarily
+hardcoding three fake `favorites` hrefs directly in `useFavorites.ts`, confirming via screenshot
+that the grid renders at the top with filled stars and that the *same* three tools' star also
+shows filled down in their own category rows below (proving both views share one real state, not
+two that could drift) — then reverting the hardcoded value back to the real
+`isAuthenticated ? hrefs : []` before moving on. **Not verified**: an actual signed-in
+favorite/unfavorite round-trip actually reaching the account (same standing limit as every other
+Convex-backed feature this session — this sandbox can't authenticate as a real user), and how the
+list rows/star targets feel to tap with a real finger rather than a scripted click.
+
+**A handful of quick follow-up polish passes on the same screen**, each confirmed with a real
+screenshot: the search pill's own vertical padding went through several direct corrections in a
+row (`py-2` → briefly `py-4` on a misreading of "match the left padding" → corrected to `py-1.5`
+once Jack clarified he meant *less*, not matched to the horizontal padding → `py-1` on "slightly
+less" again) — worth noting only because it's a reminder that "same as X" instructions can go
+either direction, and the smart move once corrected was to just ask less and verify by eye each
+time rather than keep re-guessing. The Home hero's own `Wordmark` grew from `height={30}`/
+`text-lg` to `height={40}`/`text-2xl`. Category/Favorites section titles grew again, this time to
+`text-2xl font-bold`, and moved *outside* their own rounded `surface` card (previously the first
+line inside the card) per "make section titles much bigger and put them outside the background
+container" — each card's own top padding adjusted from `p-3` to `px-3` (no more top/bottom padding
+competing with the title that used to live there). A faint `surface-hover`-colored bottom border
+was added between every `ToolRow` within one category's card (`showDivider`, `true` for every row
+but the last) per "put faint separators between all the tools in the sections." Tool row labels
+also dropped from `font-semibold` to plain `font-inter` (regular weight) per "make the tools text
+less bold," and `ToolTile`'s own background moved from `colors.surface` (same as its new outer
+card, which would've made the tile invisible against it) to `colors.background`, so the favorite
+tiles now read as distinct cards sitting *inside* the Favorites card rather than blending into it.
+
+### A real icon pack, replacing every hand-drawn SVG
+
+A direct, pointed request: "can you use an actual icon pack? alot of the icons are just kinda
+sketch." Fair — every icon in this app until now was a hand-drawn `react-native-svg` path, ported
+1:1 from `apps/web/components/tools.tsx`'s own hand-drawn SVGs (themselves a from-scratch icon set,
+not a real library either). `@expo/vector-icons` (newly installed — bundles `MaterialCommunityIcons`,
+`FontAwesome5`, and several other icon families as real, professionally-designed icon fonts, the
+standard icon package nearly every Expo app ships with) replaces all 27 of them.
+
+**Every exported icon component kept its exact original name and `{color, size}` signature**
+(`StarIcon` also kept its own `filled` prop) — this was purely an internal swap of *how* each icon
+renders, not a new API, so every one of the 11 files importing from `icons.tsx` needed zero changes.
+Two tiny factory helpers, `mci(name)`/`fa5(name)`, each return a component matching that same
+signature, rendering a single `<MaterialCommunityIcons>`/`<FontAwesome5>` element — `FontAwesome5`
+only for `DrumIcon`, the one icon `MaterialCommunityIcons` has no good glyph for (its own "drum"
+matches only hit `food-drumstick`-family icons, not a drum kit); everything else is
+`MaterialCommunityIcons`, which turned out to have a genuinely rich, on-the-nose catalog for a
+music app specifically (`metronome`, `metronome-tick`, `waveform`, `ear-hearing`, `book-music`,
+`piano`, `tune`/`tune-vertical`, ...). **Every glyph name was checked directly against the
+installed package's own real glyph-map JSON** (`MaterialCommunityIcons.json`/`FontAwesome5Free.json`
+under its real `node_modules` path) before use, not guessed from memory or a remembered icon-name
+convention — a wrong name would render nothing (or silently fall back to a "?" box) with no type
+error to catch it, since `name` only needs to be *some* real glyph, not necessarily the intended
+one. A same-meaning substitution was chosen per tool rather than a literal one-for-one geometric
+match to the old sketch (e.g. Scale Trainer's old "ascending staircase of bars" sketch became the
+real `stairs` glyph; Interval Trainer's old "two dots joined by a line" became `ruler`, since an
+interval is a distance; Tempo Trainer became `speedometer`).
+
+Verified for real: `tsc` — notably, this alone confirms every one of the 27 glyph names used is a
+*real* member of that icon family's own TypeScript glyph-name union, since `MaterialCommunityIcons`/
+`FontAwesome5`'s own `name` prop is typed as a literal string union generated from the real font,
+not a loose `string` — a typo would have been a compile error, not just a runtime blank icon. Also
+clean: `eslint`, and all three `expo export --platform {web,ios,android}` bundles, with the real
+`.ttf` font files for both families confirmed present in the bundled output (not just assumed from
+the import succeeding). Against the real running dev server (nix-chromium + playwright-core over
+CDP): a screenshot confirms every icon on the Home screen's tool list and floating tab bar renders
+as a real, crisp vector glyph — not a missing-glyph "tofu" box, not blank — with zero console
+errors. **Not verified**: how these look on true native iOS/Android specifically (`expo export`
+only confirms each platform's bundle includes the right font files, not that they render
+pixel-perfect on a real device), and whether any individual glyph choice reads as immediately
+recognizable at a glance to someone who hasn't seen this list explained, versus merely "a
+reasonable icon for the concept" on paper.
+
+### A real EAS Build failure, root-caused and fixed (not worked around)
+
+Jack's own first EAS Build attempt (`eas build --platform android --profile preview`, the
+`eas.json` `"preview"` profile → a real, installable `.apk` rather than the Play-Store-only
+`.aab` `"production"` would make) failed during Gradle's `:app:createBundleReleaseJsAndAssets`
+task with `TypeError: Cannot read properties of undefined (reading 'transformFile')`, deep inside
+`@expo/metro-config`'s own serializer (`packedMap.js`) calling back into a `Bundler` instance.
+
+**Root-caused, not reasoned-around-blind** — this sandbox can't trigger a real EAS cloud build, so
+getting this right the first time (rather than burning Jack's own build minutes on a guess)
+mattered. A local `expo export:embed --platform android --bytecode --minify` (the same underlying
+command the failing Gradle task runs) reproduced *nothing* — bundled clean every time — which
+turned out to be the actual clue, not a dead end: `pnpm why metro` showed **two different `metro`
+versions resolved in the same install**, `0.84.5` (reached via `@expo/metro@56.0.2`, what the rest
+of the Expo SDK 57 toolchain actually uses) and `0.84.6` (reached via
+`@react-native/community-cli-plugin@0.86.3`'s own dependencies). `pnpm peers check` confirmed the
+proximate cause: `@react-native/metro-config` resolved to `0.87.1` where
+`@react-native/community-cli-plugin@0.86.3` wants exactly `0.86.3` — and reading that plugin's own
+`package.json` directly confirmed it *also* declares `"metro"`/`"metro-config"`/`"metro-core"`/
+`"metro-resolver"` as a loose `"^0.84.3"` each, independently resolving to `0.84.6` even with the
+`metro-config` mismatch fixed on its own. `expo export:embed` (my own local repro) goes through
+`@expo/cli` directly, which only ever touches the *correct* `0.84.5` tree — explaining exactly why
+it never reproduced the crash locally while the real Gradle task (which routes through
+`@react-native/community-cli-plugin` instead) hit the mismatched one every time.
+
+**Fixed with `pnpm-workspace.yaml`'s own `overrides` field** (not `package.json`'s `"pnpm"` key —
+this sandbox's pnpm version, 12.3.4, warns that key is "no longer read," and moved the setting
+here instead — worth knowing if a different pnpm version somewhere ever contradicts this), pinning
+`@react-native/metro-config`, `metro`, `metro-config`, `metro-core`, and `metro-resolver` all to
+the exact versions the rest of the Expo SDK 57 toolchain already uses. Confirmed directly after
+reinstalling: `pnpm why metro` now shows exactly one resolved version everywhere in the tree, and
+`pnpm peers check` reports zero issues (both empty before this was the point of confusion in the
+first place). All three `expo export --platform {web,ios,android}` still bundle clean afterward,
+same as before the fix — this change only removes a duplicate dependency tree, it doesn't touch
+any application code. **Not verified**: whether this actually fixes the *real* EAS cloud build —
+this sandbox still has no way to trigger one; Jack needs to re-run `eas build` himself and this is
+the one thing in this whole section that's a strong, well-evidenced diagnosis rather than a
+confirmed fix.
+
+**The other line in that build log — "Deprecated Gradle features were used in this build, making
+it incompatible with Gradle 10"** — is a *separate*, non-fatal warning, not what failed the build
+(the Metro crash above is), and not something arising from any code in this repo: it's Gradle
+commenting on its own Android Gradle Plugin/Gradle version, which comes entirely from Expo's own
+`expo prebuild`-generated native Android project template for React Native 0.86.3 / Expo SDK 57 —
+nothing this repo's own `apps/mobile` source controls directly. Deliberately not "fixed" by
+pinning a different Gradle/AGP version by hand here — that's a deeper native-build-config change
+with its own real risk of introducing a *new* incompatibility, and the warning itself doesn't
+block a build the way the Metro crash did.
+
+### Strategic pivot: Expo is mobile-only now, not a Next.js replacement
+
+After the EAS build fix above, Jack reconsidered the original plan's own eventual goal ("get rid
+of the Next.js site" — see this section's own earlier "look exactly the same" round) out loud and
+asked for a second opinion; the call made was **Expo targets mobile only, permanently — the
+Next.js web app stays as the real web product, unchanged, maintained in parallel.** This reverses
+the specific thing that round's own doc comments assumed (`_layout.tsx`'s old comment explicitly
+framed the responsive `isWide` branch as "match the web sidebar's own breakpoint," `MenuButton.tsx`
+explained hiding itself on wide screens as "the sidebar's already permanently visible there") —
+all of that reasoning is now gone, not just superseded, since there's no desktop-parity goal left
+driving it.
+
+**Everything "desktop-sized screen" shaped was removed, not just hidden**, in the same session this
+decision was made: `apps/mobile/src/hooks/useIsWideScreen.ts` (the `min-width: 1024px` breakpoint
+hook built specifically to answer "should the sidebar be permanent") and
+`apps/mobile/src/app/menu.tsx` (a native-header-search screen that existed only as what a narrow
+drawer pushed to instead of overlaying, back when `/menu` and the drawer were two different things)
+are both deleted outright — `git rm`, not left unreferenced. `_layout.tsx`'s `Drawer` lost its
+`isWide ? 'permanent' : 'front'` branch (always `drawerType="front"` now) and its fixed `width: 260`
+drawer style (now `useWindowDimensions().width` — genuinely full-width, per a direct request: "the
+menu should be full width," pointing at a screenshot of the old narrow 260px drawer as the thing to
+fix). `MenuButton.tsx` lost its `if (isWide) return null` early-out — it always renders now, and
+also gained a real SVG hamburger glyph (`icons.tsx`'s `MenuIcon`) in place of the `☰` text
+character it used before, for the same cross-platform-font-rendering-consistency reason the close
+button got a real `CloseIcon` SVG too instead of a bare `✕`.
+
+### Home scoped down to hero + flat filtered tool list; the drawer redesigned to match the real web mobile menu
+
+Two more pieces of the same request, both driven by reference screenshots rather than
+re-approximated from memory: a mockup of the intended Home hero (hamburger, wordmark, tagline,
+search bar — nothing else), a screenshot of the *then-current* (wrong) drawer — narrow, with a
+description under every tool row — and a screenshot of the **real web app's own mobile drawer**,
+used as the literal target: "sheddex" wordmark + close icon header, a rounded search box, Community
+rendered as its own standalone row directly under search (no category header above it), then
+normal categories (each with its own small icon next to the collapsible header) whose rows show
+only an icon + name, no description, no trailing chevron.
+
+- **`apps/mobile/src/components/icons.tsx`** is new — every icon `apps/web/components/tools.tsx`
+  uses for `NAV_LINK_ICONS`/`CATEGORY_ICONS`, ported 1:1 from their exact `<path>` data (read
+  directly out of the web source file, not redrawn from memory) into `react-native-svg`
+  components. The one real porting difference: web's icons share one `svgProps()` helper that
+  sets `stroke="currentColor"`, relying on ordinary CSS color inheritance from a parent's
+  `className="text-foreground"` etc. — `react-native-svg` has no `currentColor`/CSS-inheritance
+  equivalent, so every ported icon instead takes an explicit `color: string` prop, resolved by
+  each caller from `useAppTheme().colors` (the same theme system already in place, just passed
+  down as a value instead of inherited as a style). `react-native-svg` itself needed installing
+  (`expo install react-native-svg`) — this app's first new native dependency since the NativeWind
+  setup.
+- **`ToolList.tsx`** dropped its per-row description `<Text>` and trailing `›` chevron entirely
+  (a tool row is now just an icon + its name), added a leading icon per row and per
+  category-header (via the new `icons.tsx` lookup tables), and — the Community-specific
+  behavior — pulls the Community entry out of the filtered list *before* calling
+  `groupByCategory` and renders it through the SectionList's own `ListHeaderComponent` instead,
+  ahead of every other section, with no "COMMUNITY" category label above it — mirroring
+  `PROJECT.md`'s own documented web behavior ("Community isn't a collapsible category like the
+  others — a direct request to pull it out as its own always-visible item right under the search
+  box"). `ToolList` also gained an optional `header?: ReactNode` prop specifically so the Home
+  screen (below) can inject its own hero content as the *same* SectionList's scrolling header,
+  rather than nesting a second scrollable `ScrollView` around it — avoids the nested-scroll-view
+  footgun entirely rather than working around it after the fact.
+- **`Sidebar.tsx`** (the drawer's content) lost its `dismissible` prop (always shows the close
+  button now — there's no more permanent, non-dismissible mode to distinguish from) and gained a
+  real search-icon-plus-input row (`SearchIcon` + `TextInput` inside one rounded `bg-background`
+  pill, replacing a bare unstyled `TextInput`) matching the reference screenshot's own rounded
+  search box.
+- **`index.tsx`** (Home) is a near-total rewrite — stripped down to *only* the hero (hamburger +
+  `Wordmark` + tagline + search bar) per the mockup, with every single thing the previous "look
+  exactly the same as web desktop" round had added — `PreviewCluster` (the tappable tool-preview
+  cards), the "Buy me a coffee" donate blurb, the accounts/Community explainer paragraph, and the
+  footer (Made-by/GitHub/Privacy/Terms/Credits links) — deleted outright, not commented out or
+  hidden. The search `TextInput`'s `value`/`onChangeText` now drives local `query` state passed
+  straight into `<ToolList query={query} header={<hero JSX>} />`, so typing filters the real tool
+  list rendered directly on the page — it no longer navigates to a separate `/menu` screen the way
+  the previous version's search-bar-shaped `Pressable` did (that screen is gone — see above).
+
+**Verified against a real running Expo web dev server** (the nix-chromium +
+`playwright-core`-over-CDP setup this file documents elsewhere, pointed at `localhost:8081`, a dev
+server already running — left it alone rather than restarting it, consistent with Jack having said
+earlier in this same overall effort that he wanted to run/test the app himself): a 390px-wide
+screenshot of Home shows exactly the requested shape (hamburger, wordmark, tagline, rounded search
+bar, then the full flat tool list beginning with Community right underneath, no description text
+anywhere); typing "chord" into Home's own search bar correctly narrows the list live to "Guess the
+Chord" and "Chord Charts" under their real categories, with the hero staying pinned above it since
+both scroll as one `SectionList`; clicking the hamburger button opens a genuinely full-width drawer
+matching the reference screenshot's structure almost exactly — wordmark + close icon header,
+rounded search box, Community as a standalone row with no category label, then icon-labeled
+category headers (Timing & Tuning, Ear Training, Practice, Drummers, Audio) each holding
+icon-plus-name-only rows, "Theme" still pinned at the bottom (a placeholder for where a signed-in
+account footer will eventually go, since Convex Auth's own Expo integration — the migration plan's
+spike #3 — is still unstarted); scrolling the drawer down confirms every remaining category
+(Drummers, Audio) renders correctly with no layout breakage; and typing "tuner" into the *drawer's*
+own search box correctly narrows it to just Timing & Tuning → Tuner, confirming both search boxes
+filter independently and correctly. Zero console errors across every check. `tsc --noEmit` and
+`eslint` are both clean on every touched file, and all three `expo export --platform
+{web,ios,android}` bundle cleanly (`web`'s own route listing directly confirms `/menu` is gone and
+no longer a static route). **Not verified**: genuine on-device rendering (still react-native-web
+under this verification method, not true native iOS/Android — the three platforms were only
+confirmed to *bundle*, matching this file's own standing distinction between "compiles" and
+"renders correctly on-device" elsewhere), real touch/swipe gesture feel for the now-full-width
+drawer, and how the drawer's close-icon/search-icon sizing and spacing read next to a real finger
+on an actual phone screen rather than a simulated 390px CDP viewport.
+
+**One leftover console warning, caught in the dev server log Jack pasted directly**: `props.
+pointerEvents is deprecated. Use style.pointerEvents`, from React Native Web. `grep -rn
+pointerEvents src/` found exactly one offender, `Wordmark.tsx`'s own waveform-bar overlay —
+`pointerEvents="none"` passed as a plain prop rather than inside `style`. Fixed by moving it into
+the existing `style={{ gap }}` object (`style={{ gap, pointerEvents: 'none' }}`) instead of a
+separate prop — same behavior (the bar row stays click-through so it never intercepts taps meant
+for whatever's behind/around it), just through the API React Native Web now expects. Verified
+against the real running dev server (nix-chromium + playwright-core over CDP): captured every
+console message on page load before and after the fix — the `pointerEvents`-deprecation warning is
+gone, zero matches, 2 total console messages left (down from however many this one produced before,
+not counted directly, but confirmed absent specifically rather than just "fewer logs overall").
+`tsc --noEmit` and `eslint` both clean, and `expo export --platform web` still bundles cleanly.
 
 ## Tools (sidebar order)
 

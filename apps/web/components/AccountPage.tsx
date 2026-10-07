@@ -7,6 +7,7 @@ import { useAuthActions, useConvexAuth } from "@convex-dev/auth/react";
 import { api } from "@jam-practice/convex/_generated/api";
 import FollowLists from "@/components/FollowLists";
 import LoadingSpinner from "@/components/LoadingSpinner";
+import MyPostsTab from "@/components/MyPostsTab";
 import PublicProfileEditor from "@/components/PublicProfileEditor";
 import SidebarNavButton from "@/components/SidebarNavButton";
 import TunesTab from "@/components/TunesTab";
@@ -16,6 +17,7 @@ import {
   GoogleIcon,
   ListIcon,
   LogOutIcon,
+  NoteIcon,
   ShieldIcon,
   TrashIcon,
   UserIcon,
@@ -37,7 +39,7 @@ function PageShell({ children, wide }: { children: ReactNode; wide?: boolean }) 
   );
 }
 
-type AccountView = "profile" | "tunes" | "tunesToLearn" | "following" | "security" | "danger";
+type AccountView = "profile" | "tunes" | "tunesToLearn" | "posts" | "following" | "security" | "danger";
 
 /** Turns a thrown Error into UI text — Convex actions surface a real message (e.g. our own
     "Enter your password to confirm."), but a wrong password comes back as a long, internal-
@@ -627,6 +629,12 @@ export default function AccountPage() {
             onClick={() => setView("tunesToLearn")}
           />
           <SidebarNavButton
+            active={view === "posts"}
+            icon={NoteIcon}
+            label="Posts"
+            onClick={() => setView("posts")}
+          />
+          <SidebarNavButton
             active={view === "following"}
             icon={UsersIcon}
             label="Following"
@@ -690,6 +698,8 @@ export default function AccountPage() {
           {view === "tunes" && <TunesTab />}
 
           {view === "tunesToLearn" && <TunesToLearnTab />}
+
+          {view === "posts" && <MyPostsTab />}
 
           {view === "following" && <FollowLists />}
 

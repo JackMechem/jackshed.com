@@ -1,6 +1,17 @@
 "use client";
 
+import {
+  CATEGORIES,
+  type Category,
+  type NavLinkInfo,
+  NAV_LINKS_DATA,
+  filterNavLinks,
+  groupByCategory,
+} from "@jam-practice/core/navLinks";
+
 // Shared by the sidebar and the command palette.
+export { CATEGORIES, groupByCategory };
+export type { Category };
 
 export function svgProps(className?: string) {
   return {
@@ -395,6 +406,34 @@ export function ChordChartIcon({ className }: { className?: string }) {
   );
 }
 
+export function LinkIcon({ className }: { className?: string }) {
+  return (
+    <svg {...svgProps(className)}>
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  );
+}
+
+export function HeartIcon({ className, filled }: { className?: string; filled?: boolean }) {
+  return (
+    <svg {...svgProps(className)} fill={filled ? "currentColor" : "none"}>
+      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+    </svg>
+  );
+}
+
+export function ShareIcon({ className }: { className?: string }) {
+  return (
+    <svg {...svgProps(className)}>
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <path d="M8.59 10.51l6.83-3.02M8.59 13.49l6.83 3.02" />
+    </svg>
+  );
+}
+
 export function HomeIcon({ className }: { className?: string }) {
   return (
     <svg {...svgProps(className)}>
@@ -465,17 +504,6 @@ export function UsersIcon({ className }: { className?: string }) {
   );
 }
 
-/** Groups tools in the sidebar and search; also fixes their display order. */
-export const CATEGORIES = [
-  "Community",
-  "Timing & Tuning",
-  "Ear Training",
-  "Practice",
-  "Drummers",
-  "Audio",
-] as const;
-export type Category = (typeof CATEGORIES)[number];
-
 /** One icon per category, shown next to its own collapsible header in the sidebar
     (`components/Sidebar.tsx`'s `NavItems`) — a decorative, category-level choice, separate from
     (and not required to match) whichever icon a tool inside it happens to use for itself. */
@@ -488,156 +516,35 @@ export const CATEGORY_ICONS: Record<Category, (props: { className?: string }) =>
   Audio: WaveIcon,
 };
 
-export const NAV_LINKS = [
-  {
-    href: "/jam-practice",
-    label: "Jam Practice",
-    description:
-      "Build a tune list, pick one at random and get counted in at the right tempo.",
-    icon: ShuffleIcon,
-    category: "Practice" as Category,
-  },
-  {
-    href: "/note-trainer",
-    label: "Note Trainer",
-    description:
-      "Random notes in your instrument's range, with a listen mode that grades you.",
-    icon: NoteIcon,
-    category: "Practice" as Category,
-  },
-  {
-    href: "/scale-trainer",
-    label: "Scale Trainer",
-    description:
-      "Random scales in your instrument's range, with a listen mode that grades you note by note.",
-    icon: ScaleIcon,
-    category: "Practice" as Category,
-  },
-  {
-    href: "/interval-trainer",
-    label: "Interval Trainer",
-    description:
-      "Random intervals in your instrument's range, with a listen mode that grades you.",
-    icon: IntervalIcon,
-    category: "Practice" as Category,
-  },
-  {
-    href: "/guess-the-interval",
-    label: "Guess the Interval",
-    description:
-      "Hear an interval and pick which one it is, against the same countdown-timed rounds as Interval Trainer.",
-    icon: EarIcon,
-    category: "Ear Training" as Category,
-  },
-  {
-    href: "/guess-the-chord",
-    label: "Guess the Chord",
-    description:
-      "Hear a chord — including weird slash chords — and type its symbol, iReal-Pro style (F#^7, Ab-7/D, ...).",
-    icon: ChordIcon,
-    category: "Ear Training" as Category,
-  },
-  {
-    href: "/practice-timer",
-    label: "Practice Timer",
-    description:
-      "Chain named timers back to back — scales, a break, a tune — or run a configurable Pomodoro. Save sessions to replay later.",
-    icon: StopwatchIcon,
-    category: "Practice" as Category,
-  },
-  {
-    href: "/metronome",
-    label: "Metronome",
-    description:
-      "Any time signature, custom accents, subdivisions and tap tempo.",
-    icon: MetronomeIcon,
-    category: "Timing & Tuning" as Category,
-  },
-  {
-    href: "/random-metric-modulation",
-    label: "Polyrhythm Metric Modulation Metronome",
-    description:
-      "A metronome that jumps to a new, mathematically related tempo every few bars.",
-    icon: MetricModulationIcon,
-    category: "Timing & Tuning" as Category,
-  },
-  {
-    href: "/tempo-trainer",
-    label: "Tempo Trainer",
-    description:
-      "A metronome that cuts out for a few bars at a time, so you can practice holding the tempo on your own.",
-    icon: TempoTrainerIcon,
-    category: "Timing & Tuning" as Category,
-  },
-  {
-    href: "/tuner",
-    label: "Tuner",
-    description:
-      "Tune by ear or by mic with a tone generator, for strings, brass and reeds.",
-    icon: TunerIcon,
-    category: "Timing & Tuning" as Category,
-  },
-  {
-    href: "/slow-downer",
-    label: "Slow Downer",
-    description:
-      "Load a song, slow it down without changing pitch and loop the tricky parts.",
-    icon: WaveIcon,
-    category: "Audio" as Category,
-  },
-  {
-    href: "/chord-charts",
-    label: "Chord Charts",
-    description:
-      "Import, build, and read chord charts, styled to match the rest of the site.",
-    icon: ChordChartIcon,
-    category: "Practice" as Category,
-  },
-  {
-    href: "/recorder",
-    label: "Recorder",
-    description:
-      "Record yourself, play it back with loops and markers, and export the audio.",
-    icon: RecordIcon,
-    category: "Audio" as Category,
-    /** Needs a desktop-sized screen; it's greyed out in the mobile menu. */
-    desktopOnly: true,
-  },
-  {
-    href: "/random-sticking-warmup",
-    label: "Random Sticking Warmup",
-    // Renamed again (and this description rewritten once more) per a direct follow-up request to
-    // remove every reference to the specific printed source the original 72 patterns were
-    // transcribed from — the label and copy here are now deliberately generic, describing only
-    // what the tool actually does, not where its pattern bank came from.
-    description:
-      "A drummer's warmup: a random sticking pattern paired with a roll, written out and counted in by a metronome.",
-    icon: DrumIcon,
-    category: "Drummers" as Category,
-  },
-  {
-    href: "/community",
-    label: "Community",
-    description:
-      "Search public profiles for other musicians — see what they play and which tunes they know.",
-    icon: UsersIcon,
-    category: "Community" as Category,
-  },
-];
+/** Every tool's own icon component (web-only SVG JSX) — the one thing `@jam-practice/core/navLinks`
+    doesn't carry, since that package has no React-DOM dependency. Keyed by `href` so it's a plain
+    lookup alongside the shared label/description/category data below, rather than a second,
+    separately-ordered list that could drift out of sync with it. */
+const NAV_LINK_ICONS: Record<string, (props: { className?: string }) => React.JSX.Element> = {
+  "/jam-practice": ShuffleIcon,
+  "/note-trainer": NoteIcon,
+  "/scale-trainer": ScaleIcon,
+  "/interval-trainer": IntervalIcon,
+  "/guess-the-interval": EarIcon,
+  "/guess-the-chord": ChordIcon,
+  "/practice-timer": StopwatchIcon,
+  "/metronome": MetronomeIcon,
+  "/random-metric-modulation": MetricModulationIcon,
+  "/tempo-trainer": TempoTrainerIcon,
+  "/tuner": TunerIcon,
+  "/slow-downer": WaveIcon,
+  "/chord-charts": ChordChartIcon,
+  "/recorder": RecordIcon,
+  "/random-sticking-warmup": DrumIcon,
+  "/community": UsersIcon,
+};
+
+/** The sidebar/search source of truth — `@jam-practice/core/navLinks`'s plain data (also used
+    directly by `apps/mobile`'s own menu/search screen), each entry paired here with its web icon
+    component via `NAV_LINK_ICONS`. */
+export const NAV_LINKS: (NavLinkInfo & { icon: (props: { className?: string }) => React.JSX.Element })[] =
+  NAV_LINKS_DATA.map((link) => ({ ...link, icon: NAV_LINK_ICONS[link.href] }));
 
 export function filterLinks(query: string) {
-  const q = query.trim().toLowerCase();
-  return q
-    ? NAV_LINKS.filter((link) => link.label.toLowerCase().includes(q))
-    : NAV_LINKS;
-}
-
-/** Buckets a (possibly filtered) list of links by category, in `CATEGORIES` order. */
-export function groupByCategory<T extends { category: Category }>(
-  links: T[],
-): { category: Category; items: T[] }[] {
-  return CATEGORIES.map((category) => ({
-    category,
-    items: links.filter((link) => link.category === category),
-  })).filter((group) => group.items.length > 0);
+  return filterNavLinks(NAV_LINKS, query);
 }

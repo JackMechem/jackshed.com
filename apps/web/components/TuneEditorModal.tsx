@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { KeyPicker, MeterPicker, TempoPicker } from "@/components/TuneFields";
+import { useChordChartsLibrary } from "@/lib/useChordChartsLibrary";
 import { Tune } from "@/lib/types";
 
 const inputClass = "rounded-lg bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-accent";
@@ -18,6 +19,7 @@ export default function TuneEditorModal({
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<Tune>(initial);
+  const { playlists } = useChordChartsLibrary(null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !e.defaultPrevented) {
@@ -100,6 +102,41 @@ export default function TuneEditorModal({
               rows={3}
               className={inputClass}
             />
+          </label>
+
+          <label className="flex flex-col gap-2 text-sm">
+            <span className="font-medium">Linked chord chart</span>
+            <select
+              value={draft.chordChartId ?? ""}
+              onChange={(e) =>
+                setDraft((d) => ({
+                  ...d,
+                  chordChartId: e.target.value || undefined,
+                }))
+              }
+              className={inputClass}
+            >
+              <option value="">None</option>
+              {playlists.length === 0 ? (
+                <option value="" disabled>
+                  (no charts in your library yet)
+                </option>
+              ) : (
+                playlists.map((playlist) => (
+                  <optgroup key={playlist.id} label={playlist.name}>
+                    {playlist.songs.map((song) => (
+                      <option key={song.id} value={song.id}>
+                        {song.title}
+                        {song.composer ? ` — ${song.composer}` : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))
+              )}
+            </select>
+            <span className="text-xs text-muted">
+              Posting this tune to Community brings its linked chart along automatically.
+            </span>
           </label>
 
           <div className="flex gap-2">

@@ -2,6 +2,42 @@ packages:
   - apps/*
   - packages/*
 
+# @react-native/community-cli-plugin@0.86.3 (a dependency of react-native@0.86.3 itself, the exact
+# version Expo SDK 57 pins) declares its own @react-native/metro-config dependency with a semver
+# range loose enough to resolve to 0.87.1 instead of the matching 0.86.3 — confirmed directly via
+# `pnpm why`/`pnpm peers check`, not assumed. That pulls in a *second*, slightly different `metro`
+# package version (0.84.6) alongside the one the rest of the Expo toolchain already uses (0.84.5,
+# via @expo/metro@56.0.2), and the real, reproduced symptom of having two different metro versions
+# in the same install is a hard build failure in exactly the one bundling path that goes through
+# @react-native/community-cli-plugin instead of @expo/cli's own export:embed: EAS Build's Android
+# release build (`:app:createBundleReleaseJsAndAssets`), crashing deep inside
+# @expo/metro-config's own serializer with "Cannot read properties of undefined (reading
+# 'transformFile')" — a real, mismatched-API-shape crash, not a transient flake (a direct local
+# `expo export:embed` reproduces fine, since that path goes through the *correct*, un-mismatched
+# metro@0.84.5 tree instead). Pinning @react-native/metro-config alone wasn't quite enough —
+# @react-native/community-cli-plugin@0.86.3's own package.json *also* declares "metro"/
+# "metro-config"/"metro-core"/"metro-resolver" as "^0.84.3" (confirmed by reading it directly),
+# loose enough to resolve to 0.84.6 on its own even with the metro-config mismatch fixed. All five
+# pinned to the exact versions @expo/metro@56.0.2 (the rest of the Expo SDK 57 toolchain) actually
+# uses, removing the second, conflicting metro tree entirely rather than just hiding the peer
+# warning about it.
+overrides:
+  "@react-native/metro-config": "0.86.3"
+  metro: "0.84.5"
+  metro-config: "0.84.5"
+  metro-core: "0.84.5"
+  metro-resolver: "0.84.5"
+
 allowBuilds:
   esbuild: true
   unrs-resolver: true
+
+minimumReleaseAgeExclude:
+  - expo-image-manipulator@57.0.21
+  - '@expo/image-utils@0.11.6'
+  - '@expo/require-utils@57.0.6'
+  - expo-constants@57.0.21
+  - expo-notifications@57.0.22
+
+patchedDependencies:
+  react-native-audio-api: patches/react-native-audio-api.patch

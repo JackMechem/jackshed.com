@@ -125,13 +125,25 @@ export function formatClock(ms: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+// Same defensive fallback as `structure.ts`'s own `randomId` — `crypto.randomUUID` is available in
+// both a real browser and recent React Native/Hermes, but these ids are ephemeral, client-local
+// identifiers (a brand-new, never-saved draft's own id, overwritten by the server's real id the
+// moment it's actually created), so a plain fallback is fine if it's ever missing on some runtime
+// rather than crashing a shared file both apps depend on.
+function randomId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 export function newSegment(): Segment {
-  return { id: crypto.randomUUID(), title: "", minutes: 10 };
+  return { id: randomId(), title: "", minutes: 10 };
 }
 
 export function newCustomSession(): PracticeSession {
   return {
-    id: crypto.randomUUID(),
+    id: randomId(),
     name: "",
     type: "custom",
     segments: [newSegment()],
@@ -141,7 +153,7 @@ export function newCustomSession(): PracticeSession {
 
 export function newPomodoroSession(): PracticeSession {
   return {
-    id: crypto.randomUUID(),
+    id: randomId(),
     name: "",
     type: "pomodoro",
     pomodoro: { ...DEFAULT_POMODORO },

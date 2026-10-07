@@ -12,7 +12,6 @@ import type * as ResendOTP from "../ResendOTP.js";
 import type * as account from "../account.js";
 import type * as auth from "../auth.js";
 import type * as chordCharts from "../chordCharts.js";
-import type * as communityChordCharts from "../communityChordCharts.js";
 import type * as communityTunes from "../communityTunes.js";
 import type * as follows from "../follows.js";
 import type * as http from "../http.js";
@@ -34,7 +33,6 @@ declare const fullApi: ApiFromModules<{
   account: typeof account;
   auth: typeof auth;
   chordCharts: typeof chordCharts;
-  communityChordCharts: typeof communityChordCharts;
   communityTunes: typeof communityTunes;
   follows: typeof follows;
   http: typeof http;

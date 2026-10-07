@@ -5,15 +5,15 @@ import { useState } from "react";
 import { useQuery } from "convex/react";
 import { useConvexAuth } from "@convex-dev/auth/react";
 import { api } from "@jam-practice/convex/_generated/api";
-import CommunityChordCharts from "@/components/CommunityChordCharts";
 import CommunityTunes from "@/components/CommunityTunes";
 import FollowLists from "@/components/FollowLists";
+import LikedPosts from "@/components/LikedPosts";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import SidebarNavButton from "@/components/SidebarNavButton";
 import UserAvatar from "@/components/UserAvatar";
-import { ChordChartIcon, NoteIcon, SearchIcon, UsersIcon } from "@/components/tools";
+import { HeartIcon, NoteIcon, SearchIcon, UsersIcon } from "@/components/tools";
 
-type CommunityView = "search" | "following" | "charts" | "tunes";
+type CommunityView = "search" | "following" | "posts" | "liked";
 
 /** The public search/browse page (`app/community/page.tsx`) — reachable by anyone, signed in or
     not, same as an individual profile. Has its own left sidebar, the same `SidebarNavButton`
@@ -21,14 +21,23 @@ type CommunityView = "search" | "following" | "charts" | "tunes";
     the username search (unchanged from before — searches `isPublic` profiles only, username-only
     per an earlier scoping call), a **Following** section reusing `FollowLists` wholesale (both who
     you follow and who follows you, the same component `/account`'s own Following tab already
-    shows), **Chord Charts** (`CommunityChordCharts.tsx`), and **Tunes** (`CommunityTunes.tsx`) —
-    browse/post chord charts (or tunes) and playlists (or tune lists); the two are siblings, same
-    shape, same rules, just different content. All three of Following/Chord Charts/Tunes require
-    being signed in (`FollowLists` itself assumes a signed-in user — its
+    shows), and **Posts** (`CommunityTunes.tsx`) — browse/post tunes and tune lists, each one
+    optionally carrying its own linked chord chart. Used to be two separate sections here ("Chord
+    Charts" and "Tunes," their own nav items, their own composers) — collapsed into this one
+    "Posts" section per an explicit request: "this whole tune and chord chart separation is quite
+    confusing and i want to just have one thing you post." A chart can only ever reach Community by
+    being attached to a tune first (the account page's own tune editor, "Linked chord chart");
+    searching for a chart specifically is still possible from inside `CommunityTunes` itself (its
+    search matches a post's tune names *and* any linked chart's title). **Liked** (`LikedPosts.tsx`)
+    is every post the signed-in account has liked — a post shows its like count to everyone, but
+    only the caller's own like/unlike state and their own liked-posts list, never who else liked
+    something (`communityTunes.myLikes`/`likedPosts`, scoped server-side to the caller). All three
+    of Following/Posts/Liked require being signed in (`FollowLists` itself assumes a signed-in
+    user — its
     `useQuery(api.users.current)` gates on `user === undefined`, i.e. still loading, not
     `user === null`, i.e. definitely signed out, so mounting it while signed out would spin
-    forever; the other two gate on it explicitly for the same "browsing needs an account" rule Jack
-    asked for) — so all three show a sign-in prompt instead when `isAuthenticated` is false (a
+    forever; `CommunityTunes` gates on it explicitly for the same "browsing needs an account" rule
+    Jack asked for) — so all three show a sign-in prompt instead when `isAuthenticated` is false (a
     loading spinner while `useConvexAuth()` itself hasn't resolved yet, so a signed-in visitor
     doesn't see a flash of "sign in" first), rather than mounting unconditionally the way
     `/account` can (that whole page is already gated behind being signed in). Search alone stays
@@ -45,8 +54,8 @@ export default function Community() {
       <div className="flex flex-col gap-1 text-left">
         <h1 className="text-2xl font-bold text-accent">Community</h1>
         <p className="text-sm text-muted">
-          Search public profiles by username, see who you follow, or browse chord charts and
-          tunes other people have posted — no account needed to search.
+          Search public profiles by username, see who you follow, or browse tunes — some with a
+          chord chart attached — other people have posted. No account needed to search.
         </p>
       </div>
 
@@ -65,16 +74,16 @@ export default function Community() {
             onClick={() => setView("following")}
           />
           <SidebarNavButton
-            active={view === "charts"}
-            icon={ChordChartIcon}
-            label="Chord Charts"
-            onClick={() => setView("charts")}
+            active={view === "posts"}
+            icon={NoteIcon}
+            label="Posts"
+            onClick={() => setView("posts")}
           />
           <SidebarNavButton
-            active={view === "tunes"}
-            icon={NoteIcon}
-            label="Tunes"
-            onClick={() => setView("tunes")}
+            active={view === "liked"}
+            icon={HeartIcon}
+            label="Liked"
+            onClick={() => setView("liked")}
           />
         </nav>
 
@@ -145,25 +154,7 @@ export default function Community() {
               </section>
             ))}
 
-          {view === "charts" &&
-            (isLoading ? (
-              <div className="flex justify-center py-4">
-                <LoadingSpinner />
-              </div>
-            ) : isAuthenticated ? (
-              <CommunityChordCharts />
-            ) : (
-              <section className="flex flex-col items-center gap-2 rounded-2xl bg-surface p-5 text-center">
-                <p className="text-sm text-muted">
-                  <Link href="/" className="text-accent hover:underline">
-                    Sign in
-                  </Link>{" "}
-                  to browse community chord charts.
-                </p>
-              </section>
-            ))}
-
-          {view === "tunes" &&
+          {view === "posts" &&
             (isLoading ? (
               <div className="flex justify-center py-4">
                 <LoadingSpinner />
@@ -176,7 +167,25 @@ export default function Community() {
                   <Link href="/" className="text-accent hover:underline">
                     Sign in
                   </Link>{" "}
-                  to browse community tunes.
+                  to browse community posts.
+                </p>
+              </section>
+            ))}
+
+          {view === "liked" &&
+            (isLoading ? (
+              <div className="flex justify-center py-4">
+                <LoadingSpinner />
+              </div>
+            ) : isAuthenticated ? (
+              <LikedPosts />
+            ) : (
+              <section className="flex flex-col items-center gap-2 rounded-2xl bg-surface p-5 text-center">
+                <p className="text-sm text-muted">
+                  <Link href="/" className="text-accent hover:underline">
+                    Sign in
+                  </Link>{" "}
+                  to see your liked posts.
                 </p>
               </section>
             ))}

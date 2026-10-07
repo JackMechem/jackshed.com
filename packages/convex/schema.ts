@@ -111,78 +111,70 @@ export default defineSchema({
     .index("by_following", ["followingId"])
     .index("by_pair", ["followerId", "followingId"]),
 
-  /** A chord chart, or a whole chord-chart playlist, posted to the Community page for any
-      signed-in account to browse and import — this app's first user-generated content beyond a
-      profile itself. Metadata only — `songCount` instead of the songs themselves, which live in
-      `communityChordChartSongs` below, one row per song, the exact same "don't put unboundedly
-      large data in one document" split `chordChartPlaylists`/`chordChartSongs`/
-      `chordChartSongBars` already use for the personal library (see that table's own comment).
-      This table used to hold every song inline as one `v.any()` blob — worked fine for a small
-      post, but a genuinely large one (someone posting ~1,400 jazz standards at once) hit the
-      *exact* same 1 MiB single-document ceiling the personal library already broke on, just one
-      layer up. Posting requires the caller's *own* profile to be `isPublic` (checked in
-      `convex/communityChordCharts.ts`'s `create`, not enforced by the schema) — browsing/
-      importing only requires being signed in, not a public profile of your own. A post is
-      filtered out of every read once its author's profile isn't (or is no longer) public,
-      mirroring every other privacy rule in this app.
-      `songTitles` — every song's title, denormalized here from `communityChordChartSongs` at post
-      time — exists purely so Browse/My Posts can search "by song name" without re-reading every
-      song row (which would mean re-reading their `bars` too, since Convex has no partial-field
-      projection; exactly the read-cost problem this whole split was built to avoid). `optional`
-      since posts created before this field existed don't have it — `list`/`mine`/`listByUser`
-      treat a missing one as `[]` (that post just isn't matchable by song name, only by its own
-      title, until it's re-posted) rather than needing a migration. */
-  communityChordCharts: defineTable({
-    userId: v.id("users"),
-    title: v.string(),
-    description: v.string(),
-    songCount: v.number(),
-    songTitles: v.optional(v.array(v.string())),
-    createdAt: v.number(),
-  })
-    .index("by_user", ["userId"])
-    .index("by_createdAt", ["createdAt"]),
-
-  /** One song per row within a Community chord-chart post — split from the post itself (and its
-      own metadata split from `bars`, same as `chordChartSongs`/`chordChartSongBars`) so no single
-      document's size grows with how many songs someone posts, and so listing/previewing a big
-      post never has to pull every song's `bars` at once. `create` (`convex/communityChordCharts.ts`)
-      writes these by copying straight from the poster's own `chordChartSongs`/`chordChartSongBars`
-      rows entirely server-side — a post's data is a snapshot (editing or clearing your own library
-      afterward doesn't change or break what you already posted, same reasoning as a public
-      profile's tune-copy, `lib/profileTunes.ts`), but the *copy itself* never round-trips through
-      the client: the browser only ever sends song ids it already knows about, never the (often
-      much larger) bar data those ids point to, for exactly the same reason the ids-not-blobs
-      design matters here at all — "several people posting very large playlists" was the explicit
-      scale this was built for. */
-  communityChordChartSongs: defineTable({
-    postId: v.id("communityChordCharts"),
-    title: v.string(),
-    composer: v.string(),
-    style: v.string(),
-    key: v.string(),
-    timeSignature: v.object({ top: v.number(), bottom: v.number() }),
-    bars: v.any(),
-  }).index("by_post", ["postId"]),
-
-  /** The tune-list analog of `communityChordCharts` above — one post per row, `tunes` a snapshot
-      of `PublicTune[]` (`lib/profileTunes.ts` — name/tempos/keys/time signature, never `notes`)
-      taken from the poster's own Tunes list at post time, not a live reference to it. Same
-      `v.any()` call as `communityChordCharts.songs` and the same reasoning: `PublicTune[]` is
-      already a stable, hand-typed shape, but storing it as an opaque blob still means a future
-      field added to it doesn't also need a schema migration here. Same posting/browsing rules too
-      (`convex/communityTunes.ts`): posting needs the caller's own profile to be `isPublic`,
-      browsing just needs to be signed in, and a post is dropped from every read once its author's
-      profile isn't (or is no longer) public. */
+  /** Community's **one and only post type** — a tune, or a whole tune list, posted for any
+      signed-in account to browse and import. `tunes` is a snapshot of `PublicTune[]`
+      (`lib/profileTunes.ts` — name/tempos/keys/time signature, never `notes`) taken from the
+      poster's own Tunes list at post time, not a live reference to it, stored as `v.any()` since
+      `PublicTune[]` is already a stable, hand-typed shape and storing it as an opaque blob means a
+      future field added to it doesn't also need a schema migration here.
+      **A chord chart can only ever be posted by being attached to a tune** — each `PublicTune` in
+      `tunes` may carry its own `linkedChart` (a fully-resolved snapshot, set at post time by
+      `convex/communityTunes.ts`'s `create` via `resolveLinkedChart`, from that tune's own
+      `chordChartId` — see `Tune`'s own doc comment in `@jam-practice/core/types` for how a tune
+      gets linked to a chart in the first place). There used to be a second, separate post type
+      (`communityChordCharts`/`communityChordChartSongs`, a chart or chart-playlist with no tune
+      attached) — removed outright per an explicit request to stop the two post types from being
+      "quite confusing": now there's exactly one thing to post, and a chart is just something a
+      tune can optionally carry along with it. Searching for a chart specifically is still
+      possible — see `convex/communityTunes.ts`'s `chartTitlesOf`/the `chartCount` field each
+      summary carries, which is what a "chord charts" search scope filters on.
+      Posting requires the caller's own profile to be `isPublic`; browsing just needs to be signed
+      in, and a post is dropped from every read once its author's profile isn't (or is no longer)
+      public, same privacy rule as everywhere else in this app.
+      `likeCount` is denormalized here (kept in sync by `communityTunes.ts`'s `toggleLike`, inside
+      the same mutation that writes `communityTuneLikes` below) specifically so showing a list of
+      posts never has to separately count each one's own likes — the same "don't make reading a
+      list cost more as more side-data piles up" reasoning `chordChartSongs`'s own metadata/`bars`
+      split already follows elsewhere in this file. `optional` since every post created before
+      liking existed doesn't have it — every reader treats a missing one as `0` (`row.likeCount ??
+      0`), not a migration.
+      `unlisted` (default `false`, same "missing means false" treatment as `likeCount`'s missing-
+      means-zero) opts a post out of `list`/`listByUser` — the two *browsable* surfaces — without
+      touching anything else: `get` (a direct link to the post, what "Share" copies) and `mine`
+      (the poster's own post-management list) both work exactly the same regardless. The point
+      isn't privacy from Convex's own access-control perspective (any signed-in account that
+      already has `get`'s id can still open it, same as a listed post) — it's "don't show up where
+      people browse," so a poster can share a link to something without it also becoming
+      discoverable to everyone else. */
   communityTunes: defineTable({
     userId: v.id("users"),
     title: v.string(),
     description: v.string(),
     tunes: v.any(),
+    likeCount: v.optional(v.number()),
+    unlisted: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_user", ["userId"])
     .index("by_createdAt", ["createdAt"]),
+
+  /** One row per `(userId, postId)` like — who liked what is never exposed (`communityTunes.ts`
+      only ever reads this table scoped to *the caller's own* `userId`, via `by_user`/
+      `by_user_post`; nothing reads it by `by_post` except to recount/cascade-delete, never to list
+      likers), only the aggregate count (`communityTunes.likeCount`, above) and "did *I* like this"
+      (`myLikes`) are ever exposed. `by_user_post` is what makes liking idempotent — `toggleLike`
+      checks it first to decide insert-vs-delete, so double-tapping can't double-count. Liking
+      requires being signed in (same as posting); there's no privacy gate on the *like* itself
+      beyond that — if you can see a post at all (already filtered by the time a client has its id),
+      you can like it. */
+  communityTuneLikes: defineTable({
+    userId: v.id("users"),
+    postId: v.id("communityTunes"),
+    createdAt: v.number(),
+  })
+    .index("by_user_post", ["userId", "postId"])
+    .index("by_user", ["userId"])
+    .index("by_post", ["postId"]),
 
   /** A signed-in user's personal Chord Charts library — replaces an earlier version of this
       feature that stored the *whole* library (every song's full parsed bar list) as one
@@ -200,10 +192,9 @@ export default defineSchema({
         tune's notation is the only thing that ever has to fit under the 1 MiB limit, never the
         whole library or even a whole playlist. Fetched only for whichever one song is actually
         displayed (`convex/chordCharts.ts`'s `getSongBars`) — never all at once as part of listing
-        the library. Posting a song to Community, or importing one back from a post, never reads
-        this table onto the client either — `communityChordCharts.create`/`importIntoLibrary` copy
-        directly between `chordChartSongBars` and `communityChordChartSongs` entirely server-side
-        (see that table's own comment).
+        the library. A chart posted to Community travels as part of its tune's own `linkedChart`
+        snapshot (see `communityTunes`'s own comment) — `convex/lib/chordCharts.ts`'s
+        `resolveLinkedChart` reads straight from this table server-side, never through the client.
       Signed out, this tool is entirely unaffected and keeps using the original single-blob
       `syncedSettings` approach via `lib/chordChartsLibrary.ts` — localStorage doesn't enforce
       anything like Convex's 1 MiB-per-document limit, so there's no equivalent failure mode to

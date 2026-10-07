@@ -1,17 +1,47 @@
 import { Key, Tempo, Tune } from "./types";
 
+/** A fully-resolved snapshot of a linked chord chart — the same shape `IRealSong` already has
+    (`./iRealPro`, not imported directly here to avoid a circular/heavy dependency for what's
+    otherwise a tiny file), deliberately duplicated rather than referenced so this file stays
+    decoupled from the chord-chart parser. Embedding the *whole* chart (not just its id) is what
+    lets a public-profile visitor — who doesn't own the tune owner's private chord-chart library
+    and never could — still see and read the actual chart, the same "snapshot, not a live
+    cross-user reference" rule this app already applies to Community chord-chart/tune posts. */
+export type PublicLinkedChart = {
+  title: string;
+  composer: string;
+  style: string;
+  key: string;
+  timeSignature: { top: number; bottom: number };
+  bars: unknown[];
+};
+
 export type PublicTune = {
   id: string;
   name: string;
   tempos: Tempo[];
   keys: Key[];
   timeSignature: string;
+  /** Set only by `toPublicTune` below, as a *raw, unresolved* id — a signal to whichever Convex
+      function receives this (`communityTunes.create`) that it still needs to look the chart up
+      (scoped to the *poster's own* `chordChartSongs`, server-side) and replace this with a real
+      `linkedChart` snapshot before anything is stored or returned publicly. Never present on a
+      `PublicTune` that's actually left a Convex function — `getPublicByUsername` and
+      `communityTunes.create` both strip it in favor of `linkedChart`, so no raw, only-meaningful-
+      to-the-owner id ever reaches a public response. */
+  chordChartId?: string;
+  /** The resolved chart, if this tune has one — always either fully present or entirely absent,
+      never a dangling reference a viewer can't do anything with. */
+  linkedChart?: PublicLinkedChart;
 };
 
 /** Strips a tune down to the same shape a public profile (or a Community tune post — see
     `convex/communityTunes.ts`) exposes: name, tempos, keys, time signature. Never `notes`, which
     could hold private practice notes — the same rule `getPublicByUsername` applies when resolving
-    an owner's tune lists live, just run here at the moment of posting instead. */
+    an owner's tune lists live, just run here at the moment of posting instead. Passes a linked
+    chart's id through *unresolved* (see `PublicTune.chordChartId`'s own comment) — this function
+    has no database access to resolve it into a real snapshot itself; the calling Convex mutation
+    does that server-side. */
 export function toPublicTune(tune: Tune): PublicTune {
   return {
     id: tune.id,
@@ -19,6 +49,7 @@ export function toPublicTune(tune: Tune): PublicTune {
     tempos: tune.tempos,
     keys: tune.keys,
     timeSignature: tune.timeSignature,
+    ...(tune.chordChartId ? { chordChartId: tune.chordChartId } : {}),
   };
 }
 
@@ -81,6 +112,10 @@ export function resolvePublicTunes(tunesJson: string | null | undefined): Public
       tempos: Array.isArray(e.tempos) ? e.tempos.filter(isTempo) : [],
       keys: Array.isArray(e.keys) ? e.keys.filter(isKey) : [],
       timeSignature: typeof e.timeSignature === "string" ? e.timeSignature : "4/4",
+      // Passed through *unresolved*, same reasoning as `toPublicTune`'s own comment — this
+      // function has no database access either. `getPublicByUsername` resolves it into a real
+      // `linkedChart` snapshot (or drops it) right after calling this.
+      ...(typeof e.chordChartId === "string" ? { chordChartId: e.chordChartId } : {}),
     });
   }
   return results;

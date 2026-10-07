@@ -1,23 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@jam-practice/convex/_generated/api";
 import { Id } from "@jam-practice/convex/_generated/dataModel";
-import {
-  PostDetailModal as ChordChartPostDetailModal,
-  PostListItem as ChordChartPostListItem,
-} from "@/components/CommunityChordCharts";
-import {
-  PostDetailModal as TunePostDetailModal,
-  PostListItem as TunePostListItem,
-} from "@/components/CommunityTunes";
+import { PostListItem } from "@/components/CommunityTunes";
 import FollowButton from "@/components/FollowButton";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import PublicTuneList from "@/components/PublicTuneList";
 import UserAvatar from "@/components/UserAvatar";
-import { useChordChartsLibrary } from "@/lib/useChordChartsLibrary";
 
 /** A public profile page (`app/u/[username]/page.tsx`) — reachable by anyone, signed in or not;
     this is the shareable link. `getPublicByUsername` returns `null` for both "no such username"
@@ -27,29 +19,26 @@ import { useChordChartsLibrary } from "@/lib/useChordChartsLibrary";
     for both — see that component for why one component covers both), which also lets a signed-in
     viewer copy a tune they see into their own lists.
 
-    "Chord Chart Posts" and "Tune Posts" are this profile's Community posts (`listByUser` on each,
-    `convex/communityChordCharts.ts`/`convex/communityTunes.ts`) — added per a direct follow-up
-    request ("when looking at another user's profile it should show their posts"), reusing the
-    exact `PostListItem`/`PostDetailModal` components Community's own Browse/My Posts views render
-    with, imported and aliased per source so both fit here side by side. Gated on the *viewer*
-    being signed in, same as Community's own Chord Charts/Tunes sections — browsing posts needs an
-    account there, so it needs one here too, rather than this page quietly having a looser rule
-    for the same underlying data depending on which page you reached it from. */
+    "Posts" is this profile's Community posts (`communityTunes.listByUser`) — added per a direct
+    follow-up request ("when looking at another user's profile it should show their posts"),
+    reusing the exact `PostListItem` component Community's own Feed renders with, so clicking a
+    post from here opens the same `/post/[id]` full page either way. Used to be two sections
+    ("Chord Chart Posts"/"Tune Posts") — collapsed into one once
+    Community itself dropped its separate chord-chart-only post type (see `Community.tsx`'s own doc
+    comment); a post's own `chartCount` still shows as a small badge on each row. Gated on the
+    *viewer* being signed in, same as Community's own Posts section — browsing posts needs an
+    account there, so it needs one here too, rather than this page quietly having a looser rule for
+    the same underlying data depending on which page you reached it from. */
 export default function PublicProfilePage({ username }: { username: string }) {
   const profile = useQuery(api.profiles.getPublicByUsername, { username });
   const viewer = useQuery(api.users.current);
-  const chartPosts = useQuery(
-    api.communityChordCharts.listByUser,
-    profile ? { userId: profile.userId as Id<"users"> } : "skip",
-  );
-  const tunePosts = useQuery(
+  const posts = useQuery(
     api.communityTunes.listByUser,
     profile ? { userId: profile.userId as Id<"users"> } : "skip",
   );
-  const { playlists: myPlaylists } = useChordChartsLibrary(null);
+  const likedIds = useQuery(api.communityTunes.myLikes);
 
-  const [openChartPostId, setOpenChartPostId] = useState<Id<"communityChordCharts"> | null>(null);
-  const [openTunePostId, setOpenTunePostId] = useState<Id<"communityTunes"> | null>(null);
+  const likedSet = useMemo(() => new Set(likedIds ?? []), [likedIds]);
 
   if (profile === undefined || viewer === undefined) {
     return (
@@ -75,8 +64,8 @@ export default function PublicProfilePage({ username }: { username: string }) {
   // Posts only ever load once we know whether the viewer is signed in (the queries are `"skip"`ped
   // otherwise) — treat "still loading" as "don't know yet" rather than momentarily flashing the
   // "hasn't added anything" message before a post that's actually there shows up.
-  const postsSettled = !viewer || (chartPosts !== undefined && tunePosts !== undefined);
-  const hasPosts = (chartPosts?.length ?? 0) > 0 || (tunePosts?.length ?? 0) > 0;
+  const postsSettled = !viewer || posts !== undefined;
+  const hasPosts = (posts?.length ?? 0) > 0;
   const hasNothing =
     postsSettled &&
     !hasPosts &&
@@ -137,37 +126,17 @@ export default function PublicProfilePage({ username }: { username: string }) {
       )}
 
       {viewer ? (
-        <>
-          {chartPosts && chartPosts.length > 0 && (
-            <section className="flex flex-col gap-2 rounded-2xl bg-surface p-5 text-left">
-              <h2 className="text-sm font-semibold text-muted">Chord Chart Posts</h2>
-              <ul className="flex max-h-96 flex-col gap-2 overflow-y-auto pr-1">
-                {chartPosts.map((post) => (
-                  <ChordChartPostListItem
-                    key={post.id}
-                    post={post}
-                    onOpen={() => setOpenChartPostId(post.id)}
-                  />
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {tunePosts && tunePosts.length > 0 && (
-            <section className="flex flex-col gap-2 rounded-2xl bg-surface p-5 text-left">
-              <h2 className="text-sm font-semibold text-muted">Tune Posts</h2>
-              <ul className="flex max-h-96 flex-col gap-2 overflow-y-auto pr-1">
-                {tunePosts.map((post) => (
-                  <TunePostListItem
-                    key={post.id}
-                    post={post}
-                    onOpen={() => setOpenTunePostId(post.id)}
-                  />
-                ))}
-              </ul>
-            </section>
-          )}
-        </>
+        posts &&
+        posts.length > 0 && (
+          <section className="flex flex-col gap-2 rounded-2xl bg-surface p-5 text-left">
+            <h2 className="text-sm font-semibold text-muted">Posts</h2>
+            <ul className="flex max-h-96 flex-col gap-2 overflow-y-auto pr-1">
+              {posts.map((post) => (
+                <PostListItem key={post.id} post={post} liked={likedSet.has(post.id)} />
+              ))}
+            </ul>
+          </section>
+        )
       ) : (
         <p className="text-center text-xs text-muted">
           <Link href="/" className="text-accent hover:underline">
@@ -183,16 +152,6 @@ export default function PublicProfilePage({ username }: { username: string }) {
         </p>
       )}
 
-      {openChartPostId && (
-        <ChordChartPostDetailModal
-          id={openChartPostId}
-          myPlaylists={myPlaylists}
-          onClose={() => setOpenChartPostId(null)}
-        />
-      )}
-      {openTunePostId && (
-        <TunePostDetailModal id={openTunePostId} onClose={() => setOpenTunePostId(null)} />
-      )}
     </main>
   );
 }

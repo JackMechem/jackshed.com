@@ -4,6 +4,8 @@ import { mutation, query } from "./_generated/server";
 import { normalizeUsername, usernameError } from "@jam-practice/core/username";
 import { resolvePublicTunes } from "@jam-practice/core/profileTunes";
 import { TUNES_TO_LEARN_KEY } from "@jam-practice/core/tunesToLearn";
+import type { PublicTune } from "@jam-practice/core/profileTunes";
+import { resolveLinkedChart } from "./lib/chordCharts";
 
 const TUNES_SYNCED_SETTINGS_KEY = "tunes";
 
@@ -224,13 +226,28 @@ export const getPublicByUsername = query({
         .unique(),
     ]);
 
+    // Each tune's own `chordChartId` (if any) only ever means "one of *this profile's own*
+    // chord-chart library songs" — resolved here, scoped to `ownerUserId`, into a full
+    // `linkedChart` snapshot a visitor can actually see without owning that library themselves.
+    // The raw id is stripped either way (resolved or not) so nothing only-meaningful-to-the-owner
+    // leaks into a public response.
+    const ownerUserId = row.userId;
+    async function withLinkedCharts(tunes: PublicTune[]): Promise<PublicTune[]> {
+      return Promise.all(
+        tunes.map(async ({ chordChartId, ...tune }) => {
+          const linkedChart = await resolveLinkedChart(ctx, ownerUserId, chordChartId);
+          return linkedChart ? { ...tune, linkedChart } : tune;
+        }),
+      );
+    }
+
     return {
       userId: row.userId,
       username: row.username,
       instruments: row.instruments,
       avatarUrl,
-      tunes: resolvePublicTunes(tunesRow?.value),
-      tunesToLearn: resolvePublicTunes(tunesToLearnRow?.value),
+      tunes: await withLinkedCharts(resolvePublicTunes(tunesRow?.value)),
+      tunesToLearn: await withLinkedCharts(resolvePublicTunes(tunesToLearnRow?.value)),
     };
   },
 });

@@ -1,0 +1,115 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  ALL_PRESETS,
+  CUSTOM_THEME_ID,
+  type ThemeColors,
+  type ThemePreset,
+  getPreset,
+} from '@jam-practice/core/themes';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { View } from 'react-native';
+
+/**
+ * The native side of `apps/web/lib/theme.ts` — same storage key (`jam-practice-theme`, though
+ * AsyncStorage and the web's own `localStorage` are obviously two separate stores; there's no
+ * actual cross-device sync here, just a deliberately matching name) and the same resolve rule
+ * (custom theme if selected and set, otherwise the chosen preset, falling back to "light"), built
+ * on `@jam-practice/core/themes`'s exact same preset list so "same themes" (per a direct request
+ * to make the two apps look exactly alike) is actually one shared list, not two that could drift.
+ *
+ * What's deliberately *not* ported yet, scoped down from `lib/theme.ts`'s full feature set:
+ * - **Font selection** (`lib/fonts.ts`) — those are CSS `var(--font-x)` stacks tied to
+ *   `next/font/google`-loaded web fonts; a real native equivalent needs actual font files loaded
+ *   via `expo-font`, a separate task from color theming.
+ * - **The custom-theme color editor** — `setCustomColor`/`setCustomColors` aren't exposed here
+ *   yet; `presetId`/`setPreset` cover every preset (including picking "custom" once something has
+ *   already seeded it, which nothing does yet), matching the bulk of what `ThemeModal.tsx` is for
+ *   (picking a preset) without yet porting its own color-editing UI.
+ * - **No system-preference fallback** on first launch (web's own `read()` checks
+ *   `matchMedia('(prefers-color-scheme: dark)')` when nothing's stored yet) — defaults straight to
+ *   `"light"`, the same hardcoded default `lib/theme.ts`'s own `DEFAULT_STATE` uses before that
+ *   check runs.
+ *
+ * Colors are applied via plain React Context + inline `style` props, not NativeWind's `vars()`/
+ * CSS custom properties (what a first pass here used, to mirror the web app's own mechanism as
+ * closely as possible). That turned out not to work reliably on native: react-native-css-interop
+ * 0.2.7 (what this NativeWind version ships) doesn't correctly re-resolve a descendant's
+ * already-rendered `className` when an ancestor's `vars()` output changes later — confirmed
+ * directly on a real device (Pixel 10 Pro, over adb/scrcpy): switching themes updated anything
+ * reading `colors` as a plain JS value (icon `color` props, inline `style`) instantly, but left
+ * every `bg-surface`/`bg-background`-style className stuck on whichever color it first resolved
+ * to, permanently — and a static `:root` fallback (needed just to get *first-paint* resolution
+ * working at all) then won every *subsequent* theme change outright, since it turned out to be
+ * `rootVariables`, not the `vars()`-scoped context override, driving resolution. Plain inline
+ * styles sourced from this context sidestep that whole class of bug rather than working around
+ * it — the same, standard way color theming is usually done in React Native (e.g.
+ * react-navigation's or react-native-paper's own theme objects). `className`/NativeWind is still
+ * used everywhere for *layout* (flex, spacing, rounded corners, type scale) — only color moved.
+ */
+const STORAGE_KEY = 'jam-practice-theme';
+
+type StoredThemeState = { id: string; custom: ThemeColors | null };
+
+const DEFAULT_STATE: StoredThemeState = { id: 'light', custom: null };
+
+function resolveColors(state: StoredThemeState): ThemeColors {
+  if (state.id === CUSTOM_THEME_ID && state.custom) return state.custom;
+  return (getPreset(state.id) ?? getPreset('light'))!.colors;
+}
+
+interface ThemeContextValue {
+  colors: ThemeColors;
+  presetId: string;
+  setPreset: (id: string) => void;
+  allPresets: ThemePreset[];
+}
+
+const ThemeContext = createContext<ThemeContextValue | null>(null);
+
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [state, setState] = useState<StoredThemeState>(DEFAULT_STATE);
+
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (typeof parsed.id === 'string') {
+          setState({ id: parsed.id, custom: parsed.custom ?? null });
+        }
+      })
+      .catch(() => {
+        // storage unavailable — stay on DEFAULT_STATE
+      });
+  }, []);
+
+  const setPreset = useCallback(
+    (id: string) => {
+      const next = { ...state, id };
+      setState(next);
+      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch(() => {
+        // storage unavailable — the in-memory state above still updates this session
+      });
+    },
+    [state],
+  );
+
+  const colors = useMemo(() => resolveColors(state), [state]);
+
+  const value = useMemo<ThemeContextValue>(
+    () => ({ colors, presetId: state.id, setPreset, allPresets: ALL_PRESETS }),
+    [colors, state.id, setPreset],
+  );
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+    </View>
+  );
+}
+
+export function useAppTheme(): ThemeContextValue {
+  const ctx = useContext(ThemeContext);
+  if (!ctx) throw new Error('useAppTheme must be used within a ThemeProvider');
+  return ctx;
+}

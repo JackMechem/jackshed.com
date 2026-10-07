@@ -232,28 +232,35 @@ export const performDelete = internalMutation({
       .collect();
     for (const row of followers) await ctx.db.delete(row._id);
 
-    // Same reasoning: a Community chord-chart or tune-list post is public-facing content, not
-    // private synced tool data, so neither should outlive the account that posted it. Each
-    // chord-chart post's own songs (`communityChordChartSongs`) are deleted first — they're a
-    // separate table now (one row per song, not inline on the post — see that table's own
-    // comment), so they'd otherwise be left behind as orphans once the post row itself is gone.
-    const chartPosts = await ctx.db
-      .query("communityChordCharts")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .collect();
-    for (const row of chartPosts) {
-      const songs = await ctx.db
-        .query("communityChordChartSongs")
-        .withIndex("by_post", (q) => q.eq("postId", row._id))
-        .collect();
-      for (const song of songs) await ctx.db.delete(song._id);
-      await ctx.db.delete(row._id);
-    }
+    // Same reasoning: a Community post is public-facing content, not private synced tool data, so
+    // it shouldn't outlive the account that posted it — and neither should its own likes (other
+    // people's likes *on* this post, cascade-deleted here the same way `communityTunes.ts`'s own
+    // `remove` mutation already does for a normal single-post delete).
     const tunePosts = await ctx.db
       .query("communityTunes")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
-    for (const row of tunePosts) await ctx.db.delete(row._id);
+    for (const row of tunePosts) {
+      const likesOnThisPost = await ctx.db
+        .query("communityTuneLikes")
+        .withIndex("by_post", (q) => q.eq("postId", row._id))
+        .collect();
+      for (const like of likesOnThisPost) await ctx.db.delete(like._id);
+      await ctx.db.delete(row._id);
+    }
+    // This account's own likes *on other people's* posts — otherwise orphaned rows referencing a
+    // userId that no longer exists, and (more concretely) a `likeCount` on someone else's post
+    // that could never be decremented again, since `toggleLike` is the only thing that ever
+    // changes it and there'd be no way left to "unlike" on this account's behalf.
+    const myLikes = await ctx.db
+      .query("communityTuneLikes")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    for (const like of myLikes) {
+      const post = await ctx.db.get(like.postId);
+      if (post) await ctx.db.patch(post._id, { likeCount: Math.max(0, (post.likeCount ?? 0) - 1) });
+      await ctx.db.delete(like._id);
+    }
 
     await ctx.db.delete(userId);
   },

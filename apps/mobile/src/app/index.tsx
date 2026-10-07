@@ -1,98 +1,65 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
+import { Stack, useRouter } from 'expo-router';
+import { useState } from 'react';
+import { Pressable, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { SearchIcon, ThemeIcon } from '@/components/icons';
+import { ToolGrid } from '@/components/ToolGrid';
+import { Wordmark } from '@/components/Wordmark';
+import { useAppTheme } from '@/theme/ThemeProvider';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+/**
+ * The app's landing screen — and, per a direct request, the *only* menu screen too: "I don't
+ * really want a home page at all, I want the menu to be the home page." There used to be a
+ * separate hamburger-triggered drawer (`Sidebar.tsx`, now deleted) holding almost this exact same
+ * content; collapsing the two into one screen is strictly simpler, not a compromise — the
+ * `FloatingTabBar` already gives Home its own permanent tab, so there's no longer a need for a
+ * second way to "get back to the menu" the way a drawer existed for.
+ *
+ * A fixed header row (wordmark left, a Theme button right — opening `/theme` directly, per a
+ * direct request moving it out of the scrollable list and into the header) plus a fixed search
+ * pill, then `ToolGrid`'s scrollable card grid below.
+ */
+export default function Home() {
+  const router = useRouter();
+  const { colors } = useAppTheme();
+  const [query, setQuery] = useState('');
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+    <View className="flex-1" style={{ backgroundColor: colors.background }}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <SafeAreaView className="flex-1" edges={['top', 'bottom']}>
+        <View className="flex-row items-center justify-between px-5 pb-5 pt-4">
+          <Wordmark size="sm" height={40} textClassName="text-2xl" />
+          <Pressable
+            onPress={() => router.push('/theme')}
+            accessibilityLabel="Theme"
+            className="h-10 w-10 items-center justify-center rounded-full"
+            style={{ backgroundColor: colors.surface }}
+          >
+            <ThemeIcon color={colors.foreground} size={20} />
+          </Pressable>
+        </View>
 
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+        <View className="px-5 pb-4">
+          <View
+            className="flex-row items-center gap-2.5 rounded-full px-4 py-1"
+            style={{ backgroundColor: colors.surface }}
+          >
+            <SearchIcon color={colors.muted} size={18} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search tools, tunes, trainers…"
+              placeholderTextColor={colors.muted}
+              className="flex-1 text-base font-inter"
+              style={{ color: colors.foreground }}
+            />
+          </View>
+        </View>
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
-
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
-
-        {Platform.OS === 'web' && <WebBadge />}
+        <ToolGrid query={query} />
       </SafeAreaView>
-    </ThemedView>
+    </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
-  },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
-  },
-});
