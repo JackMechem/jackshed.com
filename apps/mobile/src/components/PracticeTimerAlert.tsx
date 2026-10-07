@@ -1,0 +1,82 @@
+import { Pressable, Text, View } from 'react-native';
+import { useSyncExternalStore } from 'react';
+
+import { PlayIcon, StopIcon, StopwatchIcon } from '@/components/icons';
+import { getSnapshot, skip, stop, subscribe } from '@/lib/practiceTimerEngine';
+import { useAppTheme } from '@/theme/ThemeProvider';
+
+/**
+ * A full-screen "time's up" takeover, mounted once in `_layout.tsx` (a sibling of `Stack`,
+ * absolutely covering everything) whenever the running Practice Timer session is `alarming` *and*
+ * its `fullScreenAlert` setting is on — the whole point of that setting: interrupt whatever you're
+ * doing elsewhere in the app, not just wherever you happen to already be looking. Native sibling
+ * of `apps/web/components/PracticeTimerAlert.tsx`.
+ *
+ * Deliberately not dismissible by tapping the backdrop or a hardware back gesture, unlike
+ * `ConfirmDialog`'s own convention — this is meant to be genuinely sticky, like a real alarm clock,
+ * until an actual choice is made: Continue (dismiss and move to the next segment — the same thing
+ * `skip()` already does everywhere else) or Stop (end the session). The repeating alarm vibration
+ * itself is driven entirely by the engine (`lib/practiceTimerEngine.ts`) — this component only
+ * reflects state.
+ */
+export function PracticeTimerAlert() {
+  const state = useSyncExternalStore(subscribe, getSnapshot);
+  const { colors } = useAppTheme();
+
+  if (!state || !state.alarming || !state.fullScreenAlert) return null;
+
+  return (
+    <View
+      style={{
+        position: 'absolute',
+        inset: 0,
+        backgroundColor: `${colors.background}f7`,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 24,
+        padding: 24,
+      }}
+    >
+      <StopwatchIcon color={colors.danger} size={56} />
+      <View className="items-center gap-1.5">
+        <Text className="text-sm font-bold font-inter-bold tracking-widest" style={{ color: colors.danger }}>
+          TIME&apos;S UP
+        </Text>
+        <Text className="text-center text-3xl font-extrabold font-inter-extrabold" style={{ color: colors.foreground }}>
+          {state.current.title}
+        </Text>
+        {state.next ? (
+          <Text className="text-lg font-inter" style={{ color: colors.muted }}>
+            Next: {state.next.title}
+          </Text>
+        ) : (
+          <Text className="text-lg font-inter" style={{ color: colors.muted }}>
+            Last step of this session.
+          </Text>
+        )}
+      </View>
+      <View className="flex-row flex-wrap items-center justify-center gap-3">
+        <Pressable
+          onPress={skip}
+          className="flex-row items-center gap-2 rounded-full px-8 py-3.5"
+          style={{ backgroundColor: colors.accent }}
+        >
+          <PlayIcon color={colors['accent-foreground']} size={20} />
+          <Text className="text-base font-bold font-inter-bold" style={{ color: colors['accent-foreground'] }}>
+            Continue
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={stop}
+          className="flex-row items-center gap-2 rounded-full px-6 py-3.5"
+          style={{ backgroundColor: colors.surface }}
+        >
+          <StopIcon color={colors.danger} size={18} />
+          <Text className="text-base font-semibold font-inter-semibold" style={{ color: colors.danger }}>
+            Stop
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}

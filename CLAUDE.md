@@ -1,2 +1,2 @@
-@AGENTS.md
+@apps/web/AGENTS.md
 @PROJECT.md

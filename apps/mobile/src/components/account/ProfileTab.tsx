@@ -1,0 +1,262 @@
+import { api } from '@jam-practice/convex/_generated/api';
+import { COMMON_INSTRUMENTS } from '@jam-practice/core/profileInstruments';
+import { normalizeUsername, usernameError } from '@jam-practice/core/username';
+import { useMutation, useQuery } from 'convex/react';
+import { useEffect, useState } from 'react';
+import { Pressable, Text, TextInput, View } from 'react-native';
+
+import { PlusIcon, TrashIcon } from '@/components/icons';
+import { LoadingSpinner } from '@/components/LoadingSpinner';
+import { SwitchRow } from '@/components/SwitchRow';
+import { useSyncedTunes, useTunesToLearn } from '@/lib/useSyncedTunes';
+import { useAppTheme } from '@/theme/ThemeProvider';
+
+import { AvatarUpload } from './AvatarUpload';
+
+/**
+ * The native sibling of `apps/web/components/PublicProfileEditor.tsx` — username, picture,
+ * instruments played, and the public/private toggle. No tune picker here either: a public
+ * profile always shows *every* tune from the Tunes/Tunes to Learn tabs automatically
+ * (`convex/profiles.ts`'s `getPublicByUsername`), this just reads the two lists for a live count.
+ */
+export function ProfileTab() {
+  const { colors } = useAppTheme();
+  const profile = useQuery(api.profiles.getMine);
+  const upsertProfile = useMutation(api.profiles.upsertProfile);
+  const [tunes] = useSyncedTunes();
+  const [tunesToLearn] = useTunesToLearn();
+
+  const [initialized, setInitialized] = useState(false);
+  const [username, setUsername] = useState('');
+  const [instruments, setInstruments] = useState<string[]>([]);
+  const [instrumentInput, setInstrumentInput] = useState('');
+  const [isPublic, setIsPublic] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (profile === undefined || initialized) return;
+    // The one legitimate case for setState-in-effect: seeding editable local form state from an
+    // async-loaded query, exactly once when it first arrives (guarded by `initialized` above) —
+    // same exception `apps/web/components/PublicProfileEditor.tsx` already documents for the
+    // identical pattern.
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setInitialized(true);
+    if (profile) {
+      setUsername(profile.username);
+      setInstruments(profile.instruments);
+      setIsPublic(profile.isPublic);
+    }
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [profile, initialized]);
+
+  const normalizedUsername = normalizeUsername(username);
+  const formatError = usernameError(username);
+  const usernameChanged = !profile || profile.username !== normalizedUsername;
+  const availability = useQuery(
+    api.profiles.usernameAvailable,
+    !formatError && usernameChanged ? { username: normalizedUsername } : 'skip',
+  );
+  const usernameTaken = usernameChanged && availability === false;
+
+  function addInstrument(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (instruments.some((i) => i.toLowerCase() === trimmed.toLowerCase())) return;
+    setInstruments([...instruments, trimmed]);
+    setInstrumentInput('');
+  }
+
+  function removeInstrument(name: string) {
+    setInstruments(instruments.filter((i) => i !== name));
+  }
+
+  async function onSave() {
+    setError(null);
+    setSaved(false);
+    if (formatError) {
+      setError(formatError);
+      return;
+    }
+    if (usernameTaken) {
+      setError('That username is already taken.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await upsertProfile({ username: normalizedUsername, instruments, isPublic });
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't save your profile.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (profile === undefined) {
+    return (
+      <View className="items-center gap-3 rounded-2xl p-5" style={{ backgroundColor: colors.surface }}>
+        <LoadingSpinner />
+      </View>
+    );
+  }
+
+  const suggestions = COMMON_INSTRUMENTS.filter(
+    (name) => !instruments.some((i) => i.toLowerCase() === name.toLowerCase()),
+  );
+
+  return (
+    <View className="gap-5 rounded-2xl p-5" style={{ backgroundColor: colors.surface }}>
+      <View>
+        <Text className="text-lg font-semibold font-inter-semibold" style={{ color: colors.foreground }}>
+          Public profile
+        </Text>
+        <Text className="text-sm font-inter" style={{ color: colors.muted }}>
+          An optional public page other people can find and follow — nothing here is visible to
+          anyone until you turn &quot;Make profile public&quot; on below.
+        </Text>
+      </View>
+
+      <AvatarUpload avatarUrl={profile?.avatarUrl ?? null} />
+
+      <View className="gap-1">
+        <Text className="text-sm font-semibold font-inter-semibold" style={{ color: colors.muted }}>
+          Username
+        </Text>
+        <TextInput
+          value={username}
+          onChangeText={setUsername}
+          placeholder="e.g. johndoe"
+          placeholderTextColor={colors.muted}
+          autoCapitalize="none"
+          autoCorrect={false}
+          className="rounded-xl px-3 py-2.5 text-base font-inter"
+          style={{ backgroundColor: colors.background, color: colors.foreground }}
+        />
+        {formatError ? (
+          <Text className="text-xs font-inter" style={{ color: colors.danger }}>
+            {formatError}
+          </Text>
+        ) : usernameChanged && availability === undefined ? (
+          <Text className="text-xs font-inter" style={{ color: colors.muted }}>
+            Checking availability…
+          </Text>
+        ) : usernameTaken ? (
+          <Text className="text-xs font-inter" style={{ color: colors.danger }}>
+            That username is already taken.
+          </Text>
+        ) : usernameChanged ? (
+          <Text className="text-xs font-inter" style={{ color: colors.accent }}>
+            Available.
+          </Text>
+        ) : null}
+        <Text className="text-xs leading-4 font-inter" style={{ color: colors.muted }}>
+          This has nothing to do with how you sign in — it&apos;s a separate, public identity
+          (sheddex.com/u/{normalizedUsername || '…'}), only shown if your profile is public.
+        </Text>
+      </View>
+
+      <View className="gap-2">
+        <Text className="text-sm font-semibold font-inter-semibold" style={{ color: colors.muted }}>
+          Instruments played
+        </Text>
+        {instruments.length > 0 ? (
+          <View className="flex-row flex-wrap gap-2">
+            {instruments.map((name) => (
+              <View
+                key={name}
+                className="flex-row items-center gap-1.5 rounded-full px-3 py-1.5"
+                style={{ backgroundColor: colors.background }}
+              >
+                <Text className="text-xs font-semibold font-inter-semibold" style={{ color: colors.foreground }}>
+                  {name}
+                </Text>
+                <Pressable onPress={() => removeInstrument(name)} accessibilityLabel={`Remove ${name}`}>
+                  <TrashIcon color={colors.muted} size={12} />
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        <View className="flex-row items-center gap-1.5">
+          <TextInput
+            value={instrumentInput}
+            onChangeText={setInstrumentInput}
+            onSubmitEditing={() => addInstrument(instrumentInput)}
+            placeholder="Type an instrument and press Enter"
+            placeholderTextColor={colors.muted}
+            className="min-w-0 flex-1 rounded-xl px-3 py-2.5 text-sm font-inter"
+            style={{ backgroundColor: colors.background, color: colors.foreground }}
+          />
+          <Pressable
+            onPress={() => addInstrument(instrumentInput)}
+            accessibilityLabel="Add instrument"
+            className="h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+            style={{ backgroundColor: colors.background }}
+          >
+            <PlusIcon color={colors.muted} size={16} />
+          </Pressable>
+        </View>
+        {suggestions.length > 0 ? (
+          <View className="flex-row flex-wrap gap-1.5">
+            {suggestions.map((name) => (
+              <Pressable
+                key={name}
+                onPress={() => addInstrument(name)}
+                className="rounded-full px-2.5 py-1"
+                style={{ backgroundColor: colors.background }}
+              >
+                <Text className="text-xs font-inter" style={{ color: colors.muted }}>
+                  + {name}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+      </View>
+
+      <View className="gap-1 rounded-xl p-3" style={{ backgroundColor: colors.background }}>
+        <Text className="text-sm font-inter" style={{ color: colors.foreground }}>
+          <Text className="font-semibold font-inter-semibold">{tunes.length}</Text> tune
+          {tunes.length === 1 ? '' : 's'} and{' '}
+          <Text className="font-semibold font-inter-semibold">{tunesToLearn.length}</Text> tune
+          {tunesToLearn.length === 1 ? '' : 's'} to learn show on your public profile.
+        </Text>
+        <Text className="text-xs font-inter" style={{ color: colors.muted }}>
+          Manage them from the Tunes and Tunes to Learn tabs — every tune there shows here
+          automatically, there&apos;s nothing to pick.
+        </Text>
+      </View>
+
+      <SwitchRow
+        label="Make profile public"
+        checked={isPublic}
+        onChange={setIsPublic}
+        disabled={!profile && username.trim().length === 0}
+        hint="Anyone can find and view a public profile, even without an account."
+      />
+
+      {error ? (
+        <Text className="text-sm font-inter" style={{ color: colors.danger }}>
+          {error}
+        </Text>
+      ) : null}
+      {saved && !error ? (
+        <Text className="text-sm font-inter" style={{ color: colors.accent }}>
+          Profile saved.
+        </Text>
+      ) : null}
+      <Pressable
+        onPress={() => void onSave()}
+        disabled={saving || !!formatError || usernameTaken}
+        className="self-start rounded-xl px-4 py-2.5"
+        style={{ backgroundColor: colors.accent, opacity: saving || !!formatError || usernameTaken ? 0.5 : 1 }}
+      >
+        <Text className="text-sm font-semibold font-inter-semibold" style={{ color: colors['accent-foreground'] }}>
+          {saving ? 'Saving…' : 'Save profile'}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}

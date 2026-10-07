@@ -1,0 +1,23 @@
+diff --git a/android/src/main/cpp/audioapi/android/core/AndroidAudioRecorder.cpp b/android/src/main/cpp/audioapi/android/core/AndroidAudioRecorder.cpp
+index 0f997f8ebaae0243057cc920be5c86a7fbf679ad..ba55a249a73dfd9a82d4398c986adda26447f3ea 100644
+--- a/android/src/main/cpp/audioapi/android/core/AndroidAudioRecorder.cpp
++++ b/android/src/main/cpp/audioapi/android/core/AndroidAudioRecorder.cpp
+@@ -75,6 +75,18 @@ Result<NoneType, std::string> AndroidAudioRecorder::openAudioStream() {
+       ->setFormatConversionAllowed(true)
+       ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
+       ->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium)
++      // PATCHED (sheddex): Oboe's own library default here is
++      // InputPreset::VoiceRecognition (see oboe/AudioStreamBase.h — a hardcoded default this
++      // library never overrides, confirmed directly in Oboe's own source, not guessed). That's
++      // tuned for speech, not a quiet acoustic instrument being tuned: it measurably dominated
++      // the captured signal with broadband noise on a real device, confirmed via on-device
++      // diagnostic logging (RMS stayed elevated and flat regardless of gain, real detections were
++      // rare single frames swamped by nulls). `Unprocessed` is Oboe's own "no effects, no AGC"
++      // preset — the same philosophy as the web app's own `getUserMedia({echoCancellation: false,
++      // noiseSuppression: false, autoGainControl: false})`, which tunes a bass guitar cleanly.
++      // The resulting low recorded volume is exactly what this app's own adaptive-gain step
++      // (`lib/audioInput.ts`) already exists to compensate for.
++      ->setInputPreset(oboe::InputPreset::Unprocessed)
+       ->setDataCallback(shared_from_this())
+       ->setErrorCallback(shared_from_this());
+ 
