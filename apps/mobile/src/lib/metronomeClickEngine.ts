@@ -52,7 +52,7 @@ const LOOKAHEAD_SEC = 0.12;
     one `ClickSound`. */
 const ATTACK_SEC = 0.003;
 
-function scheduleClick(
+export function scheduleClick(
   ctx: ReturnType<typeof getAudioContext>,
   time: number,
   wave: 'sine' | 'square' | 'triangle' | 'sawtooth',

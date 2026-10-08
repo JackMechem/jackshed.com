@@ -106,7 +106,7 @@ function StepButton({
   );
 }
 
-function Pill({
+export function Pill({
   label,
   selected,
   onPress,
