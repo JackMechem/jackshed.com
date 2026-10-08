@@ -32,13 +32,6 @@ export function MyPostsTab() {
 
   return (
     <View className="gap-3 rounded-2xl p-5" style={{ backgroundColor: colors.surface }}>
-      <Text className="text-lg font-semibold font-inter-semibold" style={{ color: colors.foreground }}>
-        Posts{posts && posts.length > 0 ? ` (${posts.length})` : ''}
-      </Text>
-      <Text className="text-xs font-inter" style={{ color: colors.muted }}>
-        Everything you&apos;ve posted to Community. Post something new from Community&apos;s own
-        &ldquo;+&rdquo; button.
-      </Text>
 
       {posts === undefined ? (
         <View className="items-center py-6">

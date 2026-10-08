@@ -67,7 +67,7 @@ export async function findOrCreatePlaylist(
     .query("chordChartPlaylists")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect();
-  const match = existing.find((p) => playlistNameKey(p.name) === playlistNameKey(trimmed));
+  const match = existing.find((p) => !p.deleting && playlistNameKey(p.name) === playlistNameKey(trimmed));
   if (match) return match._id;
   return ctx.db.insert("chordChartPlaylists", { userId, name: trimmed, createdAt: Date.now() });
 }

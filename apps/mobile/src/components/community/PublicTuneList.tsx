@@ -12,7 +12,7 @@ import { useAppTheme } from '@/theme/ThemeProvider';
 /** Turns a `PublicTune` (someone else's data) into a fresh, independent `Tune` for the viewer's
     own list — new ids throughout, `notes` always empty since a public profile never exposes it in
     the first place. Matches `apps/web/components/PublicTuneList.tsx`'s own `toOwnTune` exactly. */
-function toOwnTune(source: PublicTune): Tune {
+export function toOwnTune(source: PublicTune): Tune {
   return {
     id: makeId(),
     name: source.name,

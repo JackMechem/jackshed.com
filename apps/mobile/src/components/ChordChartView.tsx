@@ -1,10 +1,13 @@
 import type { Bar, ChordSlot, IRealSong } from '@jam-practice/core/iRealPro';
 import { formatComposer } from '@jam-practice/core/iRealPro';
+import { CELLS_PER_ROW, layoutRows, type PlacedBar } from '@jam-practice/core/chartLayout';
 import { useState } from 'react';
 import { Text, View, type LayoutChangeEvent } from 'react-native';
 
 import { ChordQualityText } from '@/components/ChordQualityText';
 import { useAppTheme } from '@/theme/ThemeProvider';
+
+export { layoutRows, type PlacedBar };
 
 /**
  * Native port of `apps/web/components/ChordChart.tsx` — the chart notation renderer. Ported
@@ -57,13 +60,19 @@ const ACCIDENTAL_GLYPH: Record<'b' | '#', string> = { b: '♭', '#': '♯' };
 const GLYPH_REPEAT_BAR = '';
 const GLYPH_SEGNO = '';
 const GLYPH_CODA = '';
+// repeat2Bars (U+E501) — iReal's "repeat the previous two bars" sign.
+const GLYPH_REPEAT_TWO = '\uE501';
 
 export default function ChordChartView({
   song,
   barsPerRow = 4,
   headerActions,
+  hideHeader,
 }: {
   song: IRealSong;
+  /** Skip the title/info block entirely — the full-page viewer (`app/tool/chord-charts-view.tsx`)
+      shows all of that in the navigation header instead, to give the chart itself the space. */
+  hideHeader?: boolean;
   barsPerRow?: number;
   /** Rendered above the composer, in the header's own top-right column — e.g. a transpose
       dropdown/delete button a caller wants sharing the title row instead of a separate row of its
@@ -73,10 +82,11 @@ export default function ChordChartView({
   headerActions?: React.ReactNode;
 }) {
   const { colors } = useAppTheme();
-  const rows = groupRows(song.bars, barsPerRow);
+  const rows = layoutRows(song.bars, barsPerRow);
 
   return (
     <View style={{ gap: 16 }}>
+      {hideHeader ? null : (
       <View
         style={{
           flexDirection: 'row',
@@ -112,6 +122,7 @@ export default function ChordChartView({
           </View>
         ) : null}
       </View>
+      )}
 
       {song.bars.length === 0 ? (
         <Text className="font-inter" style={{ fontSize: 13, color: colors.muted }}>
@@ -122,8 +133,7 @@ export default function ChordChartView({
           {rows.map((row, i) => (
             <Row
               key={i}
-              bars={row}
-              barsPerRow={barsPerRow}
+              placed={row}
               isFirstRow={i === 0}
               isLastRow={i === rows.length - 1}
               timeSignature={i === 0 ? song.timeSignature : undefined}
@@ -183,97 +193,79 @@ export function PageFit({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Pure logic, no rendering — exported for `ChordChartEditor.tsx` so "break into rows of
-    `barsPerRow`, starting a fresh row early at a `newRow` bar" is the exact same rule in both
-    places. Identical to web's version. */
+/** One cell of iReal's 16-cells-per-line grid; a normal bar is 4 cells (= `COL_WIDTH`). */
+export const CELL_WIDTH = COL_WIDTH / 4;
+
+/** `layoutRows` without the positions — which bars share a line. */
 export function groupRows(bars: Bar[], barsPerRow: number): Bar[][] {
-  const rows: Bar[][] = [];
-  let current: Bar[] = [];
-  for (const bar of bars) {
-    if (current.length > 0 && (bar.newRow || current.length >= barsPerRow)) {
-      rows.push(current);
-      current = [];
-    }
-    current.push(bar);
-  }
-  if (current.length > 0) rows.push(current);
-  return rows;
+  return layoutRows(bars, barsPerRow).map((row) => row.map((p) => p.bar));
 }
 
-function endingSpans(bars: Bar[]): { label: string; start: number; span: number }[] {
-  const spans: { label: string; start: number; span: number }[] = [];
+function endingSpans(placed: PlacedBar[]): { label: string; left: number; width: number }[] {
+  const spans: { label: string; left: number; width: number }[] = [];
   let i = 0;
-  while (i < bars.length) {
-    const label = bars[i].endingLabel;
+  while (i < placed.length) {
+    const label = placed[i].bar.endingLabel;
     if (!label) {
       i += 1;
       continue;
     }
     let j = i;
-    while (j < bars.length && bars[j].endingLabel === label) j += 1;
-    spans.push({ label, start: i, span: j - i });
+    while (j < placed.length && placed[j].bar.endingLabel === label && (j === i || !placed[j].bar.endingStart)) j += 1;
+    const last = placed[j - 1];
+    spans.push({ label, left: placed[i].start * CELL_WIDTH, width: (last.start + last.cells - placed[i].start) * CELL_WIDTH });
     i = j;
   }
   return spans;
 }
 
-/** Exported for `ChordChartEditor.tsx`, which reuses this wholesale for its own bar grid via one
-    optional addition it passes that this file's own default export never does: `renderBarContent`
-    lets the builder override what's shown *inside* the bar currently being typed into (a text
-    input instead of the normal rendered chord symbols), while every other bar still renders
-    through the normal `BarContent` path; `trailing` appends one more item after the row's own
-    bars (the builder's "Add bar" button).
-
-    Unlike web's CSS-grid version, this is a plain flex row — a trailing item simply sits where it
-    naturally falls as the next flex child, no column-index math needed. Blank filler cells still
-    pad a short row out to `barsPerRow` columns (matching how a real chart never changes bar width
-    mid-line just because a line ends early), accounting for whether a trailing item took one of
-    the slots. */
+/** One line of the chart, bars placed on the 16-cell grid (see `layoutRows`). Also used by the
+    chart builder (`app/tool/chord-charts-editor.tsx`): `renderBarContent` overrides what's drawn
+    inside a bar (the builder's tappable/selected bars), `trailing` appends an item after the
+    line's bars. */
 export function Row({
-  bars,
-  barsPerRow,
+  placed,
   isFirstRow,
   isLastRow,
   timeSignature,
   renderBarContent,
   trailing,
 }: {
-  bars: Bar[];
-  barsPerRow: number;
+  placed: PlacedBar[];
   isFirstRow: boolean;
   isLastRow: boolean;
+  /** The chart's own time signature, printed at its very first bar. */
   timeSignature?: { top: number; bottom: number };
   renderBarContent?: (bar: Bar, indexInRow: number) => React.ReactNode;
   trailing?: React.ReactNode;
 }) {
   const { colors } = useAppTheme();
-  // The section letter is drawn inside the row's first bar, not a gutter column of its own — same
-  // reasoning as web: a gutter would eat into the width available to the bars themselves.
-  const section = bars[0]?.section;
-  const spans = endingSpans(bars);
-  const hasEndings = spans.length > 0;
-  const fillerCount = Math.max(0, barsPerRow - bars.length - (trailing ? 1 : 0));
+  const spans = endingSpans(placed);
+  const last = placed[placed.length - 1];
+  const used = last ? last.start + last.cells : 0;
+  const trailingCells = trailing ? 4 : 0;
+  const fillerCells = Math.max(0, CELLS_PER_ROW - used - trailingCells);
 
   return (
     <View>
-      {hasEndings ? (
-        <View style={{ height: 20, flexDirection: 'row' }}>
+      {spans.length > 0 ? (
+        <View style={{ height: 20 }}>
           {spans.map((s) => (
             <View
-              key={s.start}
+              key={s.left}
               style={{
                 position: 'absolute',
-                left: s.start * COL_WIDTH,
-                width: s.span * COL_WIDTH,
+                left: s.left,
+                width: s.width,
                 borderTopWidth: 2,
-                borderTopColor: `${colors.foreground}B3`,
+                borderLeftWidth: 2,
+                borderColor: `${colors.foreground}B3`,
+                height: 16,
+                top: 4,
                 paddingLeft: 4,
               }}
             >
-              <Text
-                className="font-inter-semibold"
-                style={{ fontSize: SMALL_LABEL_SIZE, fontWeight: '600', color: colors.muted }}
-              >
+              <Text className="font-inter-semibold" style={{ fontSize: SMALL_LABEL_SIZE, fontWeight: '600', color: colors.muted }}>
                 {s.label}.
               </Text>
             </View>
@@ -281,23 +273,26 @@ export function Row({
         </View>
       ) : null}
       <View style={{ flexDirection: 'row' }}>
-        {bars.map((bar, i) => (
-          <BarCell
-            key={i}
-            bar={bar}
-            section={i === 0 ? section : undefined}
-            timeSignature={i === 0 ? timeSignature : undefined}
-            isFirst={i === 0}
-            isLast={i === bars.length - 1}
-            isFirstOfChart={isFirstRow && i === 0}
-            isLastOfChart={isLastRow && i === bars.length - 1}
-            content={renderBarContent?.(bar, i)}
-          />
-        ))}
+        {placed.map((p, i) => {
+          const prevEnd = i === 0 ? 0 : placed[i - 1].start + placed[i - 1].cells;
+          const gap = p.start - prevEnd;
+          return (
+            <View key={i} style={{ flexDirection: 'row' }}>
+              {gap > 0 ? <View style={{ width: gap * CELL_WIDTH, height: BAR_HEIGHT }} /> : null}
+              <BarCell
+                bar={p.bar}
+                width={p.cells * CELL_WIDTH}
+                timeSignature={p.bar.timeSignature ?? (isFirstRow && i === 0 ? timeSignature : undefined)}
+                hasLeftEdge={i === 0 || gap > 0}
+                isFirstOfChart={isFirstRow && i === 0}
+                isLastOfChart={isLastRow && i === placed.length - 1}
+                content={renderBarContent?.(p.bar, i)}
+              />
+            </View>
+          );
+        })}
         {trailing}
-        {Array.from({ length: fillerCount }).map((_, i) => (
-          <View key={`filler-${i}`} style={{ width: COL_WIDTH, height: BAR_HEIGHT }} />
-        ))}
+        {fillerCells > 0 ? <View style={{ width: fillerCells * CELL_WIDTH, height: BAR_HEIGHT }} /> : null}
       </View>
     </View>
   );
@@ -305,35 +300,36 @@ export function Row({
 
 function BarCell({
   bar,
-  section,
+  width,
   timeSignature,
-  isFirst,
-  isLast,
+  hasLeftEdge,
   isFirstOfChart,
   isLastOfChart,
   content,
 }: {
   bar: Bar;
-  section?: string;
+  width: number;
   timeSignature?: { top: number; bottom: number };
-  isFirst: boolean;
-  isLast: boolean;
+  hasLeftEdge: boolean;
   isFirstOfChart: boolean;
   isLastOfChart: boolean;
   content?: React.ReactNode;
 }) {
   const { colors } = useAppTheme();
-  // iReal Pro always draws the chart's very opening barline thick/doubled, independent of whether
-  // that bar also carries an explicit repeat-open marker — matched here too.
-  const leftWidth = bar.startRepeat || isFirstOfChart ? 4 : isFirst ? 1 : 0;
-  const leftColor = bar.startRepeat || isFirstOfChart ? colors.foreground : `${colors.muted}66`;
-  const rightWidth = bar.endRepeat ? 4 : isLast && isLastOfChart ? 4 : isLast ? 1 : 1;
-  const rightColor = bar.endRepeat || (isLast && isLastOfChart) ? colors.foreground : `${colors.muted}66`;
+  const thin = `${colors.muted}66`;
+  // iReal always draws the chart's very opening barline thick, whatever else is there.
+  const thickLeft = bar.startRepeat || isFirstOfChart;
+  const leftWidth = thickLeft ? 4 : bar.startDouble || hasLeftEdge ? 1 : 0;
+  const leftColor = thickLeft || bar.startDouble ? colors.foreground : thin;
+  const thickRight = bar.endRepeat || bar.endBarline === 'final' || isLastOfChart;
+  const rightWidth = thickRight ? 4 : 1;
+  const rightColor = thickRight || bar.endBarline === 'double' ? colors.foreground : thin;
+  const symbolLeft = bar.section ? 26 : 2;
 
   return (
     <View
       style={{
-        width: COL_WIDTH,
+        width,
         height: BAR_HEIGHT,
         borderLeftWidth: leftWidth,
         borderLeftColor: leftColor,
@@ -346,9 +342,16 @@ function BarCell({
         paddingHorizontal: 2,
       }}
     >
+      {bar.startDouble && !thickLeft ? <View style={{ position: 'absolute', left: 2, top: 0, bottom: 0, width: 1, backgroundColor: colors.foreground }} /> : null}
+      {bar.endBarline === 'double' && !thickRight ? (
+        <View style={{ position: 'absolute', right: 2, top: 0, bottom: 0, width: 1, backgroundColor: colors.foreground }} />
+      ) : null}
+      {bar.endBarline === 'final' && !bar.endRepeat ? (
+        <View style={{ position: 'absolute', right: 4, top: 0, bottom: 0, width: 1, backgroundColor: colors.foreground }} />
+      ) : null}
       {bar.startRepeat ? <RepeatDots side="left" /> : null}
       {bar.endRepeat ? <RepeatDots side="right" /> : null}
-      {section ? (
+      {bar.section ? (
         <View
           style={{
             position: 'absolute',
@@ -364,15 +367,35 @@ function BarCell({
           }}
         >
           <Text style={{ fontFamily: 'PetalumaScript', fontSize: BADGE_SIZE, fontWeight: '700', color: colors['accent-foreground'] }}>
-            {section}
+            {bar.section}
           </Text>
         </View>
       ) : null}
       {bar.segno || bar.coda ? (
+        <Text style={{ position: 'absolute', left: symbolLeft, top: 0, fontFamily: 'Petaluma', fontSize: SYMBOL_SIZE, color: colors.accent }}>
+          {bar.segno ? GLYPH_SEGNO : ''}
+          {bar.coda ? GLYPH_CODA : ''}
+        </Text>
+      ) : null}
+      {bar.alternates?.length ? (
+        <View style={{ position: 'absolute', top: 1, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
+          {bar.alternates.map((a, i) => (
+            <ChordLabel key={i} slot={a} scale={0.55} muted />
+          ))}
+        </View>
+      ) : null}
+      {bar.directive ? (
         <Text
-          style={{ position: 'absolute', right: 2, top: 2, fontFamily: 'Petaluma', fontSize: SYMBOL_SIZE, color: colors.accent }}
+          numberOfLines={1}
+          style={{ position: 'absolute', right: 6, bottom: 1, fontFamily: 'PetalumaScript', fontSize: SMALL_LABEL_SIZE, color: colors.accent }}
         >
-          {bar.segno ? GLYPH_SEGNO : GLYPH_CODA}
+          {bar.directive}
+        </Text>
+      ) : null}
+      {bar.content.kind === 'repeat' && bar.content.double ? (
+        // iReal's "repeat the previous two bars" sign sits on the barline between the two bars.
+        <Text style={{ position: 'absolute', right: -REPEAT_SIZE * 0.55, fontFamily: 'Petaluma', fontSize: REPEAT_SIZE, color: colors.muted, zIndex: 2 }}>
+          {GLYPH_REPEAT_TWO}
         </Text>
       ) : null}
       {timeSignature ? <TimeSignatureGlyph timeSignature={timeSignature} /> : null}
@@ -413,12 +436,13 @@ function RepeatDots({ side }: { side: 'left' | 'right' }) {
   );
 }
 
-/** Exported for `ChordChartEditor.tsx`, which wraps this in its own `Pressable` (to activate a bar
-    for editing) around every bar that isn't the one currently being typed into — reusing this
-    directly rather than a second "blank cell / % / chord labels" render path to keep in sync. */
+/** What's drawn inside a bar: its chords, a "%" repeat mark, or nothing. Also used by the chart
+    builder for every bar it isn't currently typing into. */
 export function BarContent({ bar }: { bar: Bar }) {
   const { colors } = useAppTheme();
   if (bar.content.kind === 'repeat') {
+    if (bar.content.double) return null; // drawn on the barline by BarCell
+
     return (
       <Text style={{ fontFamily: 'Petaluma', fontSize: REPEAT_SIZE, color: colors.muted }}>
         {GLYPH_REPEAT_BAR}
@@ -469,38 +493,34 @@ function FitChordRow({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ChordLabel({ slot }: { slot: ChordSlot }) {
+function ChordLabel({ slot, scale = 1, muted = false }: { slot: ChordSlot; scale?: number; muted?: boolean }) {
   const { colors } = useAppTheme();
+  // Small chords (iReal's `s`) print at about two thirds size.
+  const k = scale * (slot.kind === 'chord' && slot.small ? 0.68 : 1);
+  const fg = muted ? colors.muted : colors.foreground;
   if (slot.kind === 'nc') {
     return (
-      <Text style={{ fontFamily: 'PetalumaScript', fontSize: QUALITY_SIZE, fontWeight: '500', color: colors.muted }}>
+      <Text style={{ fontFamily: 'PetalumaScript', fontSize: QUALITY_SIZE * k, fontWeight: '500', color: colors.muted }}>
         N.C.
       </Text>
     );
   }
   if (slot.kind === 'slash') {
-    return (
-      <Text style={{ fontFamily: 'PetalumaScript', fontSize: QUALITY_SIZE, color: colors.muted }}>/</Text>
-    );
+    return <Text style={{ fontFamily: 'PetalumaScript', fontSize: QUALITY_SIZE * k, color: colors.muted }}>/</Text>;
   }
   return (
     <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-      <Text style={{ fontFamily: 'PetalumaScript', fontSize: ROOT_SIZE, fontWeight: '500', color: colors.foreground }}>
+      <Text style={{ fontFamily: 'PetalumaScript', fontSize: ROOT_SIZE * k, fontWeight: '500', color: fg }}>
         {slot.letter}
-        {slot.accidental ? (
-          <Text style={{ fontSize: ROOT_ACCIDENTAL_SIZE }}>{ACCIDENTAL_GLYPH[slot.accidental]}</Text>
-        ) : null}
+        {slot.accidental ? <Text style={{ fontSize: ROOT_ACCIDENTAL_SIZE * k }}>{ACCIDENTAL_GLYPH[slot.accidental]}</Text> : null}
       </Text>
       {slot.quality ? (
-        <View style={{ marginLeft: 4 }}>
-          <ChordQualityText
-            quality={slot.quality}
-            style={{ fontSize: QUALITY_SIZE, fontWeight: '500', color: colors.foreground }}
-          />
+        <View style={{ marginLeft: 4 * k }}>
+          <ChordQualityText quality={slot.quality} style={{ fontSize: QUALITY_SIZE * k, fontWeight: '500', color: fg }} />
         </View>
       ) : null}
       {slot.bass ? (
-        <Text style={{ marginLeft: 6, fontSize: BASS_SIZE, fontFamily: 'PetalumaScript', color: colors.muted }}>
+        <Text style={{ marginLeft: 6 * k, fontSize: BASS_SIZE * k, fontFamily: 'PetalumaScript', color: colors.muted }}>
           /{slot.bass.letter}
           {slot.bass.accidental ? ACCIDENTAL_GLYPH[slot.bass.accidental] : ''}
         </Text>

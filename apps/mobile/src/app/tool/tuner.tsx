@@ -22,6 +22,7 @@ import {
 } from '@/lib/tunerEngine';
 import { useSyncedSettings } from '@/lib/useSyncedSettings';
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { ScreenSpinner, withScreenLoader } from '@/components/ScreenLoader';
 
 /**
  * Native port of `apps/web/components/Tuner.tsx`. Same mic-listening engine shape
@@ -72,9 +73,9 @@ function freqOfMidi(midi: number, refA: number) {
 
 type Playing = { midi: number };
 
-export default function TunerScreen() {
+function TunerScreen() {
   const { colors } = useAppTheme();
-  const [settings, updateSettings] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
+  const [settings, updateSettings, settingsReady] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const instrument = getInstrument(settings.instrumentId);
   const tuning = getTuning(instrument, settings.tuningId);
@@ -151,6 +152,9 @@ export default function TunerScreen() {
   const noteLetter = noteName ? noteName.replace(/-?\d+$/, '') : null;
   const noteOctave = noteName ? noteName.match(/-?\d+$/)?.[0] : null;
   const verdict = !reading ? '' : Math.abs(reading.cents) <= 8 ? 'In tune' : reading.cents < 0 ? 'Flat ♭' : 'Sharp ♯';
+
+  // Saved settings not read yet — a spinner rather than defaults that then jump to the real values.
+  if (!settingsReady) return <ScreenSpinner />;
 
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background }}>
@@ -491,3 +495,5 @@ export default function TunerScreen() {
     </View>
   );
 }
+
+export default withScreenLoader(TunerScreen);

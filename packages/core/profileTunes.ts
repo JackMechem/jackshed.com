@@ -33,6 +33,10 @@ export type PublicTune = {
   /** The resolved chart, if this tune has one — always either fully present or entirely absent,
       never a dangling reference a viewer can't do anything with. */
   linkedChart?: PublicLinkedChart;
+  /** In a setlist only: the key (a root, e.g. "Eb") and tempo the setlist plays this tune in, if
+      the setlist changed them from the tune's/chart's own. */
+  setKey?: string;
+  setTempo?: number;
 };
 
 /** Strips a tune down to the same shape a public profile (or a Community tune post — see

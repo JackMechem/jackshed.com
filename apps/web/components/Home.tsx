@@ -1,265 +1,198 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery } from "convex/react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useConvexAuth } from "@convex-dev/auth/react";
-import { api } from "@jam-practice/convex/_generated/api";
-import BeatIndicator from "@/components/BeatIndicator";
-import { OPEN_PALETTE_EVENT } from "@/components/CommandPalette";
+import { tuneHref, useTuneLists, type TuneListId } from "@/components/library/useTuneActions";
+import { tuneSummary } from "@/components/library/shared";
+import Logo from "@/components/Logo";
 import {
   ChordChartIcon,
-  EarIcon,
-  MetricModulationIcon,
-  MetronomeIcon,
+  ChevronRightIcon,
+  CloseIcon,
+  NAV_LINKS,
+  NoteIcon,
   SearchIcon,
-  ShuffleIcon,
+  SetlistIcon,
+  StarIcon,
+  groupByCategory,
 } from "@/components/tools";
-import Wordmark from "@/components/Wordmark";
+import { filterNavLinks } from "@jam-practice/core/navLinks";
+import { useRecentCharts, useRecentTunes } from "@/lib/recents";
+import { useRecentTools } from "@/lib/toolRecents";
+import type { Tune } from "@/lib/types";
+import { useChordChartsLibrary } from "@/lib/useChordChartsLibrary";
+import { useFavorites } from "@/lib/useFavorites";
+import { useIsDesktop } from "@/lib/useIsDesktop";
+import { useSetlists } from "@/lib/useSetlists";
 
-/** A small "preview" tile for one tool — genuinely reusing a piece of that tool's own real UI
-    where that's cheap and static-friendly (`BeatIndicator` for Metronome), and a plain,
-    hand-styled stand-in built from this app's own tokens everywhere else, rather than a stock
-    photo or a screenshot. The whole tile is a real `Link`, so clicking anywhere on it is how it's
-    "interactive" — there's no live audio or state running on the landing page itself, just a
-    preview that leads straight to the real, fully working tool. */
-function PreviewCard({
-  href,
-  hero,
-  className = "",
-  children,
-}: {
-  href: string;
-  /** The larger, centered tile standing in for the reference design's phone mockup. */
-  hero?: boolean;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className={`group block rounded-2xl p-4 shadow-lg shadow-black/5 ring-1 outline-none transition-transform hover:-translate-y-1 hover:shadow-xl focus-visible:ring-2 focus-visible:ring-accent ${
-        hero
-          ? "bg-accent/5 ring-accent/20"
-          : "bg-surface ring-foreground/5"
-      } ${className}`}
-    >
-      {children}
-    </Link>
-  );
-}
+type ToolLink = (typeof NAV_LINKS)[number];
 
-function PreviewLabel({
-  icon: Icon,
-  children,
-}: {
-  icon: (props: { className?: string }) => React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-      <Icon className="h-3.5 w-3.5 text-accent" />
-      {children}
-    </div>
-  );
-}
+/** Community, Tunes and Chord Charts are "Your library", not tools (the sidebar shows them apart too). */
+const LIBRARY_HREFS = ["/community", "/tunes", "/chord-charts"];
+const TOOLS = NAV_LINKS.filter((l) => !LIBRARY_HREFS.includes(l.href));
+const TOOL_BY_HREF = new Map(TOOLS.map((l) => [l.href, l]));
+/** Shown in place of Favorites until you've starred some tools. */
+const STARTER_HREFS = ["/metronome", "/jam-practice", "/tuner", "/practice-timer"];
 
-const PREVIEWS: { href: string; hero?: boolean; content: React.ReactNode }[] = [
-  {
-    href: "/metronome",
-    hero: true,
-    content: (
-      <>
-        <div className="flex items-center justify-between">
-          <PreviewLabel icon={MetronomeIcon}>Metronome</PreviewLabel>
-          <span className="text-xs tabular-nums text-muted">100 BPM</span>
-        </div>
-        <div className="mt-4 flex justify-center">
-          <BeatIndicator accents={[2, 1, 1, 1]} currentBeat={0} size="sm" />
-        </div>
-      </>
-    ),
-  },
-  {
-    href: "/jam-practice",
-    content: (
-      <>
-        <PreviewLabel icon={ShuffleIcon}>Jam Practice</PreviewLabel>
-        <p className="mt-2 truncate text-sm font-semibold">Autumn Leaves</p>
-        <p className="text-xs text-muted">♩ 140 · Cm</p>
-      </>
-    ),
-  },
-  {
-    href: "/chord-charts",
-    content: (
-      <>
-        <PreviewLabel icon={ChordChartIcon}>Chord Charts</PreviewLabel>
-        <div className="mt-2 grid grid-cols-2 gap-1 text-center text-xs font-semibold tabular-nums">
-          {["CΔ7", "A-7", "D-7", "G7"].map((chord) => (
-            <span key={chord} className="rounded-md bg-background px-2 py-1">
-              {chord}
-            </span>
-          ))}
-        </div>
-      </>
-    ),
-  },
-  {
-    href: "/guess-the-interval",
-    content: (
-      <>
-        <PreviewLabel icon={EarIcon}>Guess the Interval</PreviewLabel>
-        <div className="mt-2 grid grid-cols-2 gap-1 text-[0.65rem] font-medium">
-          <span className="rounded-md bg-accent px-2 py-1 text-center text-accent-foreground">
-            Major 3rd
-          </span>
-          <span className="rounded-md bg-background px-2 py-1 text-center text-muted">
-            Minor 3rd
-          </span>
-          <span className="rounded-md bg-background px-2 py-1 text-center text-muted">
-            Perfect 5th
-          </span>
-          <span className="rounded-md bg-background px-2 py-1 text-center text-muted">
-            Octave
-          </span>
-        </div>
-      </>
-    ),
-  },
-  {
-    href: "/random-metric-modulation",
-    content: (
-      <>
-        <PreviewLabel icon={MetricModulationIcon}>Polyrhythm</PreviewLabel>
-        <p className="mt-2 flex items-center justify-center gap-2 text-lg font-bold tabular-nums">
-          120 <span className="text-sm text-accent">&rarr;</span> 180
-        </p>
-        <p className="text-center text-[0.65rem] text-muted">3:2 polyrhythm</p>
-      </>
-    ),
-  },
-];
-
-/** Scattered on larger screens (an absolutely-positioned cluster around the hero tile, echoing
-    the reference design's floating widget photos); a plain, un-rotated 2-column grid on narrow
-    screens instead, where absolute positioning would be fragile and there's no room to scatter
-    anything. Both read from the same `PREVIEWS` content, so there's exactly one place each tool's
-    preview is actually drawn. */
-function PreviewCluster() {
-  return (
-    <>
-      <div className="relative mx-auto mt-4 hidden h-[26rem] w-full max-w-2xl sm:block">
-        {/* The centering offset lives on this wrapper, not the card itself — the card's own
-            hover lift (`hover:-translate-y-1` in PreviewCard) sets the same CSS transform
-            variable Tailwind uses for `-translate-y-1/2`, so putting both on one element would
-            have hovering *replace* the −50% centering with the much smaller hover offset, a jump
-            down of about half the card's height instead of a lift. */}
-        <div className="absolute left-1/2 top-1/2 w-52 -translate-x-1/2 -translate-y-1/2">
-          <PreviewCard href={PREVIEWS[0].href} hero>
-            {PREVIEWS[0].content}
-          </PreviewCard>
-        </div>
-        <PreviewCard
-          href={PREVIEWS[1].href}
-          className="absolute left-0 top-2 w-40 -rotate-6"
-        >
-          {PREVIEWS[1].content}
-        </PreviewCard>
-        <PreviewCard
-          href={PREVIEWS[2].href}
-          className="absolute right-0 top-10 w-40 rotate-3"
-        >
-          {PREVIEWS[2].content}
-        </PreviewCard>
-        <PreviewCard
-          href={PREVIEWS[3].href}
-          className="absolute bottom-8 left-6 w-40 rotate-2"
-        >
-          {PREVIEWS[3].content}
-        </PreviewCard>
-        <PreviewCard
-          href={PREVIEWS[4].href}
-          className="absolute bottom-0 right-8 w-40 -rotate-3"
-        >
-          {PREVIEWS[4].content}
-        </PreviewCard>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 sm:hidden">
-        <PreviewCard href={PREVIEWS[0].href} hero className="col-span-2">
-          {PREVIEWS[0].content}
-        </PreviewCard>
-        {PREVIEWS.slice(1).map((p) => (
-          <PreviewCard key={p.href} href={p.href}>
-            {p.content}
-          </PreviewCard>
-        ))}
-      </div>
-    </>
-  );
-}
-
-/** The home page — an actual landing page, not a directory. Every tool still lives in the sidebar
-    and the `/` command palette (`components/tools.tsx`'s `NAV_LINKS`) — this page's job is to
-    make the case for the site, not index it. Shows "Welcome back, {name}" once signed in —
-    `user.name` (only ever set by Google sign-in) if there is one, `user.email` otherwise, since
-    every account has one of those but not necessarily both; nothing renders until both
-    `useConvexAuth()` and the user query have actually resolved, so a signed-in visitor never sees
-    a flash of the signed-out version first.
-
-    Per a direct follow-up request with a reference screenshot (another site's own landing page,
-    used purely as a layout reference, not copied): the hero's call-to-action buttons became a
-    real search trigger (opens the same `/` command palette every tool already uses), and the
-    reference's floating product photos became `PreviewCluster`'s small, clickable tool previews
-    instead. */
+/**
+ * Home — an overview with the tools front and centre, matching the mobile app's Home: your
+ * favorite tools as big cards (a starter set until you star some), "Jump back in" (the tools,
+ * tunes and charts you opened last), your library at a glance (tunes, setlists, charts — each
+ * opening its page), then every tool by category. The search finds tools and your tunes. Signed
+ * out, a line under the logo says what sheddex is; the donation note and footer stay at the bottom.
+ */
 export default function Home() {
   const { isAuthenticated } = useConvexAuth();
-  const user = useQuery(api.users.current);
-  const greetingName =
-    isAuthenticated && user ? (user.name ?? user.email) : null;
+  const isDesktop = useIsDesktop();
+  const [query, setQuery] = useState("");
+  const { favorites, toggleFavorite } = useFavorites();
+  const recentTools = useRecentTools();
+  const recentTunes = useRecentTunes();
+  const recentCharts = useRecentCharts();
+  const lists = useTuneLists();
+  const { setlists } = useSetlists();
+  const { playlists, totalSongs } = useChordChartsLibrary(null);
 
-  function openSearch() {
-    window.dispatchEvent(new Event(OPEN_PALETTE_EVENT));
+  const q = query.trim();
+  const chartMeta = useMemo(() => {
+    const m = new Map<string, { title: string; key: string }>();
+    for (const p of playlists) for (const s of p.songs) m.set(s.id, { title: s.title, key: s.key });
+    return m;
+  }, [playlists]);
+
+  const tuneMatches = useMemo(() => {
+    if (!q) return [];
+    const words = q.toLowerCase().split(/\s+/);
+    const out: { tune: Tune; list: TuneListId }[] = [];
+    for (const list of ["tunes", "learn"] as TuneListId[]) {
+      for (const tune of lists[list].tunes) if (words.every((w) => tune.name.toLowerCase().includes(w))) out.push({ tune, list });
+    }
+    return out.slice(0, 8);
+  }, [q, lists]);
+
+  const favoriteTools = TOOLS.filter((t) => favorites.includes(t.href));
+  const pinned = favoriteTools.length ? favoriteTools : TOOLS.filter((t) => STARTER_HREFS.includes(t.href));
+
+  // "Jump back in": recent tools first, then recent tunes and charts.
+  const jumpCards: { key: string; icon: ToolLink["icon"]; title: string; detail: string; href: string }[] = [];
+  for (const href of recentTools) {
+    const tool = TOOL_BY_HREF.get(href);
+    if (tool) jumpCards.push({ key: href, icon: tool.icon, title: tool.label, detail: "Tool", href });
+    if (jumpCards.length >= 4) break;
   }
+  for (const id of recentTunes.ids) {
+    if (jumpCards.length >= 7) break;
+    const list = (["tunes", "learn"] as TuneListId[]).find((l) => lists[l].tunes.some((t) => t.id === id));
+    const tune = list ? lists[list].tunes.find((t) => t.id === id) : undefined;
+    if (list && tune) jumpCards.push({ key: `t:${id}`, icon: NoteIcon, title: tune.name, detail: "Tune", href: tuneHref(list, id) });
+  }
+  for (const id of recentCharts.ids) {
+    if (jumpCards.length >= 10) break;
+    const meta = chartMeta.get(id);
+    if (meta) jumpCards.push({ key: `c:${id}`, icon: ChordChartIcon, title: meta.title, detail: meta.key ? `Chart · ${meta.key}` : "Chart", href: `/chord-charts/view?id=${encodeURIComponent(id)}` });
+  }
+
+  const toolMatches = q ? filterNavLinks(TOOLS, q) : [];
+  const canStar = isAuthenticated;
 
   return (
     <div className="flex min-h-full flex-1 flex-col bg-background text-foreground">
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-16 px-5 pb-20 pt-[calc(env(safe-area-inset-top)+4.5rem)] sm:px-8 lg:pt-20">
-        <section className="flex flex-col items-center gap-6 text-center">
-          {greetingName && (
-            <p className="text-sm font-medium text-accent">
-              Welcome back, {greetingName}
-            </p>
-          )}
+      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-4 pb-16 pt-[calc(env(safe-area-inset-top)+4.5rem)] sm:px-6 lg:pt-12">
+        <header className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <h1>
+              <Logo height={40} />
+            </h1>
+            {!isAuthenticated && <p className="text-muted">Advanced, customizable practice tools — free, with no ads or paywalls.</p>}
+          </div>
+          <label className="flex items-center gap-2.5 rounded-full bg-surface pl-4 pr-1 focus-within:ring-2 focus-within:ring-accent">
+            <SearchIcon className="h-4 w-4 shrink-0 text-muted" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search tools and tunes…"
+              className="min-w-0 flex-1 bg-transparent py-3 text-base outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:hidden"
+            />
+            {query && (
+              <button type="button" onClick={() => setQuery("")} aria-label="Clear search" className="flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-background hover:text-foreground">
+                <CloseIcon className="h-4 w-4" />
+              </button>
+            )}
+          </label>
+        </header>
 
-          <Wordmark
-            size="lg"
-            heading
-            className="h-28 w-full max-w-sm justify-center sm:h-32"
-            textClassName="text-6xl leading-[0.95] sm:text-7xl"
-          />
+        {q ? (
+          <>
+            <Section title="Tools">
+              {toolMatches.length ? <ToolList items={toolMatches} favorites={favorites} canStar={canStar} isDesktop={isDesktop} onToggle={toggleFavorite} /> : <Muted>No tools match “{q}”.</Muted>}
+            </Section>
+            <Section title="Your tunes">
+              {tuneMatches.length ? (
+                <div className="overflow-hidden rounded-2xl bg-surface">
+                  {tuneMatches.map(({ tune, list }, i) => (
+                    <Link key={tune.id} href={tuneHref(list, tune.id)} className={`flex items-center gap-3 px-4 py-2.5 hover:bg-surface-hover ${i ? "border-t border-background" : ""}`}>
+                      <NoteIcon className="h-4 w-4 shrink-0 text-accent" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-semibold">{tune.name}</span>
+                        <span className="block truncate text-xs text-muted">{[list === "learn" ? "To learn" : "I know", tuneSummary(tune)].filter(Boolean).join(" · ")}</span>
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <Muted>No tunes match.</Muted>
+              )}
+            </Section>
+          </>
+        ) : (
+          <>
+            <Section title={favoriteTools.length ? "Favorites" : "Get started"} detail={favoriteTools.length || !canStar ? undefined : "Click ☆ on a tool to pin it here"}>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {pinned.map((item) => (
+                  <ToolTile key={item.href} item={item} favorited={favorites.includes(item.href)} canStar={canStar} onToggle={() => toggleFavorite(item.href)} />
+                ))}
+              </div>
+            </Section>
 
-          <p className="max-w-md text-lg text-muted">
-            Level up your playing with advanced, customizable practice tools.
-          </p>
+            {jumpCards.length > 0 && (
+              <Section title="Jump back in">
+                <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1">
+                  {jumpCards.map((c) => (
+                    <Link key={c.key} href={c.href} className="flex h-28 w-40 shrink-0 flex-col justify-between rounded-2xl bg-surface p-3 transition-colors hover:bg-surface-hover">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent/15 text-accent">
+                        <c.icon className="h-5 w-5" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-bold">{c.title}</span>
+                        <span className="block truncate text-xs text-muted">{c.detail}</span>
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </Section>
+            )}
 
-          <button
-            type="button"
-            onClick={openSearch}
-            className="flex w-full max-w-sm items-center gap-2 rounded-full bg-surface px-5 py-3 text-left text-muted shadow-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            <SearchIcon className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">
-              Search tools, tunes, trainers&hellip;
-            </span>
-            <kbd className="hidden shrink-0 rounded bg-background px-2 py-1 font-sans text-xs font-medium text-foreground lg:inline">
-              /
-            </kbd>
-          </button>
+            <Section title="Your library">
+              <div className="grid grid-cols-3 gap-3">
+                <LibraryCard icon={NoteIcon} count={lists.tunes.tunes.length + lists.learn.tunes.length} label="Tunes" href="/tunes" />
+                <LibraryCard icon={SetlistIcon} count={setlists.length} label="Setlists" href={setlists.length ? "/tunes/setlists" : "/tunes"} />
+                <LibraryCard icon={ChordChartIcon} count={totalSongs} label="Charts" href="/chord-charts" />
+              </div>
+            </Section>
 
-          <PreviewCluster />
-        </section>
+            <div className="grid gap-8 md:grid-cols-2">
+              {groupByCategory(TOOLS).map(({ category, items }) => (
+                <Section key={category} title={category}>
+                  <ToolList items={items} favorites={favorites} canStar={canStar} isDesktop={isDesktop} onToggle={toggleFavorite} />
+                </Section>
+              ))}
+            </div>
+          </>
+        )}
 
+        <div className="mt-6 flex flex-col gap-8">
         <section className="border-l-2 border-accent/30 pl-5 text-left">
           <p className="text-lg leading-relaxed text-foreground/90">
             Sheddex is built to be a free all-in-one solution to practice tools. My goal is to keep Sheddex distraction free; there will never be ads, popups, or paywalls. That being said, servers are not free, so if you&apos;re feeling generous please consider donating!
@@ -293,6 +226,7 @@ export default function Home() {
             . Your data will never be sold and never leaves our servers.
           </p>
         </section>
+        </div>
       </main>
 
       <footer className="flex flex-col items-center gap-2 pb-6 px-2 text-center text-md text-muted">
@@ -353,5 +287,101 @@ export default function Home() {
         </div>
       </footer>
     </div>
+  );
+}
+
+function Section({ title, detail, children }: { title: string; detail?: string; children: ReactNode }) {
+  return (
+    <section className="flex min-w-0 flex-col gap-2.5">
+      <div className="flex items-baseline gap-2 px-1">
+        <h2 className="text-xl font-bold">{title}</h2>
+        {detail && <span className="truncate text-xs text-muted">{detail}</span>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Muted({ children }: { children: ReactNode }) {
+  return <p className="rounded-2xl bg-surface p-4 text-sm text-muted">{children}</p>;
+}
+
+function Star({ label, favorited, onToggle }: { label: string; favorited: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onToggle();
+      }}
+      aria-label={favorited ? `Unfavorite ${label}` : `Favorite ${label}`}
+      aria-pressed={favorited}
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-background ${favorited ? "text-accent" : "text-muted hover:text-foreground"}`}
+    >
+      <StarIcon className="h-4 w-4" filled={favorited} />
+    </button>
+  );
+}
+
+/** A big card for a favorite (or starter) tool. */
+function ToolTile({ item, favorited, canStar, onToggle }: { item: ToolLink; favorited: boolean; canStar: boolean; onToggle: () => void }) {
+  return (
+    <div className="relative">
+      <Link href={item.href} className="flex h-32 flex-col justify-between rounded-2xl bg-surface p-4 transition-colors hover:bg-surface-hover">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/15 text-accent">
+          <item.icon className="h-5 w-5" />
+        </span>
+        <span className="pr-6 font-bold leading-tight">{item.label}</span>
+      </Link>
+      {canStar && (
+        <div className="absolute right-2 top-2">
+          <Star label={item.label} favorited={favorited} onToggle={onToggle} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One category's tools as rows — icon, name, a ☆ to favorite (signed in). */
+function ToolList({ items, favorites, canStar, isDesktop, onToggle }: { items: ToolLink[]; favorites: string[]; canStar: boolean; isDesktop: boolean; onToggle: (href: string) => void }) {
+  return (
+    <div className="overflow-hidden rounded-2xl bg-surface">
+      {items.map((item, i) => {
+        const disabled = !!item.desktopOnly && !isDesktop;
+        return (
+          <div key={item.href} className={`flex items-center gap-1 pr-2 ${i ? "border-t border-background" : ""} ${disabled ? "opacity-50" : "hover:bg-surface-hover"}`}>
+            {disabled ? (
+              <span className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3" title="Desktop only">
+                <item.icon className="h-5 w-5 shrink-0 text-accent" />
+                <span className="truncate">{item.label}</span>
+                <span className="text-xs text-muted">Desktop only</span>
+              </span>
+            ) : (
+              <Link href={item.href} className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3">
+                <item.icon className="h-5 w-5 shrink-0 text-accent" />
+                <span className="truncate">{item.label}</span>
+              </Link>
+            )}
+            {canStar && <Star label={item.label} favorited={favorites.includes(item.href)} onToggle={() => onToggle(item.href)} />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function LibraryCard({ icon: Icon, count, label, href }: { icon: ToolLink["icon"]; count: number; label: string; href: string }) {
+  return (
+    <Link href={href} className="flex flex-col gap-2 rounded-2xl bg-surface p-4 transition-colors hover:bg-surface-hover">
+      <span className="flex items-center justify-between">
+        <Icon className="h-5 w-5 text-accent" />
+        <ChevronRightIcon className="h-4 w-4 text-muted" />
+      </span>
+      <span>
+        <span className="block text-2xl font-extrabold tabular-nums">{count}</span>
+        <span className="block truncate text-xs font-semibold text-muted">{label}</span>
+      </span>
+    </Link>
   );
 }

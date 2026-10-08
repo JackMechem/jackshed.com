@@ -38,6 +38,7 @@ import {
 } from '@/lib/tempoTrainerEngine';
 import { useSyncedSettings } from '@/lib/useSyncedSettings';
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { ScreenSpinner, withScreenLoader } from '@/components/ScreenLoader';
 
 // A silent stretch this long would make the tool pointless at one end, impractical to configure
 // at the other — matches web's own `MAX_CYCLE_BARS`.
@@ -71,9 +72,9 @@ const DEFAULT_SETTINGS = {
  * silent stretch is playing, the main screen hides every timing cue — no beat strip, no section
  * readout — the same as web's own "nothing about time shows at all during a silent stretch" rule.
  */
-export default function TempoTrainerScreen() {
+function TempoTrainerScreen() {
   const { colors } = useAppTheme();
-  const [settings, updateSettings] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
+  const [settings, updateSettings, settingsReady] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
   const [optionsOpen, setOptionsOpen] = useState(false);
 
   const bpm = clampBpm(settings.bpm);
@@ -161,6 +162,9 @@ export default function TempoTrainerScreen() {
   // where in the bar playback is, even without the click), not the section readout — the whole
   // point of this tool is finding out whether the tempo holds with no cue at all.
   const silentNow = running && phase === 'off';
+
+  // Saved settings not read yet — a spinner rather than defaults that then jump to the real values.
+  if (!settingsReady) return <ScreenSpinner />;
 
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background }}>
@@ -354,3 +358,5 @@ export default function TempoTrainerScreen() {
     </View>
   );
 }
+
+export default withScreenLoader(TempoTrainerScreen);

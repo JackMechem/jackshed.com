@@ -1,9 +1,10 @@
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { mutation, query, QueryCtx } from "./_generated/server";
-import { Id } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
 import type { PublicTune } from "@jam-practice/core/profileTunes";
 import { resolveLinkedChart } from "./lib/chordCharts";
+import { liveSetlist, type SetlistCache } from "./lib/setlists";
 
 const MAX_TUNES_PER_POST = 300;
 const MAX_LIST = 60;
@@ -42,6 +43,16 @@ function chartTitlesOf(tunes: unknown): string[] {
     .filter((title): title is string => typeof title === "string");
 }
 
+type PostRow = Doc<"communityTunes">;
+
+/** A setlist post (`setlistId` set) shows the poster's setlist as it is *now*, not as it was when
+    posted — swap in the live tunes, falling back to the stored snapshot if the setlist's gone. */
+async function withLive(ctx: QueryCtx, row: PostRow, charts: "full" | "titles", cache?: SetlistCache): Promise<PostRow> {
+  if (!row.setlistId) return row;
+  const live = await liveSetlist(ctx, row.userId, row.setlistId, charts, cache);
+  return live ? { ...row, tunes: live.tunes } : row;
+}
+
 function summarizePost(row: {
   _id: Id<"communityTunes">;
   title: string;
@@ -49,6 +60,7 @@ function summarizePost(row: {
   tunes: unknown;
   likeCount?: number;
   unlisted?: boolean;
+  kind?: "setlist";
   createdAt: number;
 }) {
   const tuneNames = tuneNamesOf(row.tunes);
@@ -63,6 +75,7 @@ function summarizePost(row: {
     chartTitles,
     likeCount: row.likeCount ?? 0,
     unlisted: row.unlisted ?? false,
+    kind: row.kind ?? null,
     createdAt: row.createdAt,
   };
 }
@@ -81,8 +94,11 @@ export const create = mutation({
     description: v.string(),
     tunes: v.array(v.any()),
     unlisted: v.optional(v.boolean()),
+    kind: v.optional(v.literal("setlist")),
+    /** The poster's own setlist id — the post then always shows that setlist's current tunes. */
+    setlistId: v.optional(v.string()),
   },
-  handler: async (ctx, { title, description, tunes, unlisted }) => {
+  handler: async (ctx, { title, description, tunes, unlisted, kind, setlistId }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not signed in.");
     const profile = await authorProfile(ctx, userId);
@@ -116,6 +132,8 @@ export const create = mutation({
       description: description.trim(),
       tunes: resolvedTunes,
       unlisted: unlisted ?? false,
+      ...(kind ? { kind } : {}),
+      ...(setlistId ? { setlistId } : {}),
       createdAt: Date.now(),
     });
   },
@@ -204,6 +222,7 @@ export const likedPosts = query({
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
     const sorted = [...likeRows].sort((a, b) => b.createdAt - a.createdAt);
+    const cache: SetlistCache = new Map();
     const results = [];
     for (const like of sorted) {
       const row = await ctx.db.get(like.postId);
@@ -214,7 +233,7 @@ export const likedPosts = query({
         ? await ctx.storage.getUrl(profile.avatarStorageId)
         : null;
       results.push({
-        ...summarizePost(row),
+        ...summarizePost(await withLive(ctx, row, "titles", cache)),
         authorUsername: profile.username,
         authorAvatarUrl: avatarUrl,
         isMine: row.userId === userId,
@@ -240,6 +259,7 @@ export const list = query({
       .withIndex("by_createdAt")
       .order("desc")
       .take(MAX_LIST);
+    const cache: SetlistCache = new Map();
     const results = [];
     for (const row of rows) {
       if (row.unlisted) continue;
@@ -249,7 +269,7 @@ export const list = query({
         ? await ctx.storage.getUrl(profile.avatarStorageId)
         : null;
       results.push({
-        ...summarizePost(row),
+        ...summarizePost(await withLive(ctx, row, "titles", cache)),
         authorUsername: profile.username,
         authorAvatarUrl: avatarUrl,
         isMine: row.userId === userId,
@@ -275,7 +295,9 @@ export const mine = query({
       .query("communityTunes")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
-    return rows.map(summarizePost).sort((a, b) => b.createdAt - a.createdAt);
+    const cache: SetlistCache = new Map();
+    const live = await Promise.all(rows.map((row) => withLive(ctx, row, "titles", cache)));
+    return live.map(summarizePost).sort((a, b) => b.createdAt - a.createdAt);
   },
 });
 
@@ -296,10 +318,9 @@ export const listByUser = query({
       .query("communityTunes")
       .withIndex("by_user", (q) => q.eq("userId", targetUserId))
       .collect();
-    return rows
-      .filter((row) => !row.unlisted)
-      .map(summarizePost)
-      .sort((a, b) => b.createdAt - a.createdAt);
+    const cache: SetlistCache = new Map();
+    const live = await Promise.all(rows.filter((row) => !row.unlisted).map((row) => withLive(ctx, row, "titles", cache)));
+    return live.map(summarizePost).sort((a, b) => b.createdAt - a.createdAt);
   },
 });
 
@@ -322,17 +343,37 @@ export const get = query({
     const avatarUrl = profile.avatarStorageId
       ? await ctx.storage.getUrl(profile.avatarStorageId)
       : null;
+    const live = await withLive(ctx, row, "full");
     return {
       id: row._id,
       title: row.title,
       description: row.description,
-      tunes: row.tunes as PublicTune[],
+      tunes: live.tunes as PublicTune[],
+      // Your own setlist post links back to the setlist it shows.
+      setlistId: row.userId === userId ? (row.setlistId ?? null) : null,
       likeCount: row.likeCount ?? 0,
       unlisted: row.unlisted ?? false,
+      kind: row.kind ?? null,
       createdAt: row.createdAt,
       authorUsername: profile.username,
       authorAvatarUrl: avatarUrl,
       isMine: row.userId === userId,
     };
+  },
+});
+
+/** The caller's newest post of one of their setlists (by its setlist id), or `null` — lets the
+    setlist's own page offer "View post" instead of posting it again. */
+export const postForSetlist = query({
+  args: { setlistId: v.string() },
+  handler: async (ctx, { setlistId }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
+    const rows = await ctx.db
+      .query("communityTunes")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    const match = rows.filter((r) => r.setlistId === setlistId).sort((a, b) => b.createdAt - a.createdAt)[0];
+    return match ? match._id : null;
   },
 });

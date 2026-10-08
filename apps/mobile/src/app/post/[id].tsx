@@ -1,19 +1,20 @@
 import { api } from '@jam-practice/convex/_generated/api';
 import type { Id } from '@jam-practice/convex/_generated/dataModel';
-import * as Clipboard from 'expo-clipboard';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useMutation, useQuery } from 'convex/react';
 import { Component, type ReactNode, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View, Share } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { PublicSetlist } from '@/components/community/PublicSetlist';
 import { PublicTuneList } from '@/components/community/PublicTuneList';
 import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
 import { EyeOffIcon, HeartIcon, ShareIcon, TrashIcon } from '@/components/icons';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { UserAvatar } from '@/components/UserAvatar';
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { withScreenLoader } from '@/components/ScreenLoader';
 
 function formatDate(ms: number) {
   return new Date(ms).toLocaleDateString();
@@ -66,7 +67,7 @@ class PostErrorBoundary extends Component<{ children: ReactNode }, { hasError: b
     that it goes to"). Reached as `/post/[id]`, the same path a copied share link points at
     (`https://sheddex.com/post/<id>` — see `PostListItem.tsx`'s own `SHARE_BASE_URL`), so opening a
     shared link and tapping a post from inside the app land on the exact same screen. */
-export default function PostScreen() {
+function PostScreen() {
   return (
     <PostErrorBoundary>
       <PostScreenContent />
@@ -85,20 +86,19 @@ function PostScreenContent() {
   const removePost = useMutation(api.communityTunes.remove);
 
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const liked = post ? (likedIds ?? []).includes(post.id) : false;
 
   async function handleShare() {
     if (!post) return;
+    const url = `https://sheddex.com/post/${post.id}`;
     try {
-      await Clipboard.setStringAsync(`https://sheddex.com/post/${post.id}`);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      await Share.share({ message: `${post.title} — ${url}`, url, title: post.title });
     } catch {
-      // clipboard unavailable — nothing else to fall back to on this screen.
+      // share sheet dismissed/unavailable — nothing to do.
     }
   }
+
 
   async function handleDelete() {
     if (!post) return;
@@ -181,7 +181,7 @@ function PostScreenContent() {
               >
                 <ShareIcon color={colors.foreground} size={15} />
                 <Text className="text-sm font-semibold font-inter-semibold" style={{ color: colors.foreground }}>
-                  {copied ? 'Link copied!' : 'Share'}
+                  Share
                 </Text>
               </Pressable>
               {post.isMine ? (
@@ -205,7 +205,11 @@ function PostScreenContent() {
               </Text>
             ) : null}
 
-            <PublicTuneList tunes={post.tunes} canAdd />
+            {post.kind === 'setlist' ? (
+              <PublicSetlist title={post.title} tunes={post.tunes} isMine={post.isMine} ownSetlistId={post.setlistId} chartsParams={{ post: post.id }} />
+            ) : (
+              <PublicTuneList tunes={post.tunes} canAdd />
+            )}
           </ScrollView>
       </SafeAreaView>
 
@@ -220,3 +224,5 @@ function PostScreenContent() {
     </View>
   );
 }
+
+export default withScreenLoader(PostScreen);

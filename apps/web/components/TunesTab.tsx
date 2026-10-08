@@ -14,11 +14,12 @@ export default function TunesTab() {
 
   return (
     <TuneListManager
-      title="Tunes"
+      title="Tunes I Know"
       icon={ListIcon}
       tunes={tunes}
       setTunes={setTunes}
       allowStandards
+      listId="tunes"
       searchPlaceholder="Search your tunes…"
       emptyMessage="No tunes yet — press + to search jazz standards or create your own."
       exportFilenamePrefix="jam-practice-tunes"

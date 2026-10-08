@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CheckIcon } from '@/components/icons';
 import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { withScreenLoader } from '@/components/ScreenLoader';
 
 /**
  * A native port of `ThemeModal.tsx`'s own two-tier structure (`PRESETS`, the small quick-pick
@@ -25,7 +26,7 @@ import { useAppTheme } from '@/theme/ThemeProvider';
  * headers also dropped the all-caps/tracking-wide treatment to match the rest of the app's own
  * "Capitalized words, not shouting caps" convention adopted elsewhere.
  */
-export default function ThemeScreen() {
+function ThemeScreen() {
   const { presetId, setPreset, colors } = useAppTheme();
   const insets = useSafeAreaInsets();
   const active = [...PRESETS, ...MORE_PRESETS].find((p) => p.id === presetId);
@@ -130,3 +131,5 @@ function Swatch({ color }: { color: string }) {
     />
   );
 }
+
+export default withScreenLoader(ThemeScreen);

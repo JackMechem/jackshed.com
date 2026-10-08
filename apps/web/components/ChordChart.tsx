@@ -9,6 +9,7 @@ import {
   type ChordSlot,
   type IRealSong,
 } from "@/lib/iRealPro";
+import { CELLS_PER_ROW, layoutRows, type PlacedBar } from "@jam-practice/core/chartLayout";
 
 // The reference for this chart's look started as Finale's "Jazz Text" — a thin, plain jazz-chart
 // serif bundled with Finale (MakeMusic's notation software), not something available for web use —
@@ -124,12 +125,15 @@ export default function ChordChart({
   song,
   barsPerRow = 4,
   fullscreen = false,
+  hideHeader = false,
 }: {
   song: IRealSong;
   barsPerRow?: number;
   fullscreen?: boolean;
+  /** Skip the title/style/composer block — for a page that already shows them (a tune's page). */
+  hideHeader?: boolean;
 }) {
-  const rows = groupRows(song.bars, barsPerRow);
+  const rows = layoutRows(song.bars, barsPerRow);
 
   return (
     <div
@@ -137,6 +141,7 @@ export default function ChordChart({
         fullscreen ? "h-full w-full" : "mx-auto w-full max-w-2xl"
       }`}
     >
+      {!hideHeader && (
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-background pb-3">
         <div className="flex flex-col">
           <h2 className="text-2xl font-bold text-foreground sm:text-3xl">
@@ -162,6 +167,7 @@ export default function ChordChart({
           </p>
         )}
       </div>
+      )}
 
       {song.bars.length === 0 ? (
         <p className="text-sm text-muted">No chords found in this chart.</p>
@@ -171,8 +177,7 @@ export default function ChordChart({
             {rows.map((row, i) => (
               <Row
                 key={i}
-                bars={row}
-                barsPerRow={barsPerRow}
+                placed={row}
                 isFirstRow={i === 0}
                 isLastRow={i === rows.length - 1}
                 timeSignature={i === 0 ? song.timeSignature : undefined}
@@ -185,8 +190,7 @@ export default function ChordChart({
           {rows.map((row, i) => (
             <Row
               key={i}
-              bars={row}
-              barsPerRow={barsPerRow}
+              placed={row}
               isFirstRow={i === 0}
               isLastRow={i === rows.length - 1}
               timeSignature={i === 0 ? song.timeSignature : undefined}
@@ -290,56 +294,43 @@ export function PageFit({
   );
 }
 
-/** Exported for `ChordChartEditor.tsx`'s own bar grid, so "break into rows of `barsPerRow`,
-    starting a fresh row early at a `newRow` bar" is the exact same rule in both places — pure
-    logic, no rendering, so reusing it directly carries no risk to this file's own display path. */
+/** One cell of iReal's 16-cells-per-line grid; a normal bar is 4 cells (= `COL_WIDTH`). */
+const CELL_REM = 1.875;
+const CELL_WIDTH = `${CELL_REM}rem`;
+
+/** Which bars share a line — `layoutRows` (`@jam-practice/core/chartLayout`) without the positions.
+    Imported charts are laid out on iReal's 16-cell grid (a line can hold 8 narrow bars, a 2nd
+    ending can start partway across); builder-made bars are `barsPerRow` to a line as before. */
 export function groupRows(bars: Bar[], barsPerRow: number): Bar[][] {
-  const rows: Bar[][] = [];
-  let current: Bar[] = [];
-  for (const bar of bars) {
-    if (current.length > 0 && (bar.newRow || current.length >= barsPerRow)) {
-      rows.push(current);
-      current = [];
-    }
-    current.push(bar);
-  }
-  if (current.length > 0) rows.push(current);
-  return rows;
+  return layoutRows(bars, barsPerRow).map((row) => row.map((p) => p.bar));
 }
 
-/** Contiguous runs of bars sharing the same numbered ending, within one row. */
-function endingSpans(
-  bars: Bar[],
-): { label: string; start: number; span: number }[] {
+/** Runs of bars under the same numbered-ending bracket, within one line, in cell units. */
+function endingSpans(placed: PlacedBar[]): { label: string; start: number; span: number }[] {
   const spans: { label: string; start: number; span: number }[] = [];
   let i = 0;
-  while (i < bars.length) {
-    const label = bars[i].endingLabel;
+  while (i < placed.length) {
+    const label = placed[i].bar.endingLabel;
     if (!label) {
       i += 1;
       continue;
     }
     let j = i;
-    while (j < bars.length && bars[j].endingLabel === label) j += 1;
-    spans.push({ label, start: i, span: j - i });
+    while (j < placed.length && placed[j].bar.endingLabel === label && (j === i || !placed[j].bar.endingStart)) j += 1;
+    const last = placed[j - 1];
+    spans.push({ label, start: placed[i].start, span: last.start + last.cells - placed[i].start });
     i = j;
   }
   return spans;
 }
 
-/** Exported for `ChordChartEditor.tsx`, which reuses this wholesale for its own bar grid (rather
-    than a second approximation of it) via three optional additions that only it ever passes:
-    `renderBarContent` lets a caller override what's shown *inside* one specific bar (its own
-    "this bar is being typed into right now, show an `<input>` instead" case) while every other
-    bar still renders through the normal `BarContent` path; `renderSection` is the same idea for
-    the section badge specifically (its own "type the section name right where it'll actually
-    appear" editing); `trailing` is one more raw grid item appended after the row's own bars (its
-    own "Add bar" button, placed in whatever grid column is left over after the last bar — only
-    ever passed for the actual last row). None of the three is passed from this file's own
-    `ChordChart` below, so its own rendering is completely unaffected by any of them existing. */
+/** One line of the chart on a 16-column cell grid — each bar starts at its cell and spans its
+    width (see `layoutRows`). Also used by `ChordChartEditor.tsx`: `renderBarContent` overrides
+    what's inside one bar (its "being typed into" input), `renderSection` the section badge, and
+    `trailing` is one more grid item after the line's bars (its "Add bar" button — give it a
+    `gridColumn` in cell units). */
 export function Row({
-  bars,
-  barsPerRow,
+  placed,
   isFirstRow,
   isLastRow,
   timeSignature,
@@ -347,67 +338,54 @@ export function Row({
   renderSection,
   trailing,
 }: {
-  bars: Bar[];
-  barsPerRow: number;
+  placed: PlacedBar[];
   isFirstRow: boolean;
   isLastRow: boolean;
+  /** The chart's own time signature, printed at its very first bar. */
   timeSignature?: { top: number; bottom: number };
   renderBarContent?: (bar: Bar, indexInRow: number) => React.ReactNode;
-  /** Same idea as `renderBarContent`, for the section badge specifically — only ever consulted
-      for the row's own first bar (`i === 0`), the one spot a badge can ever appear. Returning
-      `undefined` falls back to the normal badge. */
+  /** Same idea as `renderBarContent`, for a bar's section badge. `undefined` keeps the badge. */
   renderSection?: (bar: Bar, indexInRow: number) => React.ReactNode;
   trailing?: React.ReactNode;
 }) {
-  // The section letter (A, B, ...) is drawn inside the row's first bar rather than in a gutter
-  // column of its own — that gutter used to eat into the width available to the bars themselves,
-  // which is exactly what's tight on a narrow screen.
-  const section = bars[0]?.section;
-  const spans = endingSpans(bars);
+  const spans = endingSpans(placed);
   const hasEndings = spans.length > 0;
 
-  // Always `barsPerRow` columns, even when this particular row (the chart's last, or one cut
-  // short by an explicit section break) has fewer actual bars than that — the remaining columns
-  // just stay blank, so every row keeps the same bar width instead of a short row's bars
-  // stretching (or the row itself shrinking) to fill the space. Matches how a real chart never
-  // changes bar width mid-line just because a line happens to end early.
   return (
     <div
       className="grid"
       style={{
-        gridTemplateColumns: `repeat(${barsPerRow}, ${COL_WIDTH})`,
+        gridTemplateColumns: `repeat(${CELLS_PER_ROW}, ${CELL_WIDTH})`,
         gridTemplateRows: hasEndings ? "1.5rem auto" : "auto",
       }}
     >
       {spans.map((s) => (
         <div
           key={s.start}
-          className="relative mb-1 border-t-2 border-foreground/70 pl-1 font-semibold text-muted"
-          style={{
-            gridColumn: `${s.start + 1} / span ${s.span}`,
-            gridRow: 1,
-            fontSize: SMALL_LABEL_SIZE,
-          }}
+          className="relative mb-1 border-l-2 border-t-2 border-foreground/70 pl-1 font-semibold text-muted"
+          style={{ gridColumn: `${s.start + 1} / span ${s.span}`, gridRow: 1, fontSize: SMALL_LABEL_SIZE }}
         >
           {s.label}.
         </div>
       ))}
-      {bars.map((bar, i) => (
-        <BarCell
-          key={i}
-          bar={bar}
-          section={i === 0 ? section : undefined}
-          timeSignature={i === 0 ? timeSignature : undefined}
-          column={i + 1}
-          row={hasEndings ? 2 : 1}
-          isFirst={i === 0}
-          isLast={i === bars.length - 1}
-          isFirstOfChart={isFirstRow && i === 0}
-          isLastOfChart={isLastRow && i === bars.length - 1}
-          content={renderBarContent?.(bar, i)}
-          sectionContent={i === 0 ? renderSection?.(bar, i) : undefined}
-        />
-      ))}
+      {placed.map((p, i) => {
+        const prevEnd = i === 0 ? 0 : placed[i - 1].start + placed[i - 1].cells;
+        return (
+          <BarCell
+            key={i}
+            bar={p.bar}
+            start={p.start}
+            cells={p.cells}
+            timeSignature={p.bar.timeSignature ?? (isFirstRow && i === 0 ? timeSignature : undefined)}
+            row={hasEndings ? 2 : 1}
+            hasLeftEdge={i === 0 || p.start > prevEnd}
+            isFirstOfChart={isFirstRow && i === 0}
+            isLastOfChart={isLastRow && i === placed.length - 1}
+            content={renderBarContent?.(p.bar, i)}
+            sectionContent={renderSection?.(p.bar, i)}
+          />
+        );
+      })}
       {trailing}
     </div>
   );
@@ -415,85 +393,97 @@ export function Row({
 
 function BarCell({
   bar,
-  section,
+  start,
+  cells,
   timeSignature,
-  column,
   row,
-  isFirst,
-  isLast,
+  hasLeftEdge,
   isFirstOfChart,
   isLastOfChart,
   content,
   sectionContent,
 }: {
   bar: Bar;
-  section?: string;
+  start: number;
+  cells: number;
   timeSignature?: { top: number; bottom: number };
-  column: number;
   row: number;
-  isFirst: boolean;
-  isLast: boolean;
+  hasLeftEdge: boolean;
   isFirstOfChart: boolean;
   isLastOfChart: boolean;
   content?: React.ReactNode;
-  /** Overrides the section badge itself (not just its text) — `ChordChartEditor.tsx`'s own "type
-      the section name right where it'll actually appear" editing, an `<input>` shown in the exact
-      same corner the plain badge otherwise occupies. `undefined` (the default every other caller
-      gets) falls back to the normal badge; passing anything else, including `null`, replaces it
-      outright — so a caller can also suppress the badge entirely without also going through
-      `section` itself. */
+  /** Overrides the section badge itself — `ChordChartEditor.tsx`'s inline section-name input.
+      `undefined` falls back to the normal badge; anything else (including `null`) replaces it. */
   sectionContent?: React.ReactNode;
 }) {
-  // iReal Pro always draws the chart's very opening barline thick/doubled, independent of
-  // whether that bar happens to also carry an explicit repeat-open marker — matching that here
-  // rather than only going thick when `startRepeat` is actually set.
-  const leftStyle =
-    bar.startRepeat || isFirstOfChart
-      ? "border-l-4 border-foreground"
-      : isFirst
+  // iReal always draws the chart's very opening barline thick, whatever else is there.
+  const thickLeft = bar.startRepeat || isFirstOfChart;
+  const leftStyle = thickLeft
+    ? "border-l-4 border-foreground"
+    : bar.startDouble
+      ? "border-l border-foreground"
+      : hasLeftEdge
         ? "border-l border-muted/40"
         : "";
-  const rightStyle = bar.endRepeat
+  const thickRight = bar.endRepeat || bar.endBarline === "final" || isLastOfChart;
+  const rightStyle = thickRight
     ? "border-r-4 border-foreground"
-    : isLast
-      ? isLastOfChart
-        ? "border-r-4 border-foreground"
-        : "border-r border-muted/40"
+    : bar.endBarline === "double"
+      ? "border-r border-foreground"
       : "border-r border-muted/40";
 
   return (
     <div
       className={`relative flex items-center justify-center gap-1 px-0.5 ${leftStyle} ${rightStyle}`}
-      style={{ gridColumn: column, gridRow: row, height: BAR_HEIGHT, width: COL_WIDTH }}
+      style={{ gridColumn: `${start + 1} / span ${cells}`, gridRow: row, height: BAR_HEIGHT, width: `${cells * CELL_REM}rem` }}
     >
+      {bar.startDouble && !thickLeft && <span aria-hidden className="absolute bottom-0 left-0.5 top-0 w-px bg-foreground" />}
+      {bar.endBarline === "double" && !thickRight && <span aria-hidden className="absolute bottom-0 right-0.5 top-0 w-px bg-foreground" />}
+      {bar.endBarline === "final" && !bar.endRepeat && <span aria-hidden className="absolute bottom-0 right-1 top-0 w-px bg-foreground" />}
       {bar.startRepeat && <RepeatDots side="left" />}
       {bar.endRepeat && <RepeatDots side="right" />}
       {sectionContent !== undefined
         ? sectionContent
-        : section && (
+        : bar.section && (
             <span
               className="absolute left-0.5 top-0.5 flex h-[1.6em] min-w-[1.6em] items-center justify-center whitespace-nowrap rounded bg-accent px-1 font-bold leading-none text-accent-foreground"
               style={{ fontSize: BADGE_SIZE }}
             >
-              {section}
+              {bar.section}
             </span>
           )}
       {(bar.segno || bar.coda) && (
         <span
-          className={`absolute right-0.5 top-0.5 text-accent ${chordSymbolFont.className}`}
+          className={`absolute top-0.5 text-accent ${chordSymbolFont.className} ${bar.section ? "left-7" : "left-0.5"}`}
           style={{ fontSize: SYMBOL_SIZE }}
           aria-hidden
         >
-          {bar.segno ? "" /* segno */ : "" /* coda */}
+          {bar.segno ? "" /* segno */ : ""}
+          {bar.coda ? "" /* coda */ : ""}
+        </span>
+      )}
+      {bar.alternates && bar.alternates.length > 0 && (
+        // Alternate changes (iReal's parenthesized chords), printed small above the bar's chords.
+        <span className="absolute left-0 right-0 top-0 flex justify-center gap-1.5 opacity-70" aria-label="Alternate changes">
+          {bar.alternates.map((a, i) => (
+            <ChordLabel key={i} slot={a} scale={0.55} />
+          ))}
+        </span>
+      )}
+      {bar.content.kind === "repeat" && bar.content.double && (
+        // "Repeat the previous two bars" — drawn on the barline between the two bars.
+        <span
+          aria-hidden
+          className={`absolute z-10 translate-x-1/2 text-muted ${chordSymbolFont.className}`}
+          style={{ right: 0, fontSize: REPEAT_SIZE }}
+        >
+          {"" /* repeat2Bars */}
         </span>
       )}
       {timeSignature && <TimeSignatureGlyph timeSignature={timeSignature} />}
       {content ?? <BarContent bar={bar} />}
       {bar.directive && (
-        <span
-          className="absolute -bottom-5 right-0 whitespace-nowrap italic text-muted"
-          style={{ fontSize: SMALL_LABEL_SIZE }}
-        >
+        <span className="absolute -bottom-5 right-0 whitespace-nowrap italic text-muted" style={{ fontSize: SMALL_LABEL_SIZE }}>
           {bar.directive}
         </span>
       )}
@@ -542,6 +532,7 @@ function RepeatDots({ side }: { side: "left" | "right" }) {
     sync. */
 export function BarContent({ bar }: { bar: Bar }) {
   if (bar.content.kind === "repeat") {
+    if (bar.content.double) return null; // drawn on the barline by BarCell
     return (
       <span
         className={`text-muted ${chordSymbolFont.className}`}
@@ -616,12 +607,19 @@ const ACCIDENTAL_GLYPH: Record<"b" | "#", string> = { b: "♭", "#": "♯" };
 // resolve against whatever font-size this label happens to inherit — not against the root's own
 // (much larger) size — which is exactly why they used to stay illegibly small no matter how big
 // that `em` value got. Explicit, independently-set sizes sidestep that entirely.
-function ChordLabel({ slot }: { slot: ChordSlot }) {
+/** `rem` sizes scaled — small chords (iReal's `s`) print at about two thirds size, alternates
+    smaller still. */
+function sized(size: string, k: number) {
+  return k === 1 ? size : `calc(${size} * ${k})`;
+}
+
+function ChordLabel({ slot, scale = 1 }: { slot: ChordSlot; scale?: number }) {
+  const k = scale * (slot.kind === "chord" && slot.small ? 0.68 : 1);
   if (slot.kind === "nc") {
     return (
       <span
         className={`font-medium text-muted ${chordFont.className}`}
-        style={{ fontSize: QUALITY_SIZE }}
+        style={{ fontSize: sized(QUALITY_SIZE, k) }}
       >
         N.C.
       </span>
@@ -631,7 +629,7 @@ function ChordLabel({ slot }: { slot: ChordSlot }) {
     return (
       <span
         className={`text-muted ${chordFont.className}`}
-        style={{ fontSize: QUALITY_SIZE }}
+        style={{ fontSize: sized(QUALITY_SIZE, k) }}
         aria-hidden
       >
         /
@@ -644,11 +642,11 @@ function ChordLabel({ slot }: { slot: ChordSlot }) {
     >
       <span
         className="font-medium text-foreground"
-        style={{ fontSize: ROOT_SIZE }}
+        style={{ fontSize: sized(ROOT_SIZE, k) }}
       >
         {slot.letter}
         {slot.accidental && (
-          <sup style={{ fontSize: ROOT_ACCIDENTAL_SIZE }}>
+          <sup style={{ fontSize: sized(ROOT_ACCIDENTAL_SIZE, k) }}>
             {ACCIDENTAL_GLYPH[slot.accidental]}
           </sup>
         )}
@@ -660,13 +658,13 @@ function ChordLabel({ slot }: { slot: ChordSlot }) {
         // plain sibling span for free.
         <span
           className="ml-1 font-medium text-foreground"
-          style={{ fontSize: QUALITY_SIZE }}
+          style={{ fontSize: sized(QUALITY_SIZE, k) }}
         >
           <QualityText quality={slot.quality} />
         </span>
       )}
       {slot.bass && (
-        <span className="ml-1.5 text-muted" style={{ fontSize: BASS_SIZE }}>
+        <span className="ml-1.5 text-muted" style={{ fontSize: sized(BASS_SIZE, k) }}>
           /{slot.bass.letter}
           {slot.bass.accidental && ACCIDENTAL_GLYPH[slot.bass.accidental]}
         </span>

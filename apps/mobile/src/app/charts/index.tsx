@@ -1,0 +1,204 @@
+import { sortByText } from '@jam-practice/core/sortText';
+import { useRouter } from 'expo-router';
+import { useMemo, useState, type ComponentType } from 'react';
+import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { FolderRow, SearchField, SongRow, songSubtitle, useChordChartBrowser } from '@/components/ChordChartList';
+import { ChordChartNewSheet } from '@/components/ChordChartNewSheet';
+import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
+import { ChordChartIcon, DownloadIcon, FolderIcon, LinkIcon, PlusIcon, type IconProps } from '@/components/icons';
+import { ScreenSpinner, withScreenLoader } from '@/components/ScreenLoader';
+import { useRecentCharts } from '@/lib/chordChartRecents';
+import type { LibrarySongMeta } from '@/lib/useChordChartsLibrary';
+import { useTuneLists } from '@/lib/useTuneList';
+import { useAppTheme } from '@/theme/ThemeProvider';
+
+type Hit = { song: LibrarySongMeta; playlistId: string; playlistName: string };
+
+/**
+ * The Charts tab — everything about chord charts in one place, the way the Tunes tab is for tune
+ * lists. At a glance: counts (charts, playlists, charts linked to one of your tunes), the charts
+ * you opened most recently, and your playlists (open one to see its charts; ⋮ to delete it). The
+ * search covers every chart in every playlist. The + makes a new chart or playlist, or imports a
+ * chart link or playlist (`charts/import.tsx`). Opening a chart pushes the full-page viewer; every chart row has the
+ * chart ⋮ menu (edit, move to a playlist, delete).
+ */
+function ChartsScreen() {
+  const { colors } = useAppTheme();
+  const router = useRouter();
+  const charts = useChordChartBrowser();
+  const { playlists, songIndex, totalSongs, loading, createPlaylist, openSong, openMenu, openPlaylistMenu, menu } = charts;
+  const recent = useRecentCharts();
+  const { lists } = useTuneLists();
+
+  const [query, setQuery] = useState('');
+  const [newOpen, setNewOpen] = useState(false);
+
+  const q = query.trim().toLowerCase();
+  const hits: Hit[] | null = useMemo(() => {
+    if (!q) return null;
+    const words = q.split(/\s+/);
+    const out: Hit[] = [];
+    for (const p of playlists) {
+      for (const s of p.songs) {
+        if (words.every((w) => `${s.title} ${s.composer} ${s.style}`.toLowerCase().includes(w))) out.push({ song: s, playlistId: p.id, playlistName: p.name });
+      }
+    }
+    return sortByText(out, (h) => h.song.title);
+  }, [q, playlists]);
+
+  // How many of your charts are linked to one of your tunes.
+  const linkedCount = useMemo(() => {
+    const ids = new Set<string>();
+    for (const t of [...lists.tunes.tunes, ...lists.learn.tunes]) if (t.chordChartId && songIndex.has(t.chordChartId)) ids.add(t.chordChartId);
+    return ids.size;
+  }, [lists.tunes.tunes, lists.learn.tunes, songIndex]);
+
+  const realPlaylists = playlists.filter((p) => p.id !== 'unsorted');
+  const recentCharts = recent.map((id) => songIndex.get(id)).filter((x) => x !== undefined);
+
+  return (
+    <View className="flex-1" style={{ backgroundColor: colors.background }}>
+      <SafeAreaView className="flex-1" edges={['top']}>
+        <View className="flex-row items-center gap-2 px-5 pb-3 pt-4">
+          <Text className="font-inter-extrabold flex-1 text-3xl font-extrabold" style={{ color: colors.foreground }}>
+            Chord Charts
+          </Text>
+          <Pressable
+            onPress={() => setNewOpen(true)}
+            accessibilityLabel="New chord chart or playlist"
+            className="h-11 w-11 items-center justify-center rounded-full"
+            style={{ backgroundColor: colors.accent }}
+          >
+            <PlusIcon color={colors['accent-foreground']} size={24} />
+          </Pressable>
+        </View>
+        <View className="px-4 pb-2">
+          <SearchField value={query} onChange={setQuery} placeholder={`Search ${totalSongs} charts…`} />
+        </View>
+
+        {loading ? (
+          <ScreenSpinner />
+        ) : hits ? (
+          <FlatList
+            data={hits}
+            keyExtractor={(h) => h.song.id}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: TAB_BAR_CONTENT_HEIGHT + 24 }}
+            renderItem={({ item }) => (
+              <SongRow
+                song={item.song}
+                subtitle={songSubtitle(item.song, item.playlistName)}
+                onSelect={() => openSong(item.song.id)}
+                onMenu={() => openMenu({ song: item.song, playlistId: item.playlistId })}
+              />
+            )}
+            ListEmptyComponent={
+              <Text className="font-inter py-8 text-center text-sm" style={{ color: colors.muted }}>
+                No charts match &ldquo;{query}&rdquo;.
+              </Text>
+            }
+          />
+        ) : (
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingTop: 8, paddingBottom: TAB_BAR_CONTENT_HEIGHT + 32, gap: 22 }}>
+            <View className="flex-row gap-3">
+              <StatCard Icon={ChordChartIcon} count={totalSongs} label="Charts" />
+              <StatCard Icon={FolderIcon} count={realPlaylists.length} label="Playlists" />
+              <StatCard Icon={LinkIcon} count={linkedCount} label="Linked to tunes" />
+            </View>
+
+            {totalSongs === 0 ? (
+              <View className="gap-3 rounded-2xl p-4" style={{ backgroundColor: colors.surface }}>
+                <Text className="font-inter text-sm" style={{ color: colors.muted }}>
+                  No chord charts yet. Build one with +, or import a chart link or playlist.
+                </Text>
+                <Pressable onPress={() => router.push('/charts/import')} className="flex-row items-center justify-center gap-2 rounded-xl py-3" style={{ backgroundColor: colors.background }}>
+                  <DownloadIcon color={colors.foreground} size={18} />
+                  <Text className="font-inter-semibold text-sm font-semibold" style={{ color: colors.foreground }}>
+                    Import charts
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            {recentCharts.length > 0 ? (
+              <View className="gap-2">
+                <Text className="font-inter-bold px-1 text-lg font-bold" style={{ color: colors.foreground }}>
+                  Recently opened
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+                  {recentCharts.map((r) => (
+                    <Pressable
+                      key={r.song.id}
+                      onPress={() => openSong(r.song.id)}
+                      onLongPress={() => openMenu({ song: r.song, playlistId: r.playlistId })}
+                      className="justify-between rounded-2xl p-3"
+                      style={{ width: 150, height: 92, backgroundColor: colors.surface }}
+                    >
+                      <ChordChartIcon color={colors.accent} size={20} />
+                      <View>
+                        <Text numberOfLines={1} className="font-inter-bold text-sm font-bold" style={{ color: colors.foreground }}>
+                          {r.song.title}
+                        </Text>
+                        <Text numberOfLines={1} className="font-inter text-xs" style={{ color: colors.muted }}>
+                          {[r.song.key, r.playlistName].filter(Boolean).join(' · ')}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            ) : null}
+
+            {playlists.length > 0 ? (
+              <View className="gap-1">
+                <Text className="font-inter-bold px-1 pb-1 text-lg font-bold" style={{ color: colors.foreground }}>
+                  Playlists
+                </Text>
+                {playlists.map((p) => (
+                  <FolderRow
+                    key={p.id}
+                    name={p.name}
+                    count={p.songs.length}
+                    onPress={() => router.push({ pathname: '/tool/chord-charts-playlist', params: { id: p.id } })}
+                    onMenu={p.id === 'unsorted' ? undefined : () => openPlaylistMenu({ id: p.id, name: p.name, count: p.songs.length })}
+                  />
+                ))}
+              </View>
+            ) : null}
+          </ScrollView>
+        )}
+      </SafeAreaView>
+
+      {menu}
+      <ChordChartNewSheet
+        visible={newOpen}
+        onClose={() => setNewOpen(false)}
+        onChooseChart={() => router.push('/tool/chord-charts-new')}
+        onChooseImport={() => router.push('/charts/import')}
+        onCreatePlaylist={(name) => void createPlaylist(name)}
+      />
+    </View>
+  );
+}
+
+function StatCard({ Icon, count, label }: { Icon: ComponentType<IconProps>; count: number; label: string }) {
+  const { colors } = useAppTheme();
+  return (
+    <View className="flex-1 gap-2 rounded-2xl p-3" style={{ backgroundColor: colors.surface }}>
+      <Icon color={colors.accent} size={22} />
+      <View>
+        <Text className="font-inter-extrabold text-2xl font-extrabold tabular-nums" style={{ color: colors.foreground }}>
+          {count}
+        </Text>
+        <Text numberOfLines={1} className="font-inter-semibold text-xs font-semibold" style={{ color: colors.muted }}>
+          {label}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+export default withScreenLoader(ChartsScreen);

@@ -45,6 +45,8 @@ type Entry = {
       because signed out) for this session. */
   serverApplied: boolean;
   timer: ReturnType<typeof setTimeout> | null;
+  /** This device's AsyncStorage copy has been read (whether or not there was one). */
+  localLoaded: boolean;
   listeners: Set<() => void>;
 };
 
@@ -59,6 +61,7 @@ function getEntry(key: string): Entry {
       localEdited: false,
       serverApplied: false,
       timer: null,
+      localLoaded: false,
       listeners: new Set(),
     };
     entries.set(key, entry);
@@ -93,7 +96,7 @@ function mergeWithDefaults<T extends object>(parsed: unknown, defaults: T): T {
 export function useSyncedSettings<T extends object>(
   key: string,
   defaults: T,
-): [T, (patch: Partial<T>) => void] {
+): [T, (patch: Partial<T>) => void, boolean] {
   const { isAuthenticated } = useConvexAuth();
   const wasAuthenticatedRef = useRef(isAuthenticated);
 
@@ -118,10 +121,26 @@ export function useSyncedSettings<T extends object>(
     () => (getEntry(key).hasValue ? (getEntry(key).value as T) : defaults),
   );
 
+  // `ready`: this device's saved copy has been read, so `settings` is the real value rather than
+  // `defaults` standing in for it — screens show a loading spinner until then instead of
+  // flashing default settings that then jump to the saved ones. Deliberately *not* waiting on the
+  // account's copy too: that never arrives offline, and AsyncStorage already mirrors it.
+  const ready = useSyncExternalStore(
+    (callback) => {
+      const entry = getEntry(key);
+      entry.listeners.add(callback);
+      return () => {
+        entry.listeners.delete(callback);
+      };
+    },
+    () => getEntry(key).localLoaded || getEntry(key).hasValue,
+  );
+
   // Load from AsyncStorage once per key — only applies if nothing (server or a local edit) has
   // already claimed the entry by the time it resolves.
   useEffect(() => {
     let cancelled = false;
+    if (getEntry(key).localLoaded) return;
     AsyncStorage.getItem(key)
       .then((raw) => {
         if (cancelled || !raw) return;
@@ -137,6 +156,13 @@ export function useSyncedSettings<T extends object>(
       })
       .catch(() => {
         // storage unavailable — the in-memory/server path still works this session
+      })
+      .finally(() => {
+        const entry = getEntry(key);
+        if (!entry.localLoaded) {
+          entry.localLoaded = true;
+          notify(key);
+        }
       });
     return () => {
       cancelled = true;
@@ -218,5 +244,5 @@ export function useSyncedSettings<T extends object>(
     }
   }
 
-  return [settings, update];
+  return [settings, update, ready];
 }

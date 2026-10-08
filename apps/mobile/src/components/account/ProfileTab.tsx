@@ -7,6 +7,7 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 
 import { PlusIcon, TrashIcon } from '@/components/icons';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
+import { InfoButton } from '@/components/InfoButton';
 import { SwitchRow } from '@/components/SwitchRow';
 import { useSyncedTunes, useTunesToLearn } from '@/lib/useSyncedTunes';
 import { useAppTheme } from '@/theme/ThemeProvider';
@@ -108,22 +109,19 @@ export function ProfileTab() {
 
   return (
     <View className="gap-5 rounded-2xl p-5" style={{ backgroundColor: colors.surface }}>
-      <View>
-        <Text className="text-lg font-semibold font-inter-semibold" style={{ color: colors.foreground }}>
-          Public profile
-        </Text>
-        <Text className="text-sm font-inter" style={{ color: colors.muted }}>
-          An optional public page other people can find and follow — nothing here is visible to
-          anyone until you turn &quot;Make profile public&quot; on below.
-        </Text>
-      </View>
-
       <AvatarUpload avatarUrl={profile?.avatarUrl ?? null} />
 
       <View className="gap-1">
-        <Text className="text-sm font-semibold font-inter-semibold" style={{ color: colors.muted }}>
-          Username
-        </Text>
+        <View className="flex-row items-center gap-1.5">
+          <Text className="text-sm font-semibold font-inter-semibold" style={{ color: colors.muted }}>
+            Username
+          </Text>
+          <InfoButton
+            title="Username"
+            size={16}
+            text={`This has nothing to do with how you sign in — it's a separate, public identity (sheddex.com/u/${normalizedUsername || '…'}), only shown if your profile is public.`}
+          />
+        </View>
         <TextInput
           value={username}
           onChangeText={setUsername}
@@ -151,10 +149,6 @@ export function ProfileTab() {
             Available.
           </Text>
         ) : null}
-        <Text className="text-xs leading-4 font-inter" style={{ color: colors.muted }}>
-          This has nothing to do with how you sign in — it&apos;s a separate, public identity
-          (sheddex.com/u/{normalizedUsername || '…'}), only shown if your profile is public.
-        </Text>
       </View>
 
       <View className="gap-2">
@@ -216,17 +210,18 @@ export function ProfileTab() {
         ) : null}
       </View>
 
-      <View className="gap-1 rounded-xl p-3" style={{ backgroundColor: colors.background }}>
-        <Text className="text-sm font-inter" style={{ color: colors.foreground }}>
+      <View className="flex-row items-center gap-2 rounded-xl p-3" style={{ backgroundColor: colors.background }}>
+        <Text className="flex-1 text-sm font-inter" style={{ color: colors.foreground }}>
           <Text className="font-semibold font-inter-semibold">{tunes.length}</Text> tune
           {tunes.length === 1 ? '' : 's'} and{' '}
           <Text className="font-semibold font-inter-semibold">{tunesToLearn.length}</Text> tune
           {tunesToLearn.length === 1 ? '' : 's'} to learn show on your public profile.
         </Text>
-        <Text className="text-xs font-inter" style={{ color: colors.muted }}>
-          Manage them from the Tunes and Tunes to Learn tabs — every tune there shows here
-          automatically, there&apos;s nothing to pick.
-        </Text>
+        <InfoButton
+          title="Your tunes"
+          size={16}
+          text="Every tune in your Tunes and Tunes to Learn lists shows on your public profile automatically — there's nothing to pick. Manage them from those pages."
+        />
       </View>
 
       <SwitchRow

@@ -19,7 +19,7 @@ function chip(enabled: boolean): string {
     original or with anything already in the target list, since from here on it's the viewer's own
     tune to edit or delete freely. `notes` is always empty: a public profile never exposes it in
     the first place (see `lib/profileTunes.ts`), so there's nothing to copy. */
-function toOwnTune(source: PublicTune): Tune {
+export function toOwnTune(source: PublicTune): Tune {
   return {
     id: makeId(),
     name: source.name,

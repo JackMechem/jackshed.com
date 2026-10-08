@@ -5,6 +5,8 @@ import { useAction, useQuery } from 'convex/react';
 import { useState } from 'react';
 import { Modal, Pressable, Text, TextInput, View } from 'react-native';
 
+import { InfoButton } from '@/components/InfoButton';
+import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { useAppTheme } from '@/theme/ThemeProvider';
 
 function friendlyError(err: unknown, fallback: string): string {
@@ -16,17 +18,29 @@ function friendlyError(err: unknown, fallback: string): string {
 export function DangerZoneTab() {
   const { colors } = useAppTheme();
   const [open, setOpen] = useState(false);
+  // The delete flow differs for password vs Google-only accounts — load that before offering it
+  // (the modal reads the same, by then already-cached, queries).
+  const user = useQuery(api.users.current);
+  const providers = useQuery(api.account.linkedProviders);
+
+  if (user === undefined || providers === undefined) {
+    return (
+      <View className="items-center py-12">
+        <LoadingSpinner />
+      </View>
+    );
+  }
 
   return (
     <View className="gap-3 rounded-2xl p-5" style={{ backgroundColor: colors.surface }}>
-      <View>
+      <View className="flex-row items-center gap-2">
         <Text className="text-lg font-semibold font-inter-semibold" style={{ color: colors.danger }}>
           Delete account
         </Text>
-        <Text className="text-sm font-inter" style={{ color: colors.muted }}>
-          Permanently deletes your account, including your public profile if you have one. It
-          doesn&apos;t touch anything already saved on this device.
-        </Text>
+        <InfoButton
+          title="Delete account"
+          text="Permanently deletes your account, including your public profile if you have one. It doesn't touch anything already saved on this device."
+        />
       </View>
       <Pressable
         onPress={() => setOpen(true)}

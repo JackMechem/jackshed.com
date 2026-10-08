@@ -69,10 +69,31 @@ export const EyeOffIcon = mci('eye-off-outline');
 export const DownloadIcon = mci('download');
 export const ChevronDownIcon = mci('chevron-down');
 export const ChevronRightIcon = mci('chevron-right');
+export const ChevronLeftIcon = mci('chevron-left');
+export const InfoIcon = mci('information-outline');
+export const ArrowUpIcon = mci('arrow-up');
+export const ArrowDownIcon = mci('arrow-down');
+export const ToTopIcon = mci('format-vertical-align-top');
+export const DragIcon = mci('drag-horizontal-variant');
+export const SlidesIcon = mci('play-box-multiple-outline');
+export const SetlistIcon = mci('playlist-music-outline');
+export const AccountEditIcon = mci('account-edit-outline');
+export const MusicNoteIcon = mci('music-note-outline');
+export const StarOutlineIcon = mci('star-outline');
+export const PostIcon = mci('post-outline');
+export const LockIcon = mci('lock-outline');
+export const LogoutIcon = mci('logout');
+export const DangerIcon = mci('alert-octagon-outline');
 export const LinkIcon = mci('link-variant');
 export const FeedIcon = mci('view-dashboard-outline');
 export const FollowersIcon = mci('account-multiple-outline');
 export const ShareIcon = mci('share-variant-outline');
+export const DotsVerticalIcon = mci('dots-vertical');
+export const FolderMoveIcon = mci('folder-move-outline');
+export const FolderIcon = mci('folder-music-outline');
+export const FolderPlusIcon = mci('folder-plus-outline');
+export const HistoryIcon = mci('history');
+export const ClearIcon = mci('close-circle');
 
 export function StarIcon({ color, size = 18, filled }: IconProps & { filled?: boolean }) {
   return <MaterialCommunityIcons name={filled ? 'star' : 'star-outline'} size={size} color={color} />;
@@ -97,6 +118,7 @@ export const NAV_LINK_ICONS: Record<string, ComponentType<IconProps>> = {
   '/tuner': TunerIcon,
   '/slow-downer': WaveIcon,
   '/chord-charts': ChordChartIcon,
+  '/tunes': MusicNoteIcon,
   '/recorder': RecordIcon,
   '/random-sticking-warmup': DrumIcon,
   '/community': UsersIcon,

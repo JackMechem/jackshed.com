@@ -11,6 +11,7 @@ import { PostListItem } from '@/components/community/CommunityTunes';
 import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { withScreenLoader } from '@/components/ScreenLoader';
 
 /**
  * Every post the signed-in account has liked — reached via the heart button in Community's own
@@ -21,7 +22,7 @@ import { useAppTheme } from '@/theme/ThemeProvider';
  * same `/post/[id]` full page every other "list of posts" surface uses). Every row here is liked
  * by definition — `liked` is passed as a constant `true` rather than cross-referencing a separate
  * `myLikes` query, since there's nothing to cross-reference (this list *is* the liked list). */
-export default function LikedPostsScreen() {
+function LikedPostsScreen() {
   const { colors } = useAppTheme();
   const posts = useQuery(api.communityTunes.likedPosts);
   const removePost = useMutation(api.communityTunes.remove);
@@ -72,3 +73,5 @@ export default function LikedPostsScreen() {
     </View>
   );
 }
+
+export default withScreenLoader(LikedPostsScreen);

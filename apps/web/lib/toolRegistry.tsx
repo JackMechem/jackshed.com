@@ -2,21 +2,15 @@
 
 import dynamic from "next/dynamic";
 import type { ComponentType } from "react";
-import Wordmark from "@/components/Wordmark";
+import Logo from "@/components/Logo";
 import { NAV_LINKS } from "@/components/tools";
 
-/** Same animated wordmark `app/loading.tsx` shows for a normal page navigation — kept narrower
-    (`max-w-full` so it never forces a scrollbar in a genuinely narrow pane) since a tiling pane
-    can be much slimmer than a full page. */
+/** Same pulsing logo `app/loading.tsx` shows for a normal page navigation, a little smaller since
+    a tiling pane can be much slimmer than a full page. */
 function PaneLoading() {
   return (
     <div className="flex h-full items-center justify-center p-4">
-      <Wordmark
-        size="lg"
-        animate
-        className="h-12 w-48 max-w-full justify-center"
-        textClassName="text-xl sm:text-2xl"
-      />
+      <Logo height={30} className="max-w-full animate-pulse" />
     </div>
   );
 }
@@ -44,7 +38,8 @@ export const TOOL_COMPONENTS: Record<string, ComponentType> = {
   "/tempo-trainer": dynamic(() => import("@/components/TempoTrainer"), { loading: PaneLoading }),
   "/tuner": dynamic(() => import("@/components/Tuner"), { loading: PaneLoading }),
   "/slow-downer": dynamic(() => import("@/components/SlowDowner"), { loading: PaneLoading }),
-  "/chord-charts": dynamic(() => import("@/components/ChordCharts"), { loading: PaneLoading }),
+  "/chord-charts": dynamic(() => import("@/components/library/ChartsDashboard"), { loading: PaneLoading }),
+  "/tunes": dynamic(() => import("@/components/library/TunesDashboard"), { loading: PaneLoading }),
   "/recorder": dynamic(() => import("@/components/Recorder"), { loading: PaneLoading }),
   "/random-sticking-warmup": dynamic(() => import("@/components/StickControl"), {
     loading: PaneLoading,

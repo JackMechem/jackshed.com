@@ -4,6 +4,7 @@ import { Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { withScreenLoader } from '@/components/ScreenLoader';
 
 /**
  * A generic stand-in for every tool, reached by tapping any row in `/menu` or the sidebar —
@@ -13,7 +14,7 @@ import { useAppTheme } from '@/theme/ThemeProvider';
  * tool later is just adding a differently-named route that shadows this fallback for that one
  * slug — nothing here needs to change when that happens.
  */
-export default function ToolPlaceholder() {
+function ToolPlaceholder() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const tool = NAV_LINKS_DATA.find((link) => link.href === `/${slug}`);
   const { colors } = useAppTheme();
@@ -49,3 +50,5 @@ export default function ToolPlaceholder() {
     </View>
   );
 }
+
+export default withScreenLoader(ToolPlaceholder);

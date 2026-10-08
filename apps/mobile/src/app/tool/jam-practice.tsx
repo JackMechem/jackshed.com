@@ -19,6 +19,7 @@ import { type CountOff, parseBeatsPerBar, playCountOff } from '@/lib/jamPractice
 import { useSyncedSettings } from '@/lib/useSyncedSettings';
 import { useSyncedTunes } from '@/lib/useSyncedTunes';
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { ScreenSpinner, withScreenLoader } from '@/components/ScreenLoader';
 
 /**
  * Native port of `apps/web/components/JamPractice.tsx` — a random tune/tempo/key picker with a
@@ -44,10 +45,10 @@ const BAR_OPTIONS = [1, 2, 4, 8, 16].map((n) => ({ value: n, label: String(n) })
 
 type PickResult = { tune: Tune; tempo: Tempo | null; key: Key | null };
 
-export default function JamPracticeScreen() {
+function JamPracticeScreen() {
   const { colors } = useAppTheme();
-  const [tunes, setTunes] = useSyncedTunes();
-  const [settings, updateSettings] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
+  const [tunes, setTunes, tunesReady] = useSyncedTunes();
+  const [settings, updateSettings, settingsReady] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
   const { countOffBars, accentFirstBeat, keepGoingIndefinitely, pickFromStandards } = settings;
 
   const [pick, setPick] = useState<PickResult | null>(null);
@@ -119,6 +120,9 @@ export default function JamPracticeScreen() {
       }
     }
   }
+
+  // Saved settings not read yet — a spinner rather than defaults that then jump to the real values.
+  if (!settingsReady || !tunesReady) return <ScreenSpinner />;
 
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background }}>
@@ -234,7 +238,7 @@ export default function JamPracticeScreen() {
                 <Text className="text-sm font-inter" style={{ color: colors.muted }}>
                   {pickFromStandards
                     ? `Random picks come from all ${STANDARDS.length} built-in standards.`
-                    : 'Random picks come from the tunes in your list.'}
+                    : 'Random picks come from your Tunes I Know.'}
                 </Text>
                 <Pressable
                   onPress={pickRandom}
@@ -257,7 +261,7 @@ export default function JamPracticeScreen() {
         tabs={[
           {
             key: 'tunes',
-            label: 'Tunes',
+            label: 'Tunes I Know',
             content: () => (
               <View className="gap-4">
                 <SwitchRow
@@ -267,7 +271,7 @@ export default function JamPracticeScreen() {
                   hint="Draws from the ~630 built-in jazz standards instead of your own tune list below."
                 />
                 <TuneListManager
-                  title="Tunes"
+                  title="Tunes I Know"
                   icon={BookIcon}
                   tunes={tunes}
                   setTunes={setTunes}
@@ -317,3 +321,5 @@ export default function JamPracticeScreen() {
     </View>
   );
 }
+
+export default withScreenLoader(JamPracticeScreen);

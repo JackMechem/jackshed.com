@@ -16,7 +16,7 @@ const DEFAULT_FAVORITES = { hrefs: [] as string[] };
  */
 export function useFavorites() {
   const { isAuthenticated } = useConvexAuth();
-  const [{ hrefs }, updateFavorites] = useSyncedSettings(FAVORITES_KEY, DEFAULT_FAVORITES);
+  const [{ hrefs }, updateFavorites, ready] = useSyncedSettings(FAVORITES_KEY, DEFAULT_FAVORITES);
 
   function toggleFavorite(href: string) {
     updateFavorites({
@@ -28,5 +28,6 @@ export function useFavorites() {
     favorites: isAuthenticated ? hrefs : DEFAULT_FAVORITES.hrefs,
     toggleFavorite,
     isAuthenticated,
+    ready,
   };
 }

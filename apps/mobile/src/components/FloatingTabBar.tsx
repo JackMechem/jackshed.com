@@ -1,8 +1,12 @@
+import { useConvexAuth } from '@convex-dev/auth/react';
+import { api } from '@jam-practice/convex/_generated/api';
+import { useQuery } from 'convex/react';
+import { Image } from 'expo-image';
 import { usePathname, useRouter, type Href } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { HomeIcon, ProfileIcon, UsersIcon, type IconProps } from '@/components/icons';
+import { ChordChartIcon, HomeIcon, NoteIcon, ProfileIcon, UsersIcon, type IconProps } from '@/components/icons';
 import { useAppTheme } from '@/theme/ThemeProvider';
 
 /**
@@ -33,6 +37,8 @@ import { useAppTheme } from '@/theme/ThemeProvider';
  */
 const TABS = [
   { href: '/' as const, label: 'Home', Icon: HomeIcon },
+  { href: '/library' as const, label: 'Tunes', Icon: NoteIcon },
+  { href: '/charts' as const, label: 'Chord Charts', Icon: ChordChartIcon },
   { href: '/tool/community' as const, label: 'Community', Icon: UsersIcon },
   { href: '/profile' as const, label: 'Profile', Icon: ProfileIcon },
 ] satisfies { href: Href; label: string; Icon: (props: IconProps) => React.ReactElement }[];
@@ -44,13 +50,23 @@ const TABS = [
     this bar (`index.tsx`'s own `ToolGrid`, `metronome.tsx`, `theme.tsx`) imports this instead of
     hand-duplicating the number, so there's exactly one place to update if the bar's own size ever
     changes again. */
-export const TAB_BAR_CONTENT_HEIGHT = 56;
+export const TAB_BAR_CONTENT_HEIGHT = 46;
+
+const HIDDEN_ON = ['/tool/chord-charts-editor', '/setlist-charts'];
 
 export function FloatingTabBar() {
   const router = useRouter();
   const pathname = usePathname();
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
+  // Signed in with a profile picture: the Profile tab shows it instead of the generic icon.
+  const { isAuthenticated } = useConvexAuth();
+  const profile = useQuery(api.profiles.getMine, isAuthenticated ? {} : 'skip');
+  const avatarUrl = isAuthenticated ? profile?.avatarUrl : null;
+
+  // The chart editor has its own keyboard fixed to the bottom of the screen; the tab bar would
+  // sit on top of it.
+  if (HIDDEN_ON.includes(pathname)) return null;
 
   return (
     <View
@@ -68,7 +84,12 @@ export function FloatingTabBar() {
       }}
     >
       {TABS.map(({ href, label, Icon }) => {
-        const active = pathname === href;
+        // The account sections (`app/account/*`) are part of Profile.
+        const active =
+          pathname === href ||
+          (href === '/profile' && pathname.startsWith('/account/')) ||
+          (href === '/library' && pathname.startsWith('/library/')) ||
+          (href === '/charts' && (pathname.startsWith('/charts/') || pathname.startsWith('/tool/chord-charts')));
         return (
           <Pressable
             key={href}
@@ -78,16 +99,22 @@ export function FloatingTabBar() {
             accessibilityState={{ selected: active }}
             className="flex-1 items-center justify-center"
           >
-            <Icon color={active ? colors.accent : colors.muted} size={20} />
-            <View
-              style={{
-                marginTop: 4,
-                width: 3,
-                height: 3,
-                borderRadius: 2,
-                backgroundColor: active ? colors.accent : 'transparent',
-              }}
-            />
+            {href === '/profile' && avatarUrl ? (
+              <Image
+                source={{ uri: avatarUrl }}
+                contentFit="cover"
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: 15,
+                  borderWidth: 2,
+                  borderColor: active ? colors.accent : 'transparent',
+                  opacity: active ? 1 : 0.75,
+                }}
+              />
+            ) : (
+              <Icon color={active ? colors.accent : colors.muted} size={28} />
+            )}
           </Pressable>
         );
       })}

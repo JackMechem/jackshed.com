@@ -8,7 +8,7 @@ import { OPEN_PALETTE_EVENT } from "@/components/CommandPalette";
 import Flyout, { FlyoutItem } from "@/components/Flyout";
 import PracticeTimerWidget from "@/components/PracticeTimerWidget";
 import ThemeModal from "@/components/ThemeModal";
-import Wordmark from "@/components/Wordmark";
+import Logo from "@/components/Logo";
 import {
   CATEGORY_ICONS,
   NAV_LINKS,
@@ -321,10 +321,10 @@ function NavItems({
       : undefined;
   const effectivePathname = activePaneHref ?? pathname;
   const filtered = filterLinks(query);
-  // Community isn't a collapsible category like the others — a direct request to pull it out as
-  // its own always-visible item right under the search box, since it's really just the one link,
-  // not a group of tools the way every other category is.
-  const communityItem = filtered.find((link) => link.category === "Community");
+  // Community, Tunes and Chord Charts aren't a collapsible category like the others — they're the
+  // app's main destinations (each its own tab in the mobile app), shown as always-visible items
+  // right under the search box.
+  const communityItems = filtered.filter((link) => link.category === "Community");
   const groups = groupByCategory(filtered.filter((link) => link.category !== "Community"));
   // A subset of `filtered`, in NAV_LINKS' own order (stable regardless of favoriting order) —
   // shown as a section of its own above the normal categories, where each item also still stays
@@ -419,11 +419,11 @@ function NavItems({
 
   return (
     <nav className="flex overflow-y-auto h-full flex-col gap-3">
-      {groups.length === 0 && !communityItem && (
+      {groups.length === 0 && communityItems.length === 0 && (
         <p className={`px-3 text-muted ${large ? "text-base" : "text-sm"}`}>No tools found</p>
       )}
-      {communityItem && (
-        <div className="flex flex-col gap-1 pb-2">{renderLink(communityItem)}</div>
+      {communityItems.length > 0 && (
+        <div className="flex flex-col gap-1 pb-2">{communityItems.map(renderLink)}</div>
       )}
       {favoriteItems.length > 0 && (
         <CategoryBlock
@@ -555,7 +555,7 @@ export default function Sidebar() {
               aria-label="sheddex home"
               className="min-w-0 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              <Wordmark className="h-8" textClassName="text-xl" />
+              <Logo height={24} />
             </Link>
             <div className="flex shrink-0 items-center gap-1">
               <Flyout icon={DotsIcon} label="Menu options" align="end">
@@ -621,7 +621,7 @@ export default function Sidebar() {
               aria-label="sheddex home"
               className="min-w-0 flex-1 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              <Wordmark className="h-8" textClassName="text-lg" />
+              <Logo height={22} />
             </Link>
           )}
           <Flyout

@@ -1,5 +1,5 @@
-import ChordCharts from "@/components/ChordCharts";
+import ChartsDashboard from "@/components/library/ChartsDashboard";
 
 export default function ChordChartsPage() {
-  return <ChordCharts />;
+  return <ChartsDashboard />;
 }

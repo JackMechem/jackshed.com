@@ -10,6 +10,8 @@ import {
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+
+import { useRecordToolVisits } from '@/lib/toolRecents';
 import { View } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
@@ -52,6 +54,7 @@ SplashScreen.preventAutoHideAsync();
  */
 function RootNavigator() {
   const { colors } = useAppTheme();
+  useRecordToolVisits();
 
   return (
     <View style={{ flex: 1 }}>
@@ -70,6 +73,43 @@ function RootNavigator() {
         <Stack.Screen name="tool/[slug]" options={{ title: '' }} />
         <Stack.Screen name="theme" options={{ title: 'Theme', headerLargeTitle: true }} />
         <Stack.Screen name="profile" options={{ headerShown: false }} />
+        {/* Titles up front, so the header is right the instant a screen is pushed — each screen
+            mounts its real content a frame later (see `components/ScreenLoader.tsx`), and its own
+            <Stack.Screen options> only apply once it mounts. Dynamic titles ('') fill in then. */}
+        <Stack.Screen name="liked-posts" options={{ title: 'Liked Posts' }} />
+        <Stack.Screen name="post/[id]" options={{ title: 'Post' }} />
+        <Stack.Screen name="u/[username]" options={{ title: 'Profile' }} />
+        <Stack.Screen name="tool/chord-charts" options={{ title: 'Chord Charts' }} />
+        <Stack.Screen name="charts/index" options={{ headerShown: false }} />
+        <Stack.Screen name="charts/import" options={{ title: 'Import charts' }} />
+        <Stack.Screen name="tool/chord-charts-playlist" options={{ title: '' }} />
+        <Stack.Screen name="tool/chord-charts-view" options={{ title: '' }} />
+        <Stack.Screen name="tool/chord-charts-new" options={{ title: 'New chart' }} />
+        <Stack.Screen name="tool/chord-charts-editor" options={{ title: '' }} />
+        <Stack.Screen name="tool/community" options={{ headerShown: false }} />
+        <Stack.Screen name="community/new" options={{ title: 'New post' }} />
+        <Stack.Screen name="community/following" options={{ title: 'Following' }} />
+        <Stack.Screen name="library/setlist" options={{ title: '' }} />
+        <Stack.Screen name="library/setlists" options={{ title: 'Setlists' }} />
+        <Stack.Screen name="setlist-charts" options={{ title: '' }} />
+        <Stack.Screen name="setlist/[id]" options={{ title: 'Setlist' }} />
+        <Stack.Screen name="tool/interval-trainer" options={{ title: 'Interval Trainer' }} />
+        <Stack.Screen name="tool/jam-practice" options={{ title: 'Jam Practice' }} />
+        <Stack.Screen name="tool/metronome" options={{ title: 'Metronome' }} />
+        <Stack.Screen name="tool/note-trainer" options={{ title: 'Note Trainer' }} />
+        <Stack.Screen name="tool/practice-timer" options={{ title: 'Practice Timer' }} />
+        <Stack.Screen name="tool/scale-trainer" options={{ title: 'Scale Trainer' }} />
+        <Stack.Screen name="tool/tempo-trainer" options={{ title: 'Tempo Trainer' }} />
+        <Stack.Screen name="tool/tuner" options={{ title: 'Tuner' }} />
+        <Stack.Screen name="account/public-profile" options={{ title: 'Public profile' }} />
+        <Stack.Screen name="library/index" options={{ headerShown: false }} />
+        <Stack.Screen name="library/tunes" options={{ title: '' }} />
+        <Stack.Screen name="library/tune" options={{ title: '' }} />
+        <Stack.Screen name="library/tune-edit" options={{ title: 'Edit tune' }} />
+        <Stack.Screen name="library/tune-notes" options={{ title: 'Notes' }} />
+        <Stack.Screen name="account/posts" options={{ title: 'My posts' }} />
+        <Stack.Screen name="account/security" options={{ title: 'Security' }} />
+        <Stack.Screen name="account/delete-account" options={{ title: 'Delete account' }} />
       </Stack>
       {/* A sibling of Stack so it persists across navigation instead of remounting per screen. */}
       <FloatingTabBar />

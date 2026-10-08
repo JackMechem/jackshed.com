@@ -4,7 +4,7 @@ import { TUNES_TO_LEARN_KEY } from '@jam-practice/core/tunesToLearn';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useConvexAuth } from '@convex-dev/auth/react';
 import { useMutation, useQuery } from 'convex/react';
-import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 /**
  * The tune-list sibling of `useSyncedSettings.ts` — same offline-first precedence (AsyncStorage's
@@ -26,6 +26,7 @@ type Entry = {
   localEdited: boolean;
   serverApplied: boolean;
   timer: ReturnType<typeof setTimeout> | null;
+  localLoaded: boolean;
   listeners: Set<() => void>;
 };
 
@@ -36,6 +37,7 @@ function makeEntry(): Entry {
     localEdited: false,
     serverApplied: false,
     timer: null,
+    localLoaded: false,
     listeners: new Set(),
   };
 }
@@ -64,7 +66,7 @@ function createSyncedTuneListHook(key: string, accountOnly: boolean) {
     for (const listener of entry.listeners) listener();
   }
 
-  return function useHook(): [Tune[], (update: Tune[] | ((prev: Tune[]) => Tune[])) => void] {
+  return function useHook(): [Tune[], (update: Tune[] | ((prev: Tune[]) => Tune[])) => void, boolean] {
     const { isAuthenticated } = useConvexAuth();
     const wasAuthenticatedRef = useRef(isAuthenticated);
 
@@ -85,6 +87,7 @@ function createSyncedTuneListHook(key: string, accountOnly: boolean) {
 
     useEffect(() => {
       if (accountOnly) return; // nothing device-local to load — see the doc comment above.
+      if (entry.localLoaded) return;
       let cancelled = false;
       AsyncStorage.getItem(key)
         .then((raw) => {
@@ -98,6 +101,12 @@ function createSyncedTuneListHook(key: string, accountOnly: boolean) {
         })
         .catch(() => {
           // storage unavailable — the in-memory/server path still works this session
+        })
+        .finally(() => {
+          if (!entry.localLoaded) {
+            entry.localLoaded = true;
+            notify();
+          }
         });
       return () => {
         cancelled = true;
@@ -105,6 +114,27 @@ function createSyncedTuneListHook(key: string, accountOnly: boolean) {
     }, []);
 
     const remote = useQuery(api.syncedSettings.get, isAuthenticated ? { key } : 'skip');
+
+    // `ready`: the list shown is the real one, not an empty placeholder. The plain list is ready
+    // once this device's saved copy is read (offline-first); the account-only list has no device
+    // copy, so it waits for the account — but gives up after a moment so an offline device shows
+    // an empty list rather than a spinner forever.
+    const localLoaded = useSyncExternalStore(
+      (callback) => {
+        entry.listeners.add(callback);
+        return () => {
+          entry.listeners.delete(callback);
+        };
+      },
+      () => entry.localLoaded || entry.hasValue,
+    );
+    const [gaveUp, setGaveUp] = useState(false);
+    useEffect(() => {
+      if (!accountOnly) return;
+      const t = setTimeout(() => setGaveUp(true), 2500);
+      return () => clearTimeout(t);
+    }, []);
+    const ready = accountOnly ? !isAuthenticated || remote !== undefined || entry.hasValue || gaveUp : localLoaded;
     const setRemote = useMutation(api.syncedSettings.set);
 
     useEffect(() => {
@@ -168,7 +198,7 @@ function createSyncedTuneListHook(key: string, accountOnly: boolean) {
       }
     }
 
-    return [value, setTunes];
+    return [value, setTunes, ready];
   };
 }
 

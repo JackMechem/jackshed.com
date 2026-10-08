@@ -2,6 +2,7 @@
 
 import TilingLayout from "@/components/TilingLayout";
 import { useIsDesktop } from "@/lib/useIsDesktop";
+import { useRecordToolVisits } from "@/lib/toolRecents";
 import { useTilingState } from "@/lib/useTilingLayout";
 
 /** Wraps `children` (the page Next.js actually resolved for the current URL) in the one div every
@@ -20,6 +21,7 @@ import { useTilingState } from "@/lib/useTilingLayout";
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { enabled } = useTilingState();
   const isDesktop = useIsDesktop();
+  useRecordToolVisits();
 
   if (!enabled || !isDesktop) {
     return (

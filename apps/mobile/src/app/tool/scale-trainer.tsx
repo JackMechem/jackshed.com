@@ -47,6 +47,7 @@ import { getAudioContext } from '@/lib/audioContext';
 import { startTone } from '@/lib/toneGenerator';
 import { useSyncedSettings } from '@/lib/useSyncedSettings';
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { ScreenSpinner, withScreenLoader } from '@/components/ScreenLoader';
 
 /**
  * Native port of `apps/web/components/ScaleTrainer.tsx`. Same shape as Note Trainer (a random
@@ -183,9 +184,9 @@ function disabledStyle(disabled: boolean) {
   return { opacity: disabled ? 0.45 : 1 } as const;
 }
 
-export default function ScaleTrainerScreen() {
+function ScaleTrainerScreen() {
   const { colors } = useAppTheme();
-  const [settings, updateSettings] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
+  const [settings, updateSettings, settingsReady] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
   const {
     customRange,
     intervalSeconds,
@@ -786,6 +787,9 @@ export default function ScaleTrainerScreen() {
   const matchingHistory = history.filter((h) => sameConfig(h.config, currentConfig));
   const bestMs = matchingHistory.length ? Math.min(...matchingHistory.map((h) => h.elapsedMs)) : null;
   const weakEntries = weakScaleEntries(settings.scaleStats);
+
+  // Saved settings not read yet — a spinner rather than defaults that then jump to the real values.
+  if (!settingsReady) return <ScreenSpinner />;
 
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background }}>
@@ -1471,3 +1475,5 @@ export default function ScaleTrainerScreen() {
     </View>
   );
 }
+
+export default withScreenLoader(ScaleTrainerScreen);

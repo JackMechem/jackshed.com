@@ -89,6 +89,14 @@ export function ListIcon({ className }: { className?: string }) {
   );
 }
 
+export function DotsVerticalIcon({ className }: { className?: string }) {
+  return (
+    <svg {...svgProps(className)}>
+      <path d="M12 5h.01M12 12h.01M12 19h.01" strokeWidth={3} />
+    </svg>
+  );
+}
+
 export function BookIcon({ className }: { className?: string }) {
   return (
     <svg {...svgProps(className)}>
@@ -534,6 +542,7 @@ const NAV_LINK_ICONS: Record<string, (props: { className?: string }) => React.JS
   "/tuner": TunerIcon,
   "/slow-downer": WaveIcon,
   "/chord-charts": ChordChartIcon,
+  "/tunes": NoteIcon,
   "/recorder": RecordIcon,
   "/random-sticking-warmup": DrumIcon,
   "/community": UsersIcon,
@@ -547,4 +556,64 @@ export const NAV_LINKS: (NavLinkInfo & { icon: (props: { className?: string }) =
 
 export function filterLinks(query: string) {
   return filterNavLinks(NAV_LINKS, query);
+}
+
+/** A setlist — a numbered list with a note. */
+export function SetlistIcon({ className }: { className?: string }) {
+  return (
+    <svg {...svgProps(className)}>
+      <path d="M3 6h11M3 11h11M3 16h7" />
+      <path d="M18 18V7l3-1" />
+      <circle cx="16" cy="18" r="2" />
+    </svg>
+  );
+}
+
+/** Pages of slides — "view all charts", one per page. */
+export function SlidesIcon({ className }: { className?: string }) {
+  return (
+    <svg {...svgProps(className)}>
+      <rect x="6" y="6" width="15" height="12" rx="2" />
+      <path d="M3 9v8a2 2 0 002 2h11" />
+      <path d="M12 10v4l3-2z" />
+    </svg>
+  );
+}
+
+/** A drag grip — six dots. */
+export function DragIcon({ className }: { className?: string }) {
+  return (
+    <svg {...svgProps(className)} fill="currentColor" stroke="none">
+      {[6, 12, 18].map((y) => (
+        <g key={y}>
+          <circle cx="9" cy={y} r="1.6" />
+          <circle cx="15" cy={y} r="1.6" />
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+export function ChevronLeftIcon({ className }: { className?: string }) {
+  return (
+    <svg {...svgProps(className)}>
+      <path d="M15 18l-6-6 6-6" />
+    </svg>
+  );
+}
+
+export function ChevronRightIcon({ className }: { className?: string }) {
+  return (
+    <svg {...svgProps(className)}>
+      <path d="M9 18l6-6-6-6" />
+    </svg>
+  );
+}
+
+export function CloseIcon({ className }: { className?: string }) {
+  return (
+    <svg {...svgProps(className)}>
+      <path d="M18 6L6 18M6 6l12 12" />
+    </svg>
+  );
 }

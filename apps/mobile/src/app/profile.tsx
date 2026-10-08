@@ -1,19 +1,29 @@
 import { useAuthActions, useConvexAuth } from '@convex-dev/auth/react';
 import { api } from '@jam-practice/convex/_generated/api';
 import { useQuery } from 'convex/react';
-import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { useRouter, type Href } from 'expo-router';
+import { useState, type ComponentType } from 'react';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { DangerZoneTab } from '@/components/account/DangerZoneTab';
-import { MyPostsTab } from '@/components/account/MyPostsTab';
-import { ProfileTab } from '@/components/account/ProfileTab';
-import { SecurityTab } from '@/components/account/SecurityTab';
-import { TunesTab } from '@/components/account/TunesTab';
-import { TunesToLearnTab } from '@/components/account/TunesToLearnTab';
+import { LoadingSpinner } from '@/components/LoadingSpinner';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import {
+  AccountEditIcon,
+  ChevronRightIcon,
+  DangerIcon,
+  LockIcon,
+  LogoutIcon,
+  MusicNoteIcon,
+  PostIcon,
+  StarOutlineIcon,
+  type IconProps,
+} from '@/components/icons';
+import { useSyncedTunes, useTunesToLearn } from '@/lib/useSyncedTunes';
 import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
 import { UserAvatar } from '@/components/UserAvatar';
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { withScreenLoader } from '@/components/ScreenLoader';
 
 /**
  * The native side of `apps/web/components/AccountMenu.tsx`'s `AuthForm` (signed out) plus
@@ -33,7 +43,7 @@ import { useAppTheme } from '@/theme/ThemeProvider';
  * deep-link redirect handshake, a separate, unstarted task), so there's nothing for those buttons
  * to actually do.
  */
-export default function ProfileScreen() {
+function ProfileScreen() {
   const { colors } = useAppTheme();
   const { isLoading, isAuthenticated } = useConvexAuth();
 
@@ -47,7 +57,7 @@ export default function ProfileScreen() {
         </View>
         {isLoading ? (
           <View className="flex-1 items-center justify-center">
-            <ActivityIndicator color={colors.accent} />
+            <LoadingSpinner />
           </View>
         ) : isAuthenticated ? (
           <SignedIn />
@@ -59,86 +69,139 @@ export default function ProfileScreen() {
   );
 }
 
-type AccountView = 'profile' | 'tunes' | 'tunesToLearn' | 'posts' | 'security' | 'danger';
+type RowSpec = {
+  href: Href;
+  label: string;
+  Icon: ComponentType<IconProps>;
+  value?: string;
+  danger?: boolean;
+};
 
-const TABS: { key: AccountView; label: string }[] = [
-  { key: 'profile', label: 'Profile' },
-  { key: 'tunes', label: 'Tunes' },
-  { key: 'tunesToLearn', label: 'Learn' },
-  { key: 'posts', label: 'Posts' },
-  { key: 'security', label: 'Security' },
-  { key: 'danger', label: 'Danger' },
-];
-
+/**
+ * Signed in: who you are at the top (tap it to edit your public profile), then a grouped list —
+ * each row opens that section as its own full page (`app/account/*`), rather than the earlier
+ * horizontal pill tabs that crammed every section onto this one screen.
+ */
 function SignedIn() {
   const { colors } = useAppTheme();
+  const router = useRouter();
   const { signOut } = useAuthActions();
   const user = useQuery(api.users.current);
   const profile = useQuery(api.profiles.getMine);
-  const [signingOut, setSigningOut] = useState(false);
-  const [view, setView] = useState<AccountView>('profile');
+  const posts = useQuery(api.communityTunes.mine);
+  const [tunes] = useSyncedTunes();
+  const [tunesToLearn] = useTunesToLearn();
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
 
-  const label = profile?.username ? `@${profile.username}` : (user?.name ?? user?.email ?? '');
+  if (user === undefined || profile === undefined) {
+    return (
+      <View className="flex-1 items-center justify-center">
+        <LoadingSpinner />
+      </View>
+    );
+  }
+
+  const name = profile?.username ? `@${profile.username}` : (user?.name ?? user?.email ?? 'Your account');
+
+  const groups: RowSpec[][] = [
+    [
+      { href: '/account/public-profile', label: 'Public profile', Icon: AccountEditIcon, value: profile?.isPublic ? 'Public' : 'Private' },
+      { href: { pathname: '/library/tunes', params: { list: 'tunes' } }, label: 'Tunes I Know', Icon: MusicNoteIcon, value: String(tunes.length) },
+      { href: { pathname: '/library/tunes', params: { list: 'learn' } }, label: 'Tunes to Learn', Icon: StarOutlineIcon, value: String(tunesToLearn.length) },
+      { href: '/account/posts', label: 'My posts', Icon: PostIcon, value: posts ? String(posts.length) : undefined },
+    ],
+    [{ href: '/account/security', label: 'Security', Icon: LockIcon }],
+  ];
 
   return (
-    <View className="flex-1">
-      <View className="flex-row items-center gap-3 px-5 pb-3">
-        <UserAvatar url={profile?.avatarUrl} size="sm" />
-        <Text className="flex-1 text-sm font-semibold font-inter-semibold" numberOfLines={1} style={{ color: colors.foreground }}>
-          {label}
-        </Text>
-        <Pressable
-          onPress={() => {
-            setSigningOut(true);
-            void signOut();
-          }}
-          disabled={signingOut}
-          className="rounded-xl px-3 py-1.5"
-          style={{ backgroundColor: colors.surface, opacity: signingOut ? 0.6 : 1 }}
-        >
-          <Text className="text-xs font-semibold font-inter-semibold" style={{ color: colors.danger }}>
-            Sign out
+    <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: TAB_BAR_CONTENT_HEIGHT + 32, gap: 18 }}>
+      <Pressable
+        onPress={() => router.push('/account/public-profile')}
+        android_ripple={{ color: colors['surface-hover'] }}
+        className="flex-row items-center gap-4 rounded-2xl p-4"
+        style={{ backgroundColor: colors.surface }}
+      >
+        <UserAvatar url={profile?.avatarUrl} size="lg" />
+        <View className="flex-1">
+          <Text numberOfLines={1} className="font-inter-bold text-xl font-bold" style={{ color: colors.foreground }}>
+            {name}
           </Text>
-        </Pressable>
+          {user?.email ? (
+            <Text numberOfLines={1} className="font-inter text-sm" style={{ color: colors.muted }}>
+              {user.email}
+            </Text>
+          ) : null}
+        </View>
+        <ChevronRightIcon color={colors.muted} size={22} />
+      </Pressable>
+
+      {groups.map((rows, gi) => (
+        <View key={gi} className="overflow-hidden rounded-2xl" style={{ backgroundColor: colors.surface }}>
+          {rows.map((row, i) => (
+            <ListRow key={row.label} row={row} divider={i < rows.length - 1} onPress={() => router.push(row.href)} />
+          ))}
+        </View>
+      ))}
+
+      <View className="overflow-hidden rounded-2xl" style={{ backgroundColor: colors.surface }}>
+        <ListRow
+          row={{ href: '/profile', label: 'Sign out', Icon: LogoutIcon }}
+          divider
+          chevron={false}
+          onPress={() => setConfirmSignOut(true)}
+        />
+        <ListRow
+          row={{ href: '/account/delete-account', label: 'Delete account', Icon: DangerIcon, danger: true }}
+          onPress={() => router.push('/account/delete-account')}
+        />
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ flexGrow: 0, flexShrink: 0 }}
-        contentContainerStyle={{ gap: 8, paddingHorizontal: 20, paddingBottom: 12, alignItems: 'center' }}
-      >
-        {TABS.map((tab) => {
-          const active = view === tab.key;
-          return (
-            <Pressable
-              key={tab.key}
-              onPress={() => setView(tab.key)}
-              className="rounded-full px-4 py-2"
-              style={{ backgroundColor: active ? colors.accent : colors.surface }}
-            >
-              <Text
-                className="text-sm font-semibold font-inter-semibold"
-                style={{ color: active ? colors['accent-foreground'] : colors.foreground }}
-              >
-                {tab.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      <ConfirmDialog
+        visible={confirmSignOut}
+        title="Sign out?"
+        message="Your tools keep working signed out, using what's saved on this phone."
+        confirmLabel="Sign out"
+        onConfirm={() => {
+          setConfirmSignOut(false);
+          void signOut();
+        }}
+        onCancel={() => setConfirmSignOut(false)}
+      />
+    </ScrollView>
+  );
+}
 
-      <ScrollView
-        contentContainerStyle={{ padding: 20, paddingTop: 0, paddingBottom: TAB_BAR_CONTENT_HEIGHT + 24, gap: 16 }}
-      >
-        {view === 'profile' ? <ProfileTab /> : null}
-        {view === 'tunes' ? <TunesTab /> : null}
-        {view === 'tunesToLearn' ? <TunesToLearnTab /> : null}
-        {view === 'posts' ? <MyPostsTab /> : null}
-        {view === 'security' ? <SecurityTab /> : null}
-        {view === 'danger' ? <DangerZoneTab /> : null}
-      </ScrollView>
-    </View>
+function ListRow({
+  row,
+  divider,
+  chevron = true,
+  onPress,
+}: {
+  row: RowSpec;
+  divider?: boolean;
+  chevron?: boolean;
+  onPress: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const color = row.danger ? colors.danger : colors.foreground;
+  return (
+    <Pressable
+      onPress={onPress}
+      android_ripple={{ color: colors['surface-hover'] }}
+      className="flex-row items-center gap-3 px-4"
+      style={{ minHeight: 56, borderBottomWidth: divider ? 1 : 0, borderBottomColor: colors.background }}
+    >
+      <row.Icon color={row.danger ? colors.danger : colors.accent} size={22} />
+      <Text className="font-inter-semibold flex-1 text-base font-semibold" style={{ color }}>
+        {row.label}
+      </Text>
+      {row.value ? (
+        <Text className="font-inter text-sm tabular-nums" style={{ color: colors.muted }}>
+          {row.value}
+        </Text>
+      ) : null}
+      {chevron ? <ChevronRightIcon color={colors.muted} size={20} /> : null}
+    </Pressable>
   );
 }
 
@@ -327,3 +390,5 @@ function SubmitButton({
     </Pressable>
   );
 }
+
+export default withScreenLoader(ProfileScreen);

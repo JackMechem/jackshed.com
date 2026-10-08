@@ -232,6 +232,13 @@ export const performDelete = internalMutation({
       .collect();
     for (const row of followers) await ctx.db.delete(row._id);
 
+    // Setlists shared by link are public-facing too — the links stop working with the account.
+    const shared = await ctx.db
+      .query("sharedSetlists")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    for (const row of shared) await ctx.db.delete(row._id);
+
     // Same reasoning: a Community post is public-facing content, not private synced tool data, so
     // it shouldn't outlive the account that posted it — and neither should its own likes (other
     // people's likes *on* this post, cascade-deleted here the same way `communityTunes.ts`'s own

@@ -16,10 +16,18 @@ export function Dropdown<T>({
   value,
   options,
   onChange,
+  triggerLabel,
+  highlighted,
 }: {
   value: T;
   options: { value: T; label: string }[];
   onChange: (value: T) => void;
+  /** Shown on the pill instead of the selected option's own label — for a tight spot like a
+      screen header, where "Original (Ab)" is too long but "Ab" says enough. */
+  triggerLabel?: string;
+  /** Accent-filled pill — e.g. the chart viewer's key button while transposed away from the
+      original key, so a transposed chart is obvious at a glance. */
+  highlighted?: boolean;
 }) {
   const { colors } = useAppTheme();
   const [open, setOpen] = useState(false);
@@ -30,12 +38,12 @@ export function Dropdown<T>({
       <Pressable
         onPress={() => setOpen(true)}
         className="flex-row items-center gap-1.5 rounded-full px-4 py-2"
-        style={{ backgroundColor: colors.surface }}
+        style={{ backgroundColor: highlighted ? colors.accent : colors.surface }}
       >
-        <Text className="text-sm font-bold font-inter-bold" style={{ color: colors.foreground }}>
-          {current?.label ?? String(value)}
+        <Text className="text-sm font-bold font-inter-bold" style={{ color: highlighted ? colors['accent-foreground'] : colors.foreground }}>
+          {triggerLabel ?? current?.label ?? String(value)}
         </Text>
-        <Text className="font-inter" style={{ color: colors.muted }}>▾</Text>
+        <Text className="font-inter" style={{ color: highlighted ? colors['accent-foreground'] : colors.muted }}>▾</Text>
       </Pressable>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>

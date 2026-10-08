@@ -14,8 +14,10 @@ import {
   TrashIcon,
   type IconProps,
 } from '@/components/icons';
+import { InfoButton } from '@/components/InfoButton';
 import { StandardsPicker } from '@/components/StandardsPicker';
 import { useChordChartsLibrary, type LibraryPlaylist, type LibrarySongMeta } from '@/lib/useChordChartsLibrary';
+import { sheetEdge } from '@/components/sheetStyle';
 import { useAppTheme } from '@/theme/ThemeProvider';
 
 function blankTune(name = ''): Tune {
@@ -85,6 +87,7 @@ export function TuneListManager({
   emptyMessage,
   infoBlurb,
   allowStandards,
+  countOnly,
 }: {
   title: string;
   icon: ComponentType<IconProps>;
@@ -96,6 +99,9 @@ export function TuneListManager({
   /** Opens the shared jazz-standards picker from `+` instead of jumping straight to a blank
       editor — see this file's own doc comment. */
   allowStandards?: boolean;
+  /** On a page whose header already names the list ("Tunes"), show just the count ("10 tunes")
+      instead of repeating the title. */
+  countOnly?: boolean;
 }) {
   const { colors } = useAppTheme();
   const router = useRouter();
@@ -133,9 +139,11 @@ export function TuneListManager({
         <View className="flex-row items-center gap-2">
           <Icon color={colors.muted} size={18} />
           <Text className="text-lg font-semibold font-inter-semibold" style={{ color: colors.foreground }}>
-            {title}
-            {tunes.length ? ` (${tunes.length})` : ''}
+            {countOnly
+              ? `${tunes.length} tune${tunes.length === 1 ? '' : 's'}`
+              : `${title}${tunes.length ? ` (${tunes.length})` : ''}`}
           </Text>
+          {infoBlurb ? <InfoButton title={title} text={infoBlurb} size={16} /> : null}
         </View>
         <Pressable
           onPress={() => (allowStandards ? setShowStandards(true) : setEditing({ tune: blankTune(), isNew: true }))}
@@ -147,11 +155,6 @@ export function TuneListManager({
         </Pressable>
       </View>
 
-      {infoBlurb ? (
-        <Text className="text-xs leading-4 font-inter" style={{ color: colors.muted }}>
-          {infoBlurb}
-        </Text>
-      ) : null}
 
       <View
         className="flex-row items-center gap-3 rounded-xl px-3 py-2.5"
@@ -302,11 +305,11 @@ function TuneEditorModal({
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={{ flex: 1, backgroundColor: `${colors.overlay}99`, justifyContent: 'flex-end' }} onPress={onClose}>
+      <Pressable style={{ flex: 1, justifyContent: 'flex-end' }} onPress={onClose}>
         <Pressable
           onPress={() => {}}
           className="gap-4 rounded-t-3xl p-5"
-          style={{ backgroundColor: colors.surface, maxHeight: '85%' }}
+          style={{ ...sheetEdge(colors), backgroundColor: colors.surface, maxHeight: '85%' }}
         >
           <View className="flex-row items-center justify-between">
             <Text className="text-lg font-semibold font-inter-semibold" style={{ color: colors.foreground }}>

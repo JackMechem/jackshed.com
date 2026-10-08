@@ -1,3 +1,4 @@
+import { sortByText } from "./sortText";
 import { DEFAULT_TIME_SIGNATURE, Tune, makeId } from "./types";
 
 export type Standard = {
@@ -744,22 +745,34 @@ function tidyName(name: string): string {
   return match ? `${match[2]} ${match[1]}` : name;
 }
 
+/** A cheap dedupe key for `build()` — the full `nameId` runs `.normalize()`, which is a slow native
+    call per string on Android (see `sortText.ts`), too costly to run ~630 times at module load. */
+function quickId(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^(the|a|an) /, "");
+}
+
 function build(): Standard[] {
   const seen = new Set<string>();
   const list: Standard[] = [];
   for (const [rawName, key, bpm, composer, ts] of ROWS) {
     const name = tidyName(rawName);
-    const id = nameId(name);
+    const id = quickId(name);
     if (seen.has(id)) continue;
     seen.add(id);
     list.push({ name, key, bpm, composer, timeSignature: ts ?? DEFAULT_TIME_SIGNATURE });
   }
-  return list.sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
+  return sortByText(list, (s) => s.name);
 }
 
 export const STANDARDS: Standard[] = build();
 
-const SEARCH_INDEX = STANDARDS.map((s) => normalizeKey(`${s.name} ${s.composer} ${s.key}`));
+// Built on first search rather than at module load — same slow-`.normalize()` reason as `quickId`.
+let searchIndex: string[] | null = null;
 
 /** Identifies a tune by name, ignoring case, punctuation and a leading "The". */
 export function nameId(name: string): string {
@@ -770,7 +783,9 @@ export function nameId(name: string): string {
 export function searchStandards(query: string): Standard[] {
   const words = normalizeKey(query).split(" ").filter(Boolean);
   if (words.length === 0) return STANDARDS;
-  return STANDARDS.filter((_, i) => words.every((w) => SEARCH_INDEX[i].includes(w)));
+  searchIndex ??= STANDARDS.map((s) => normalizeKey(`${s.name} ${s.composer} ${s.key}`));
+  const index = searchIndex;
+  return STANDARDS.filter((_, i) => words.every((w) => index[i].includes(w)));
 }
 
 export function standardToTune(standard: Standard): Tune {

@@ -22,14 +22,21 @@ export type ChordSlot =
       /** Everything after the root/accidental — "-7", "^7", "h7", "o7", "7alt", "sus", etc. */
       quality: string;
       bass?: { letter: string; accidental?: "b" | "#" };
+      /** Written small (iReal's `s`…`l`) — usually a quick passing chord squeezed into a bar. */
+      small?: boolean;
     }
   | { kind: "nc" }
   | { kind: "slash" };
 
+/** A chord without a position in the bar — what an alternate change (`(C#-7)` in an iReal chart,
+    printed small above the regular changes) is. */
+export type ChordShape = Extract<ChordSlot, { kind: "chord" }>;
+
 export type BarContent =
   | { kind: "chords"; slots: ChordSlot[] }
-  /** A "%" repeat-the-previous-bar measure. */
-  | { kind: "repeat" };
+  /** A "%" repeat-the-previous-bar measure. `double` is iReal's "repeat the previous *two* bars"
+      sign, drawn across the barline at this bar's end; the bar after it is left empty. */
+  | { kind: "repeat"; double?: boolean };
 
 export type Bar = {
   content: BarContent;
@@ -49,6 +56,19 @@ export type Bar = {
   coda?: boolean;
   /** A printed direction after this bar — "Fine", "D.C. al Coda", etc. */
   directive?: string;
+  /** Width in iReal's 16-cells-per-line grid (a normal bar is 4). Absent for bars made in the
+      chart builder, which are always 4 cells, 4 to a line. */
+  cells?: number;
+  /** Blank cells left before this bar in its line — e.g. a 2nd ending printed under the 1st. */
+  offsetCells?: number;
+  /** A time signature change starting at this bar. */
+  timeSignature?: { top: number; bottom: number };
+  /** The barline drawn at this bar's end, when it isn't a plain single (or repeat) barline. */
+  endBarline?: "double" | "final";
+  /** A double barline drawn at this bar's start (iReal's `[`). */
+  startDouble?: boolean;
+  /** Alternate changes printed small above this bar's chords. */
+  alternates?: ChordShape[];
 };
 
 export type IRealSong = {
@@ -108,176 +128,190 @@ function parseTimeSignature(digits: string): { top: number; bottom: number } {
   };
 }
 
-/** Walks a song's un-scrambled `raw` chart string into a list of bars, keeping repeat signs,
-    numbered endings, section letters and printed directions as written (not expanded). */
+function parseRawChord(token: string, lastMainChord: string | undefined): ChordShape {
+  const slashIndex = token.indexOf("/");
+  let main = slashIndex === -1 ? token : token.slice(0, slashIndex);
+  if (main[0] === "W" && lastMainChord) main = lastMainChord + main.slice(1);
+  const bass =
+    slashIndex === -1
+      ? undefined
+      : (() => {
+          const b = token.slice(slashIndex + 1);
+          return { letter: b[0], accidental: b[1] === "b" || b[1] === "#" ? (b[1] as "b" | "#") : undefined };
+        })();
+  const { letter, accidental, quality } = splitMain(main);
+  return { kind: "chord", letter, accidental, quality, bass };
+}
+
+/**
+ * Walks a song's un-scrambled `raw` chart string into a list of bars, keeping everything as
+ * written (not expanded): repeat signs, numbered endings, sections, codas/segnos, printed
+ * directions, time signature changes, small and alternate chords, double/final barlines.
+ *
+ * iReal lays every line out as **16 cells**: each chord, `x`/`r`/`p`/`n` mark and space takes one
+ * cell (`XyQ` is three, `LZ` is a space then a barline, `Kcl` is a barline then a cell of `x`), and
+ * a bar is as wide as the cells it spans — which is how a line can hold 8 narrow bars, or a 2nd
+ * ending can start halfway across under the 1st. Each bar records its `cells`; a run of empty
+ * cells that isn't a bar of its own (right after a closing barline — `}`, `]`, `Z` — or at the
+ * start of the chart) becomes the next bar's `offsetCells`, blank space in its line.
+ *
+ * Earlier versions stopped at the first `Z` (final barline), silently dropping everything after it
+ * — codas, and whole sections after a "Fine".
+ */
 export function tokenizeChart(raw: string): {
   bars: Bar[];
   timeSignature: { top: number; bottom: number } | null;
 } {
   const bars: Bar[] = [];
-  let slots: ChordSlot[] = [];
-  let barKind: "chords" | "repeat" = "chords";
-  let hasContent = false;
+  let timeSignature: { top: number; bottom: number } | null = null;
+  let lastMainChord: string | undefined;
+  let small = false;
 
+  // The bar being read.
+  let slots: ChordSlot[] = [];
+  let alternates: ChordShape[] = [];
+  let kind: "chords" | "repeat" | "repeat2" = "chords";
+  let hasContent = false;
+  let cells = 0;
+
+  // Things that apply to the bar being read (or, if it hasn't started, the next one).
   let pendingSection: string | undefined;
   let pendingRepeatStart = false;
-  let pendingNewRow = false;
+  let pendingStartDouble = false;
   let pendingCoda = false;
+  let pendingSegno = false;
+  let pendingTime: { top: number; bottom: number } | undefined;
+  let pendingDirective: string | undefined;
+  let pendingOffset = 0;
+  // Markers met after the current bar already has chords belong to the bar after it.
+  let nextCoda = false;
+  let nextSegno = false;
+  let forceNextBar = false; // the second half of a 2-bar repeat is a real (empty) bar
+  let forceBar = false;
   let currentEndingLabel: string | undefined;
   let endingJustStarted = false;
+  let lastClose: "|" | "repeat" | "double" | "final" | null = null;
 
-  let lastMainChord: string | undefined;
-  let timeSignature: { top: number; bottom: number } | null = null;
-
-  function finalize() {
-    if (!hasContent) return;
-    const bar: Bar = {
-      content:
-        barKind === "repeat" ? { kind: "repeat" } : { kind: "chords", slots },
-    };
-    if (pendingSection !== undefined) bar.section = pendingSection;
-    if (pendingRepeatStart) bar.startRepeat = true;
-    if (pendingNewRow) bar.newRow = true;
-    if (pendingCoda) bar.coda = true;
-    if (currentEndingLabel !== undefined) {
-      bar.endingLabel = currentEndingLabel;
-      if (endingJustStarted) bar.endingStart = true;
-    }
-    bars.push(bar);
-    pendingSection = undefined;
-    pendingRepeatStart = false;
-    pendingNewRow = false;
-    pendingCoda = false;
-    endingJustStarted = false;
+  function resetBar() {
     slots = [];
-    barKind = "chords";
+    alternates = [];
+    kind = "chords";
     hasContent = false;
+    cells = 0;
+  }
+
+  function closeBar(close: "|" | "repeat" | "double" | "final" | null) {
+    if (hasContent || forceBar) {
+      const bar: Bar = {
+        content: kind === "repeat" ? { kind: "repeat" } : kind === "repeat2" ? { kind: "repeat", double: true } : { kind: "chords", slots },
+        cells: Math.max(1, cells),
+      };
+      if (pendingOffset) bar.offsetCells = pendingOffset;
+      if (alternates.length) bar.alternates = alternates;
+      if (pendingSection !== undefined) bar.section = pendingSection;
+      if (pendingRepeatStart) bar.startRepeat = true;
+      if (pendingStartDouble) bar.startDouble = true;
+      if (pendingCoda) bar.coda = true;
+      if (pendingSegno) bar.segno = true;
+      if (pendingTime) bar.timeSignature = pendingTime;
+      if (pendingDirective) bar.directive = pendingDirective;
+      if (currentEndingLabel !== undefined) {
+        bar.endingLabel = currentEndingLabel;
+        if (endingJustStarted) bar.endingStart = true;
+      }
+      if (close === "repeat") bar.endRepeat = true;
+      if (close === "double" || close === "final") bar.endBarline = close;
+      bars.push(bar);
+      pendingSection = undefined;
+      pendingRepeatStart = false;
+      pendingStartDouble = false;
+      pendingCoda = nextCoda;
+      pendingSegno = nextSegno;
+      nextCoda = false;
+      nextSegno = false;
+      pendingTime = undefined;
+      pendingDirective = undefined;
+      pendingOffset = 0;
+      endingJustStarted = false;
+      forceBar = forceNextBar;
+      forceNextBar = false;
+    } else if (cells > 0) {
+      // Empty cells. Right after a closing barline (or at the very start) they're blank space in
+      // the line; otherwise they're an empty measure.
+      if (bars.length === 0 || lastClose === "repeat" || lastClose === "double" || lastClose === "final") {
+        pendingOffset += cells;
+      } else {
+        forceBar = true;
+        closeBar(close);
+        return;
+      }
+    } else if (close && close !== "|" && bars.length > 0) {
+      // A closing barline straight after another barline belongs to the bar before it.
+      const last = bars[bars.length - 1];
+      if (close === "repeat") last.endRepeat = true;
+      else last.endBarline = close;
+    }
+    if (close) lastClose = close;
+    resetBar();
+  }
+
+  function markCoda() {
+    if (hasContent) nextCoda = true;
+    else pendingCoda = true;
+  }
+  function markSegno() {
+    if (hasContent) nextSegno = true;
+    else pendingSegno = true;
   }
 
   let i = 0;
   while (i < raw.length) {
     const s = raw.slice(i);
+    const c = s[0];
 
     if (s.startsWith("XyQ")) {
-      i += 3;
+      cells += 3;
+        i += 3;
       continue;
     }
     if (s.startsWith("Kcl")) {
-      // Repeat the previous bar as a new "%" bar of its own.
-      finalize();
-      barKind = "repeat";
+      closeBar("|");
+      kind = "repeat";
       hasContent = true;
-      finalize();
+      cells += 2;
       i += 3;
+      continue;
+    }
+    if (s.startsWith("LZ")) {
+      cells += 1;
+      closeBar("|");
+      i += 2;
       continue;
     }
     const section = /^\*(\w)/.exec(s);
     if (section) {
-      finalize();
+      if (hasContent) closeBar(null);
       pendingSection = section[1];
-      pendingNewRow = true;
       currentEndingLabel = undefined;
       i += section[0].length;
       continue;
     }
     const directive = /^<([^>]*)>/.exec(s);
     if (directive) {
-      finalize();
-      const text = directive[1].trim();
-      if (bars.length > 0) bars[bars.length - 1].directive = text;
+      const text = directive[1].replace(/^\*\d+/, "").trim();
+      if (text) {
+        if (hasContent || cells > 0 || bars.length === 0) pendingDirective = text;
+        else bars[bars.length - 1].directive = text;
+      }
       i += directive[0].length;
       continue;
     }
     const time = /^T(\d+)/.exec(s);
     if (time) {
-      if (!timeSignature) timeSignature = parseTimeSignature(time[1]);
+      const ts = parseTimeSignature(time[1]);
+      if (!timeSignature && bars.length === 0) timeSignature = ts;
+      else pendingTime = ts;
       i += time[0].length;
-      continue;
-    }
-    if (s.startsWith("r|XyQ")) {
-      // Repeat the previous two bars: mirror them as two more "%" bars.
-      finalize();
-      barKind = "repeat";
-      hasContent = true;
-      finalize();
-      barKind = "repeat";
-      hasContent = true;
-      finalize();
-      i += 5;
-      continue;
-    }
-    if (s[0] === "x") {
-      barKind = "repeat";
-      hasContent = true;
-      i += 1;
-      continue;
-    }
-    if (s[0] === "Y") {
-      i += 1;
-      continue;
-    }
-    if (s[0] === "n") {
-      slots.push({ kind: "nc" });
-      hasContent = true;
-      i += 1;
-      continue;
-    }
-    if (s[0] === "p") {
-      slots.push({ kind: "slash" });
-      hasContent = true;
-      i += 1;
-      continue;
-    }
-    if (s[0] === "U") {
-      i += 1;
-      continue;
-    }
-    if (s[0] === "S") {
-      if (bars.length > 0) bars[bars.length - 1].segno = true;
-      i += 1;
-      continue;
-    }
-    if (s[0] === "Q") {
-      pendingCoda = true;
-      i += 1;
-      continue;
-    }
-    if (s[0] === "{") {
-      finalize();
-      pendingRepeatStart = true;
-      i += 1;
-      continue;
-    }
-    if (s[0] === "}") {
-      finalize();
-      if (bars.length > 0) bars[bars.length - 1].endRepeat = true;
-      i += 1;
-      continue;
-    }
-    if (s.startsWith("LZ|")) {
-      finalize();
-      i += 3;
-      continue;
-    }
-    if (s[0] === "|") {
-      finalize();
-      i += 1;
-      continue;
-    }
-    if (s.startsWith("LZ")) {
-      finalize();
-      i += 2;
-      continue;
-    }
-    if (s[0] === "[") {
-      finalize();
-      pendingNewRow = true;
-      i += 1;
-      continue;
-    }
-    if (s[0] === "]") {
-      currentEndingLabel = undefined;
-      i += 1;
       continue;
     }
     const ending = /^N(\d)/.exec(s);
@@ -287,43 +321,111 @@ export function tokenizeChart(raw: string): {
       i += ending[0].length;
       continue;
     }
-    if (s[0] === "Z") {
-      finalize();
-      break;
+    const alt = /^\(([^)]*)\)/.exec(s);
+    if (alt) {
+      const m = CHORD_RE.exec(alt[1].trim());
+      if (m) alternates.push(parseRawChord(m[0], lastMainChord));
+      i += alt[0].length;
+      continue;
+    }
+    switch (c) {
+      case " ":
+        cells += 1;
+            i += 1;
+        continue;
+      case ",":
+      case "Y":
+      case "U":
+      case "f":
+        i += 1;
+        continue;
+      case "s":
+        small = true;
+        i += 1;
+        continue;
+      case "l":
+        small = false;
+        i += 1;
+        continue;
+      case "x":
+        kind = "repeat";
+        hasContent = true;
+        cells += 1;
+        i += 1;
+        continue;
+      case "r":
+        kind = "repeat2";
+        hasContent = true;
+        cells += 1;
+        forceNextBar = true;
+        i += 1;
+        continue;
+      case "n":
+        slots.push({ kind: "nc" });
+        hasContent = true;
+        cells += 1;
+        i += 1;
+        continue;
+      case "p":
+        slots.push({ kind: "slash" });
+        hasContent = true;
+        cells += 1;
+        i += 1;
+        continue;
+      case "S":
+        markSegno();
+        i += 1;
+        continue;
+      case "Q":
+        markCoda();
+        i += 1;
+        continue;
+      case "{":
+        closeBar(null);
+        pendingRepeatStart = true;
+        i += 1;
+        continue;
+      case "}":
+        closeBar("repeat");
+        i += 1;
+        continue;
+      case "[":
+        closeBar(null);
+        pendingStartDouble = true;
+        i += 1;
+        continue;
+      case "]":
+        closeBar("double");
+        currentEndingLabel = undefined;
+        i += 1;
+        continue;
+      case "|":
+        closeBar("|");
+        i += 1;
+        continue;
+      case "Z":
+        closeBar("final");
+        currentEndingLabel = undefined;
+        i += 1;
+        continue;
     }
     const chord = CHORD_RE.exec(s);
     if (chord) {
       const token = chord[0];
-      const slashIndex = token.indexOf("/");
-      let main = slashIndex === -1 ? token : token.slice(0, slashIndex);
-      if (main[0] === "W" && lastMainChord)
-        main = lastMainChord + main.slice(1);
-      const bass =
-        slashIndex === -1
-          ? undefined
-          : (() => {
-              const b = token.slice(slashIndex + 1);
-              return {
-                letter: b[0],
-                accidental:
-                  b[1] === "b" || b[1] === "#"
-                    ? (b[1] as "b" | "#")
-                    : undefined,
-              };
-            })();
-      const { letter, accidental, quality } = splitMain(main);
-      if (letter !== "W") lastMainChord = main;
-      slots.push({ kind: "chord", letter, accidental, quality, bass });
+      const shape = parseRawChord(token, lastMainChord);
+      if (shape.letter !== "W") lastMainChord = token.split("/")[0];
+      if (small) shape.small = true;
+      slots.push(shape);
       hasContent = true;
-      barKind = "chords";
+      kind = "chords";
+      cells += 1;
       i += token.length;
       continue;
     }
-
     // Unrecognized character — skip it rather than getting stuck.
     i += 1;
   }
-  finalize();
+  closeBar(null);
 
   return { bars, timeSignature };
 }
@@ -347,6 +449,9 @@ export function parseChordToken(token: string): ChordSlot | null {
   const trimmed = token.trim();
   if (!trimmed) return null;
   if (/^n\.?c\.?$/i.test(trimmed)) return { kind: "nc" };
+  // A lone "/" is iReal's "keep playing the previous chord" beat placeholder — accepted so a
+  // pasted chart's bars survive a round trip through the chart builder's text form.
+  if (trimmed === "/") return { kind: "slash" };
   const normalized = normalizeChordToken(trimmed);
   const match = CHORD_RE.exec(normalized);
   if (!match || match[0].length !== normalized.length) return null;
@@ -372,6 +477,19 @@ export function parseChordToken(token: string): ChordSlot | null {
     rather than failing the whole bar, so one typo doesn't lose every other chord already typed;
     the chart builder's own live preview is the feedback for "did this actually parse," not a
     separate validation message. */
+/** The inverse of `parseBarSlots`: one bar's slots back to the space-separated text the chart
+    builder edits ("C^7 F7", "Bb7#5/D", "NC", "/"). */
+export function slotsToText(slots: ChordSlot[]): string {
+  return slots
+    .map((slot) => {
+      if (slot.kind === "nc") return "NC";
+      if (slot.kind === "slash") return "/";
+      const bass = slot.bass ? `/${slot.bass.letter}${slot.bass.accidental ?? ""}` : "";
+      return `${slot.letter}${slot.accidental ?? ""}${slot.quality}${bass}`;
+    })
+    .join(" ");
+}
+
 export function parseBarSlots(text: string): ChordSlot[] {
   return text
     .trim()
@@ -440,10 +558,13 @@ function transposeSlot(slot: ChordSlot, semitones: number): ChordSlot {
 }
 
 function transposeBar(bar: Bar, semitones: number): Bar {
-  if (bar.content.kind !== "chords") return bar;
+  if (bar.content.kind !== "chords") {
+    return bar.alternates ? { ...bar, alternates: bar.alternates.map((a) => transposeSlot(a, semitones) as ChordShape) } : bar;
+  }
   return {
     ...bar,
     content: { kind: "chords", slots: bar.content.slots.map((s) => transposeSlot(s, semitones)) },
+    ...(bar.alternates ? { alternates: bar.alternates.map((a) => transposeSlot(a, semitones) as ChordShape) } : {}),
   };
 }
 

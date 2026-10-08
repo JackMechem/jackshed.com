@@ -7,12 +7,17 @@ export default function PromptDialog({
   title,
   initialValue,
   confirmLabel = "Save",
+  placeholder,
+  allowEmpty = false,
   onSubmit,
   onCancel,
 }: {
   title: string;
   initialValue: string;
   confirmLabel?: string;
+  placeholder?: string;
+  /** Lets an empty value through (e.g. clearing an optional description). */
+  allowEmpty?: boolean;
   onSubmit: (value: string) => void;
   onCancel: () => void;
 }) {
@@ -31,7 +36,7 @@ export default function PromptDialog({
 
   const submit = () => {
     const trimmed = value.trim();
-    if (trimmed) onSubmit(trimmed);
+    if (trimmed || allowEmpty) onSubmit(trimmed);
   };
 
   return (
@@ -50,6 +55,7 @@ export default function PromptDialog({
           autoFocus
           value={value}
           onChange={(e) => setValue(e.target.value)}
+          placeholder={placeholder}
           onFocus={(e) => e.currentTarget.select()}
           onKeyDown={(e) => e.key === "Enter" && submit()}
           className="rounded-lg bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-accent"
@@ -65,7 +71,7 @@ export default function PromptDialog({
           <button
             type="button"
             onClick={submit}
-            disabled={!value.trim()}
+            disabled={!allowEmpty && !value.trim()}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground hover:bg-accent-hover disabled:opacity-50"
           >
             {confirmLabel}

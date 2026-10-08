@@ -24,6 +24,7 @@ export default function TunesToLearnTab() {
       tunes={tunes}
       setTunes={setTunes}
       allowStandards
+      listId="learn"
       searchPlaceholder="Search your tunes to learn…"
       emptyMessage="Nothing here yet — press + to search jazz standards, or find a tune on someone's public profile."
       exportFilenamePrefix="jam-practice-tunes-to-learn"

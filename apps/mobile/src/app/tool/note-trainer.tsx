@@ -48,6 +48,7 @@ import { NumberStepper } from '@/components/NumberStepper';
 import { SwitchRow } from '@/components/SwitchRow';
 import { ToolOptionsSheet, type ToolOptionsTab } from '@/components/ToolOptionsSheet';
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { ScreenSpinner, withScreenLoader } from '@/components/ScreenLoader';
 
 /**
  * Native port of `apps/web/components/NoteTrainer.tsx`. Same "quiz" (notes shown, optionally
@@ -212,9 +213,9 @@ function playClick() {
   osc.stop(t + 0.05);
 }
 
-export default function NoteTrainerScreen() {
+function NoteTrainerScreen() {
   const { colors } = useAppTheme();
-  const [settings, updateSettings] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
+  const [settings, updateSettings, settingsReady] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
   const [optionsOpen, setOptionsOpen] = useState(false);
 
   const {
@@ -1107,6 +1108,9 @@ export default function NoteTrainerScreen() {
   const ringActive = running;
   const isDoubleWide = mainLabelIsDouble;
 
+  // Saved settings not read yet — a spinner rather than defaults that then jump to the real values.
+  if (!settingsReady) return <ScreenSpinner />;
+
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background }}>
       <Stack.Screen options={{ title: 'Note Trainer' }} />
@@ -1315,3 +1319,5 @@ export default function NoteTrainerScreen() {
     </View>
   );
 }
+
+export default withScreenLoader(NoteTrainerScreen);

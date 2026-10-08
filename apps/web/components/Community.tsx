@@ -1,196 +1,232 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
-import { useQuery } from "convex/react";
 import { useConvexAuth } from "@convex-dev/auth/react";
+import { useMutation, useQuery } from "convex/react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useMemo, useState, type ReactNode } from "react";
 import { api } from "@jam-practice/convex/_generated/api";
-import CommunityTunes from "@/components/CommunityTunes";
-import FollowLists from "@/components/FollowLists";
-import LikedPosts from "@/components/LikedPosts";
+import type { Id } from "@jam-practice/convex/_generated/dataModel";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import ContextMenu, { type MenuState } from "@/components/ContextMenu";
+import { PostListItem } from "@/components/CommunityTunes";
+import { EmptyCard, PageHeader, PageShell, SearchBox, SectionHeader, StatCard, menuPosition } from "@/components/library/shared";
 import LoadingSpinner from "@/components/LoadingSpinner";
-import SidebarNavButton from "@/components/SidebarNavButton";
 import UserAvatar from "@/components/UserAvatar";
-import { HeartIcon, NoteIcon, SearchIcon, UsersIcon } from "@/components/tools";
+import { HeartIcon, NoteIcon, PlusIcon, UsersIcon } from "@/components/tools";
+import { useSetlists } from "@/lib/useSetlists";
 
-type CommunityView = "search" | "following" | "posts" | "liked";
-
-/** The public search/browse page (`app/community/page.tsx`) — reachable by anyone, signed in or
-    not, same as an individual profile. Has its own left sidebar, the same `SidebarNavButton`
-    layout `/account` uses (per a direct request for "the same sidebar thing"), switching between
-    the username search (unchanged from before — searches `isPublic` profiles only, username-only
-    per an earlier scoping call), a **Following** section reusing `FollowLists` wholesale (both who
-    you follow and who follows you, the same component `/account`'s own Following tab already
-    shows), and **Posts** (`CommunityTunes.tsx`) — browse/post tunes and tune lists, each one
-    optionally carrying its own linked chord chart. Used to be two separate sections here ("Chord
-    Charts" and "Tunes," their own nav items, their own composers) — collapsed into this one
-    "Posts" section per an explicit request: "this whole tune and chord chart separation is quite
-    confusing and i want to just have one thing you post." A chart can only ever reach Community by
-    being attached to a tune first (the account page's own tune editor, "Linked chord chart");
-    searching for a chart specifically is still possible from inside `CommunityTunes` itself (its
-    search matches a post's tune names *and* any linked chart's title). **Liked** (`LikedPosts.tsx`)
-    is every post the signed-in account has liked — a post shows its like count to everyone, but
-    only the caller's own like/unlike state and their own liked-posts list, never who else liked
-    something (`communityTunes.myLikes`/`likedPosts`, scoped server-side to the caller). All three
-    of Following/Posts/Liked require being signed in (`FollowLists` itself assumes a signed-in
-    user — its
-    `useQuery(api.users.current)` gates on `user === undefined`, i.e. still loading, not
-    `user === null`, i.e. definitely signed out, so mounting it while signed out would spin
-    forever; `CommunityTunes` gates on it explicitly for the same "browsing needs an account" rule
-    Jack asked for) — so all three show a sign-in prompt instead when `isAuthenticated` is false (a
-    loading spinner while `useConvexAuth()` itself hasn't resolved yet, so a signed-in visitor
-    doesn't see a flash of "sign in" first), rather than mounting unconditionally the way
-    `/account` can (that whole page is already gated behind being signed in). Search alone stays
-    open to a signed-out visitor, same as before. */
+/**
+ * The Community page, laid out like the Tunes and Chord Charts dashboards (and the mobile app's
+ * Community tab): a big title with a + (post tunes, or post one of your setlists), one search
+ * across people and posts, stat cards that open Liked / Following / My posts, then the latest
+ * posts. Every post opens its own page (`/post/[id]`); posting is the full-page composer
+ * (`/community/new`), which checks for a public profile. Searching people works signed out; posts
+ * need an account (browsing them always has).
+ */
 export default function Community() {
-  const [view, setView] = useState<CommunityView>("search");
+  const router = useRouter();
   const { isLoading, isAuthenticated } = useConvexAuth();
+  const authed = isAuthenticated ? {} : "skip";
+  const posts = useQuery(api.communityTunes.list, authed);
+  const likedIds = useQuery(api.communityTunes.myLikes, authed);
+  const mine = useQuery(api.communityTunes.mine, authed);
+  const me = useQuery(api.users.current, authed);
+  const following = useQuery(api.follows.listFollowing, me?._id ? { userId: me._id } : "skip");
+  const removePost = useMutation(api.communityTunes.remove);
+  const { setlists } = useSetlists();
+
   const [query, setQuery] = useState("");
-  const trimmedQuery = query.trim();
-  const results = useQuery(api.profiles.search, trimmedQuery ? { query: trimmedQuery } : "skip");
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const [deletingId, setDeletingId] = useState<Id<"communityTunes"> | null>(null);
+
+  const likedSet = useMemo(() => new Set(likedIds ?? []), [likedIds]);
+  const trimmed = query.trim();
+  const q = trimmed.toLowerCase();
+  const people = useQuery(api.profiles.search, trimmed ? { query: trimmed } : "skip");
+  const matchingPosts = useMemo(() => {
+    if (!posts || !q) return [];
+    const words = q.split(/\s+/);
+    return posts.filter((p) => {
+      const hay = [p.title, p.authorUsername ?? "", ...p.tuneNames, ...p.chartTitles].join(" ").toLowerCase();
+      return words.every((w) => hay.includes(w));
+    });
+  }, [posts, q]);
+
+  function openNewMenu(e: React.MouseEvent) {
+    if (!isAuthenticated) {
+      router.push("/");
+      return;
+    }
+    const pos = menuPosition(e);
+    setMenu({
+      ...pos,
+      items: [
+        { label: "Post tunes", onSelect: () => router.push("/community/new") },
+        setlists.length
+          ? {
+              label: "Post a setlist…",
+              // A second menu, in the same spot, listing your setlists.
+              onSelect: () =>
+                setTimeout(
+                  () =>
+                    setMenu({
+                      ...pos,
+                      items: [...setlists]
+                        .sort((a, b) => b.updatedAt - a.updatedAt)
+                        .map((s) => ({ label: `${s.name} (${s.tuneIds.length})`, onSelect: () => router.push(`/community/new?setlist=${encodeURIComponent(s.id)}`) })),
+                    }),
+                  0,
+                ),
+            }
+          : { label: "Post a setlist (make one in Tunes first)", onSelect: () => router.push("/tunes") },
+      ],
+    });
+  }
+
+  const postList = (list: NonNullable<typeof posts>) => (
+    <ul className="flex flex-col gap-2">
+      {list.map((post) => (
+        <PostListItem key={post.id} post={post} liked={likedSet.has(post.id)} onDelete={post.isMine ? () => setDeletingId(post.id) : undefined} />
+      ))}
+    </ul>
+  );
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 pb-16 pt-[calc(env(safe-area-inset-top)+4.5rem)] sm:px-6 lg:pt-16">
-      <div className="flex flex-col gap-1 text-left">
-        <h1 className="text-2xl font-bold text-accent">Community</h1>
-        <p className="text-sm text-muted">
-          Search public profiles by username, see who you follow, or browse tunes — some with a
-          chord chart attached — other people have posted. No account needed to search.
-        </p>
-      </div>
+    <PageShell>
+      <PageHeader
+        title="Community"
+        actions={
+          <button
+            type="button"
+            onClick={openNewMenu}
+            aria-label="New post"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-accent text-accent-foreground hover:bg-accent-hover"
+          >
+            <PlusIcon className="h-5 w-5" />
+          </button>
+        }
+      />
+      <SearchBox value={query} onChange={setQuery} placeholder="Search people and posts…" />
 
-      <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8">
-        <nav className="flex w-full flex-col gap-1 rounded-2xl bg-surface p-2 sm:w-48 sm:shrink-0">
-          <SidebarNavButton
-            active={view === "search"}
-            icon={SearchIcon}
-            label="Search"
-            onClick={() => setView("search")}
-          />
-          <SidebarNavButton
-            active={view === "following"}
-            icon={UsersIcon}
-            label="Following"
-            onClick={() => setView("following")}
-          />
-          <SidebarNavButton
-            active={view === "posts"}
-            icon={NoteIcon}
-            label="Posts"
-            onClick={() => setView("posts")}
-          />
-          <SidebarNavButton
-            active={view === "liked"}
-            icon={HeartIcon}
-            label="Liked"
-            onClick={() => setView("liked")}
-          />
-        </nav>
-
-        <div className="flex min-w-0 flex-1 flex-col gap-6">
-          {view === "search" && (
-            <div className="flex flex-col gap-4">
-              <label className="flex items-center gap-2 rounded-xl bg-surface px-4 py-3 text-foreground focus-within:ring-2 focus-within:ring-accent">
-                <SearchIcon className="h-4 w-4 shrink-0 text-muted" />
-                <input
-                  type="search"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search by username"
-                  aria-label="Search public profiles by username"
-                  className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted"
-                />
-              </label>
-
-              {trimmedQuery.length === 0 ? (
-                <p className="text-center text-sm text-muted">Start typing a username to search.</p>
-              ) : results === undefined ? (
-                <div className="flex justify-center py-4">
-                  <LoadingSpinner />
-                </div>
-              ) : results.length === 0 ? (
-                <p className="text-center text-sm text-muted">
-                  No public profiles match &quot;{query}&quot;.
-                </p>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {results.map((profile) => (
-                    <Link
-                      key={profile.userId}
-                      href={`/u/${profile.username}`}
-                      className="flex items-center gap-3 rounded-xl bg-surface p-3 transition-colors hover:bg-surface-hover"
-                    >
-                      <UserAvatar url={profile.avatarUrl} />
-                      <div className="min-w-0 flex-1 text-left">
-                        <p className="truncate font-medium">{profile.username}</p>
-                        {profile.instruments.length > 0 && (
-                          <p className="truncate text-xs text-muted">
-                            {profile.instruments.join(", ")}
-                          </p>
-                        )}
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {view === "following" &&
-            (isLoading ? (
-              <div className="flex justify-center py-4">
-                <LoadingSpinner />
-              </div>
-            ) : isAuthenticated ? (
-              <FollowLists />
-            ) : (
-              <section className="flex flex-col items-center gap-2 rounded-2xl bg-surface p-5 text-center">
-                <p className="text-sm text-muted">
-                  <Link href="/" className="text-accent hover:underline">
-                    Sign in
-                  </Link>{" "}
-                  to see who you follow.
-                </p>
-              </section>
-            ))}
-
-          {view === "posts" &&
-            (isLoading ? (
-              <div className="flex justify-center py-4">
-                <LoadingSpinner />
-              </div>
-            ) : isAuthenticated ? (
-              <CommunityTunes />
-            ) : (
-              <section className="flex flex-col items-center gap-2 rounded-2xl bg-surface p-5 text-center">
-                <p className="text-sm text-muted">
-                  <Link href="/" className="text-accent hover:underline">
-                    Sign in
-                  </Link>{" "}
-                  to browse community posts.
-                </p>
-              </section>
-            ))}
-
-          {view === "liked" &&
-            (isLoading ? (
-              <div className="flex justify-center py-4">
-                <LoadingSpinner />
-              </div>
-            ) : isAuthenticated ? (
-              <LikedPosts />
-            ) : (
-              <section className="flex flex-col items-center gap-2 rounded-2xl bg-surface p-5 text-center">
-                <p className="text-sm text-muted">
-                  <Link href="/" className="text-accent hover:underline">
-                    Sign in
-                  </Link>{" "}
-                  to see your liked posts.
-                </p>
-              </section>
-            ))}
+      {isLoading ? (
+        <div className="flex justify-center py-10">
+          <LoadingSpinner />
         </div>
-      </div>
-    </main>
+      ) : trimmed ? (
+        <>
+          <Section title="People">
+            {people === undefined ? (
+              <Spinner />
+            ) : people.length === 0 ? (
+              <EmptyCard>No one named “{trimmed}”.</EmptyCard>
+            ) : (
+              <div className="overflow-hidden rounded-2xl bg-surface">
+                {people.map((p, i) => (
+                  <Link key={p.userId} href={`/u/${p.username}`} className={`flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover ${i ? "border-t border-background" : ""}`}>
+                    <UserAvatar url={p.avatarUrl} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-semibold">@{p.username}</span>
+                      {p.instruments.length > 0 && <span className="block truncate text-xs text-muted">{p.instruments.join(", ")}</span>}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </Section>
+          <Section title="Posts">
+            {!isAuthenticated ? (
+              <EmptyCard>Sign in to search posts.</EmptyCard>
+            ) : posts === undefined ? (
+              <Spinner />
+            ) : matchingPosts.length === 0 ? (
+              <EmptyCard>No posts match “{trimmed}”.</EmptyCard>
+            ) : (
+              postList(matchingPosts)
+            )}
+          </Section>
+        </>
+      ) : (
+        <>
+          <div className="flex gap-3">
+            <StatCard icon={HeartIcon} count={likedIds?.length ?? 0} label="Liked" href={isAuthenticated ? "/community/liked" : "/"} />
+            <StatCard icon={UsersIcon} count={following?.length ?? 0} label="Following" href={isAuthenticated ? "/community/following" : "/"} />
+            <StatCard icon={NoteIcon} count={mine?.length ?? 0} label="My posts" href={isAuthenticated ? "/community/posts" : "/"} />
+          </div>
+
+          <Section title="Latest posts">
+            {!isAuthenticated ? (
+              <div className="flex flex-col items-start gap-3 rounded-2xl bg-surface p-4">
+                <p className="text-sm text-muted">Sign in to see what sheddex users have posted — tunes, setlists, and the chord charts that come with them.</p>
+                <Link href="/" className="rounded-xl bg-accent px-4 py-2 text-sm font-bold text-accent-foreground hover:bg-accent-hover">
+                  Sign in
+                </Link>
+              </div>
+            ) : posts === undefined ? (
+              <Spinner />
+            ) : posts.length === 0 ? (
+              <EmptyCard>Nobody&apos;s posted yet — be the first with +.</EmptyCard>
+            ) : (
+              postList(posts)
+            )}
+          </Section>
+        </>
+      )}
+
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+      {deletingId && (
+        <ConfirmDialog
+          title="Delete this post?"
+          message="This removes it from Community for everyone. It doesn't touch anyone who already added it."
+          confirmLabel="Delete"
+          onConfirm={() => {
+            void removePost({ id: deletingId });
+            setDeletingId(null);
+          }}
+          onCancel={() => setDeletingId(null)}
+        />
+      )}
+    </PageShell>
+  );
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-2">
+      <SectionHeader title={title} />
+      {children}
+    </section>
+  );
+}
+
+function Spinner() {
+  return (
+    <div className="flex justify-center py-4">
+      <LoadingSpinner size="sm" />
+    </div>
+  );
+}
+
+/** A Community sub-page (Liked, Following, My posts): back to Community, a title, and — signed
+    out — a sign-in prompt instead of the content (every one of them needs an account). */
+export function CommunitySubPage({ title, children }: { title: string; children: ReactNode }) {
+  const router = useRouter();
+  const { isLoading, isAuthenticated } = useConvexAuth();
+  return (
+    <PageShell>
+      <PageHeader title={title} back={() => router.push("/community")} />
+      {isLoading ? (
+        <Spinner />
+      ) : isAuthenticated ? (
+        children
+      ) : (
+        <EmptyCard>
+          <Link href="/" className="text-accent hover:underline">
+            Sign in
+          </Link>{" "}
+          to see this.
+        </EmptyCard>
+      )}
+    </PageShell>
   );
 }

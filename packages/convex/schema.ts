@@ -153,6 +153,13 @@ export default defineSchema({
     tunes: v.any(),
     likeCount: v.optional(v.number()),
     unlisted: v.optional(v.boolean()),
+    /** "setlist" when posted as a setlist (an ordered list meant to be played in that order —
+        shown numbered, savable as the viewer's own setlist); absent for a plain tune post. */
+    kind: v.optional(v.literal("setlist")),
+    /** The poster's own setlist id (from their synced setlists) — set for a setlist post, which
+        then always shows that setlist's *current* tunes (`lib/setlists.ts`'s `liveSetlist`);
+        `tunes` is just the fallback snapshot if the setlist's later deleted. */
+    setlistId: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_user", ["userId"])
@@ -201,10 +208,32 @@ export default defineSchema({
       fix there. `convex/chordCharts.ts`'s `migrateFromSyncedSettings` is a one-time, entirely
       server-side migration for anyone who already had a (successfully-synced, and therefore
       already-under-1-MiB) library stored the old way before this change. */
+  /** A setlist shared by link — a snapshot of one of the owner's setlists (which live in their
+      synced settings, `jam-practice-setlists`): title, description, and its tunes as
+      `PublicTune[]` with each linked chord chart resolved into a `linkedChart` snapshot (same shape
+      and privacy rule as a Community post — never a tune's private `notes`). Readable by anyone
+      with the id, signed in or not (`setlists.ts`'s `getShared`): sending the link is the sharing.
+      Re-sharing updates the same row, so a link someone already has keeps working. */
+  sharedSetlists: defineTable({
+    userId: v.id("users"),
+    /** The owner's setlist id — the link always shows that setlist's current version; the stored
+        title/description/tunes are only a fallback if it's deleted. */
+    setlistId: v.optional(v.string()),
+    title: v.string(),
+    description: v.string(),
+    tunes: v.any(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
+
   chordChartPlaylists: defineTable({
     userId: v.id("users"),
     name: v.string(),
     createdAt: v.number(),
+    /** Being deleted: hidden from the library at once while its charts are removed in batches
+        in the background (`chordCharts.ts`'s `purgePlaylist`) — one mutation can't delete a
+        1,000+ chart playlist within Convex's per-function read limit. */
+    deleting: v.optional(v.boolean()),
   }).index("by_user", ["userId"]),
 
   chordChartSongs: defineTable({

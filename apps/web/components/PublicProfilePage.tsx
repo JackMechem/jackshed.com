@@ -109,7 +109,7 @@ export default function PublicProfilePage({ username }: { username: string }) {
 
       {profile.tunes.length > 0 && (
         <section className="flex flex-col gap-2 rounded-2xl bg-surface p-5 text-left">
-          <h2 className="text-sm font-semibold text-muted">Tunes</h2>
+          <h2 className="text-sm font-semibold text-muted">Tunes I Know</h2>
           <div className="max-h-96 overflow-y-auto pr-1">
             <PublicTuneList tunes={profile.tunes} canAdd={canAdd} />
           </div>

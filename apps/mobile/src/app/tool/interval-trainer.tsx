@@ -42,6 +42,7 @@ import { SENSITIVITY, startAudioInput } from '@/lib/audioInput';
 import { startTone } from '@/lib/toneGenerator';
 import { useSyncedSettings } from '@/lib/useSyncedSettings';
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { ScreenSpinner, withScreenLoader } from '@/components/ScreenLoader';
 
 /**
  * Native port of `apps/web/components/IntervalTrainer.tsx`. Same two-note-round grading loop as
@@ -203,9 +204,9 @@ function playClick() {
   startTone(1000, 'sine', 0.5, 0.05);
 }
 
-export default function IntervalTrainerScreen() {
+function IntervalTrainerScreen() {
   const { colors } = useAppTheme();
-  const [settings, updateSettings] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
+  const [settings, updateSettings, settingsReady] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
   const [optionsOpen, setOptionsOpen] = useState(false);
 
   const {
@@ -789,6 +790,9 @@ export default function IntervalTrainerScreen() {
   const bestMs = matchingHistory.length ? Math.min(...matchingHistory.map((h) => h.elapsedMs)) : null;
   const weakEntries = weakIntervalEntries(settings.intervalStats);
   const showingSummary = summary !== null && !running;
+
+  // Saved settings not read yet — a spinner rather than defaults that then jump to the real values.
+  if (!settingsReady) return <ScreenSpinner />;
 
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background }}>
@@ -1465,3 +1469,5 @@ function CountdownText({
     </Text>
   );
 }
+
+export default withScreenLoader(IntervalTrainerScreen);

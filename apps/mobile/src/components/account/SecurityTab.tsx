@@ -3,6 +3,8 @@ import { useAction, useQuery } from 'convex/react';
 import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
+import { InfoButton } from '@/components/InfoButton';
+import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { useAppTheme } from '@/theme/ThemeProvider';
 
 function friendlyError(err: unknown, fallback: string): string {
@@ -37,6 +39,15 @@ export function SecurityTab() {
 
   const hasPassword = providers?.includes('password') ?? false;
   const email = user?.email ?? null;
+
+  // Until both load, it isn't known whether this is "Change password" or "Set a password".
+  if (user === undefined || providers === undefined) {
+    return (
+      <View className="items-center py-12">
+        <LoadingSpinner />
+      </View>
+    );
+  }
 
   function reset() {
     setStep('form');
@@ -82,17 +93,25 @@ export function SecurityTab() {
 
   return (
     <View className="gap-4 rounded-2xl p-5" style={{ backgroundColor: colors.surface }}>
-      <View>
-        <Text className="text-lg font-semibold font-inter-semibold" style={{ color: colors.foreground }}>
-          {hasPassword ? 'Change password' : 'Set a password'}
-        </Text>
-        <Text className="text-sm font-inter" style={{ color: colors.muted }}>
-          {step === 'code'
-            ? `Enter the code we emailed to ${email ?? 'your email'} to finish.`
-            : hasPassword
-              ? "Changing your password signs you out on every other device. We'll email a code to confirm it's really you."
-              : `Lets you also sign in with ${email ?? 'your email'} and a password, not just Google. We'll email a code to confirm.`}
-        </Text>
+      <View className="gap-1">
+        <View className="flex-row items-center gap-2">
+          <Text className="text-lg font-semibold font-inter-semibold" style={{ color: colors.foreground }}>
+            {hasPassword ? 'Change password' : 'Set a password'}
+          </Text>
+          <InfoButton
+            title={hasPassword ? 'Change password' : 'Set a password'}
+            text={
+              hasPassword
+                ? "Changing your password signs you out on every other device. We'll email a code to confirm it's really you."
+                : `Lets you also sign in with ${email ?? 'your email'} and a password, not just Google. We'll email a code to confirm.`
+            }
+          />
+        </View>
+        {step === 'code' ? (
+          <Text className="text-sm font-inter" style={{ color: colors.muted }}>
+            Enter the code we emailed to {email ?? 'your email'} to finish.
+          </Text>
+        ) : null}
       </View>
 
       {step === 'form' ? (

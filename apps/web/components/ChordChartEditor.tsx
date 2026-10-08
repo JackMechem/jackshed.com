@@ -8,16 +8,16 @@ import {
   chordFont,
   chordSymbolFont,
   COL_WIDTH,
-  groupRows,
   PageFit,
   QUALITY_SIZE,
   Row,
 } from "@/components/ChordChart";
+import { layoutRows, type PlacedBar } from "@jam-practice/core/chartLayout";
 import ChordSymbolKeypad from "@/components/ChordSymbolKeypad";
 import NumberField from "@/components/NumberField";
 import { PlusIcon, TrashIcon } from "@/components/tools";
 import { encodeChartString } from "@/lib/chartString";
-import { parseBarSlots, type Bar, type IRealSong } from "@/lib/iRealPro";
+import { parseBarSlots, slotsToText, type Bar, type ChordSlot, type IRealSong } from "@/lib/iRealPro";
 
 const STARTING_BARS = 4;
 const BARS_PER_ROW = 4;
@@ -75,6 +75,14 @@ type EditableBar = {
   coda: boolean;
   /** The "%" mark — repeats the previous bar's chord instead of whatever's typed here. */
   isRepeatBar: boolean;
+  /** Everything else an existing (usually imported) chart's bar carries that this builder has no
+      control for — cell layout, endings, segno, directions, time changes, alternates, barline
+      styles, the 2-bar repeat — carried through untouched so editing a chart never loses it. */
+  extra?: Omit<Bar, "content" | "section" | "newRow" | "startRepeat" | "endRepeat" | "coda">;
+  doubleRepeat?: boolean;
+  /** An imported bar's chords as parsed, kept while `text` is untouched (the text form can't
+      carry small chords), so an unedited bar saves back exactly as it was. */
+  original?: { text: string; slots: ChordSlot[] };
 };
 
 function blankBar(): EditableBar {
@@ -89,6 +97,25 @@ function blankBar(): EditableBar {
   };
 }
 
+/** The inverse of `toRealBar` — loads an existing chart's bar for editing. */
+function fromRealBar(bar: Bar): EditableBar {
+  const { content, section, startRepeat, endRepeat, coda, ...extra } = bar;
+  delete extra.newRow; // re-derived on save
+  const text = content.kind === "chords" ? slotsToText(content.slots) : "";
+  return {
+    text,
+    hasSection: section !== undefined,
+    section: section ?? "",
+    startRepeat: !!startRepeat,
+    endRepeat: !!endRepeat,
+    coda: !!coda,
+    isRepeatBar: content.kind === "repeat",
+    extra,
+    doubleRepeat: content.kind === "repeat" && !!content.double,
+    ...(content.kind === "chords" ? { original: { text, slots: content.slots } } : {}),
+  };
+}
+
 /** The exact same `Bar` shape every pasted iReal chart already produces — this is what finally
     gives the from-scratch builder access to the same section/repeat/coda fields `ChordChart.tsx`
     could always *render*, just with nothing in this app able to *write* them until now. A bar
@@ -99,11 +126,15 @@ function blankBar(): EditableBar {
     itself in the right spot the instant it's added. */
 function toRealBar(eb: EditableBar): Bar {
   const bar: Bar = {
-    content: eb.isRepeatBar ? { kind: "repeat" } : { kind: "chords", slots: parseBarSlots(eb.text) },
+    ...eb.extra,
+    content: eb.isRepeatBar
+      ? { kind: "repeat", ...(eb.doubleRepeat ? { double: true } : {}) }
+      : { kind: "chords", slots: eb.original && eb.original.text === eb.text ? eb.original.slots : parseBarSlots(eb.text) },
   };
   if (eb.hasSection) {
     bar.section = eb.section.trim();
-    bar.newRow = true;
+    // A builder-made bar starts a new line at a section; an imported bar's line comes from its cells.
+    if (bar.cells === undefined) bar.newRow = true;
   }
   if (eb.startRepeat) bar.startRepeat = true;
   if (eb.endRepeat) bar.endRepeat = true;
@@ -135,21 +166,33 @@ function toRealBar(eb: EditableBar): Bar {
     title) or exported as a `sheddex://` chart link (`lib/chartString.ts`) to share or re-import
     elsewhere. */
 export default function ChordChartEditor({
+  initial,
+  playlists = [],
+  defaultPlaylist,
   onSave,
   onClose,
 }: {
-  onSave: (song: IRealSong) => Promise<unknown>;
+  /** Edit this existing chart (saved back in place) instead of building a new one. */
+  initial?: IRealSong;
+  /** Existing playlist names — a new chart must go in one (or a new one named here). */
+  playlists?: string[];
+  defaultPlaylist?: string;
+  onSave: (song: IRealSong, playlistName: string) => Promise<unknown>;
   onClose: () => void;
 }) {
-  const [title, setTitle] = useState("");
-  const [composer, setComposer] = useState("");
-  const [style, setStyle] = useState("");
-  const [key, setKey] = useState("");
-  const [top, setTop] = useState(4);
-  const [bottom, setBottom] = useState(4);
+  const editing = !!initial;
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [composer, setComposer] = useState(initial?.composer ?? "");
+  const [style, setStyle] = useState(initial?.style ?? "");
+  const [key, setKey] = useState(initial?.key ?? "");
+  const [top, setTop] = useState(initial?.timeSignature.top ?? 4);
+  const [bottom, setBottom] = useState(initial?.timeSignature.bottom ?? 4);
   const [bars, setBars] = useState<EditableBar[]>(() =>
-    Array.from({ length: STARTING_BARS }, blankBar),
+    initial && initial.bars.length > 0 ? initial.bars.map(fromRealBar) : Array.from({ length: STARTING_BARS }, blankBar),
   );
+  // "" = a new playlist, named in `newPlaylist`.
+  const [playlist, setPlaylist] = useState(defaultPlaylist ?? playlists[0] ?? "");
+  const [newPlaylist, setNewPlaylist] = useState("");
 
   // Which bar is currently "open" for typing — see the same field's own comment in the previous
   // version of this file (still accurate): always a valid index, never `null`, persists once set.
@@ -244,10 +287,15 @@ export default function ChordChartEditor({
       setError("Give this chord chart a title.");
       return;
     }
+    const playlistName = editing ? "" : playlist || newPlaylist.trim();
+    if (!editing && !playlistName) {
+      setError("Pick a playlist for this chart, or name a new one.");
+      return;
+    }
     setError(null);
     setSaving(true);
     try {
-      await onSave(song);
+      await onSave(song, playlistName);
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save that chord chart.");
@@ -278,21 +326,25 @@ export default function ChordChartEditor({
   }
 
   const realBars = bars.map(toRealBar);
-  const rows = groupRows(realBars, BARS_PER_ROW);
-  const rowsWithOffsets = rows.reduce<{ rowBars: Bar[]; start: number }[]>((acc, rowBars) => {
+  const rows = layoutRows(realBars, BARS_PER_ROW);
+  const rowsWithOffsets = rows.reduce<{ placed: PlacedBar[]; start: number }[]>((acc, placed) => {
     const prev = acc[acc.length - 1];
-    const start = prev ? prev.start + prev.rowBars.length : 0;
-    return [...acc, { rowBars, start }];
+    const start = prev ? prev.start + prev.placed.length : 0;
+    return [...acc, { placed, start }];
   }, []);
   const lastRow = rowsWithOffsets[rowsWithOffsets.length - 1];
-  const addButtonFitsInGrid = lastRow !== undefined && lastRow.rowBars.length < BARS_PER_ROW;
+  const lastPlaced = lastRow?.placed[lastRow.placed.length - 1];
+  // Cells used on the last line (16 per line, a builder bar is 4) — the "Add bar" button takes
+  // the next 4 if there's room.
+  const lastRowCells = lastPlaced ? lastPlaced.start + lastPlaced.cells : 0;
+  const addButtonFitsInGrid = lastRow !== undefined && lastRowCells <= 12;
 
   const activeBar = bars[activeIndex];
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold">Create a chord chart</h2>
+        <h2 className="text-lg font-semibold">{editing ? `Edit "${initial?.title}"` : "Create a chord chart"}</h2>
         <button
           type="button"
           onClick={onClose}
@@ -303,10 +355,37 @@ export default function ChordChartEditor({
       </div>
 
       <div className="grid grid-cols-1 gap-3 rounded-2xl bg-surface p-4 sm:grid-cols-2">
+        {!editing && (
+          <div className="flex flex-col gap-1 text-sm sm:col-span-2">
+            <span className="font-medium text-muted">Playlist</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={playlist}
+                onChange={(e) => setPlaylist(e.target.value)}
+                className="rounded-lg bg-background px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                {playlists.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+                <option value="">New playlist…</option>
+              </select>
+              {playlist === "" && (
+                <input
+                  value={newPlaylist}
+                  onChange={(e) => setNewPlaylist(e.target.value)}
+                  placeholder="New playlist name"
+                  className="min-w-0 flex-1 rounded-lg bg-background px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                />
+              )}
+            </div>
+          </div>
+        )}
         <label className="flex flex-col gap-1 text-sm">
           <span className="font-medium text-muted">Title</span>
           <input
-            autoFocus
+            autoFocus={!editing}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Tune name"
@@ -369,13 +448,12 @@ export default function ChordChartEditor({
       </p>
 
       <PageFit fitHeight={false}>
-        {rowsWithOffsets.map(({ rowBars, start }, rowIdx) => {
+        {rowsWithOffsets.map(({ placed, start }, rowIdx) => {
           const isLastRow = rowIdx === rowsWithOffsets.length - 1;
           return (
             <Row
               key={rowIdx}
-              bars={rowBars}
-              barsPerRow={BARS_PER_ROW}
+              placed={placed}
               isFirstRow={rowIdx === 0}
               isLastRow={isLastRow}
               timeSignature={rowIdx === 0 ? { top, bottom } : undefined}
@@ -449,7 +527,7 @@ export default function ChordChartEditor({
               }}
               trailing={
                 isLastRow && addButtonFitsInGrid ? (
-                  <AddBarButton column={rowBars.length + 1} onClick={addBar} />
+                  <AddBarButton column={lastRowCells + 1} onClick={addBar} />
                 ) : undefined
               }
             />
@@ -562,7 +640,7 @@ export default function ChordChartEditor({
           disabled={saving}
           className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-hover disabled:opacity-40"
         >
-          {saving ? "Saving…" : "Save to library"}
+          {saving ? "Saving…" : editing ? "Save changes" : "Save to library"}
         </button>
       </div>
     </div>
@@ -580,7 +658,7 @@ function AddBarButton({ column, onClick }: { column: number; onClick: () => void
       aria-label="Add bar"
       title="Add bar"
       className="flex items-center justify-center text-muted hover:text-foreground"
-      style={{ gridColumn: column, height: BAR_HEIGHT, width: COL_WIDTH }}
+      style={{ gridColumn: `${column} / span 4`, height: BAR_HEIGHT, width: COL_WIDTH }}
     >
       <PlusIcon className="h-5 w-5" />
     </button>

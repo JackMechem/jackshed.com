@@ -8,9 +8,11 @@ import { api } from "@jam-practice/convex/_generated/api";
 import { Id } from "@jam-practice/convex/_generated/dataModel";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import LoadingSpinner from "@/components/LoadingSpinner";
+import PublicSetlist from "@/components/PublicSetlist";
 import PublicTuneList from "@/components/PublicTuneList";
 import UserAvatar from "@/components/UserAvatar";
-import { EyeOffIcon, HeartIcon, ShareIcon, TrashIcon } from "@/components/tools";
+import { EyeOffIcon, HeartIcon, SetlistIcon, ShareIcon, TrashIcon } from "@/components/tools";
+import { shareLink } from "@/lib/shareLink";
 
 function formatDate(ms: number) {
   return new Date(ms).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
@@ -79,12 +81,9 @@ function PostPageContent({ id }: { id: string }) {
 
   async function handleShare() {
     if (!post) return;
-    try {
-      await navigator.clipboard.writeText(`https://sheddex.com/post/${post.id}`);
+    if ((await shareLink(post.title, `https://sheddex.com/post/${post.id}`)) === "copied") {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // clipboard unavailable — nothing else to fall back to on this page.
     }
   }
 
@@ -127,6 +126,12 @@ function PostPageContent({ id }: { id: string }) {
               </>
             )}
             <span>{formatDate(post.createdAt)}</span>
+            {post.kind === "setlist" && (
+              <span className="flex items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 font-bold text-accent">
+                <SetlistIcon className="h-3 w-3" />
+                Setlist
+              </span>
+            )}
             {post.unlisted && (
               <span className="flex items-center gap-1 rounded-full bg-surface px-2 py-0.5">
                 <EyeOffIcon className="h-3 w-3" />
@@ -172,7 +177,11 @@ function PostPageContent({ id }: { id: string }) {
 
       {post.description && <p className="text-sm text-muted">{post.description}</p>}
 
-      <PublicTuneList tunes={post.tunes} canAdd />
+      {post.kind === "setlist" ? (
+        <PublicSetlist title={post.title} tunes={post.tunes} isMine={post.isMine} ownSetlistId={post.setlistId} chartsParam={`post=${post.id}`} />
+      ) : (
+        <PublicTuneList tunes={post.tunes} canAdd />
+      )}
 
       {confirmDelete && (
         <ConfirmDialog

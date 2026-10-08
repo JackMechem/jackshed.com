@@ -43,10 +43,6 @@
   /* Drives components/LoadingSpinner.tsx's dots — each one uses this same animation, staggered
      via its own animation-delay, so only the keyframes need to live here. */
   --animate-loading-dot: loading-dot 1s ease-in-out infinite;
-  /* Drives components/Wordmark.tsx's waveform bars when `animate` is on (app/loading.tsx's full-page
-     loading screen) — each bar uses this same animation, staggered via its own animation-delay/
-     animation-duration, so only the keyframes need to live here. */
-  --animate-wordmark-wave: wordmark-wave 1.1s ease-in-out infinite;
 }
 
 @keyframes loading-dot {
@@ -62,15 +58,6 @@
   }
 }
 
-@keyframes wordmark-wave {
-  0%,
-  100% {
-    transform: scaleY(0.35);
-  }
-  50% {
-    transform: scaleY(1);
-  }
-}
 
 /* `background: var(--surface)`, not `--background` — the site background (visible in the thin
    gap around the tool card, via `AppShell.tsx`'s own `lg:m-2` margin) is meant to match the

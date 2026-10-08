@@ -13,16 +13,15 @@ import { NAV_LINK_ICONS, StarIcon } from '@/components/icons';
 import { useFavorites } from '@/lib/useFavorites';
 import { useAppTheme } from '@/theme/ThemeProvider';
 
-/** Community now has its own tab in `FloatingTabBar`, so it's dropped from this list entirely
-    (not just de-featured) per a direct request — "remove the community link from the menu since
-    its at the bottom" — rather than show it twice. */
-const COMMUNITY_HREF = '/community';
+/** Community and Chord Charts have their own tabs in `FloatingTabBar`, so they are not repeated in
+    this list (a direct request: Chord Charts is "a big and main feature" that belongs in the nav). */
+export const TAB_HREFS = ['/community', '/chord-charts', '/tunes'];
 
 /** Splits a list into fixed-size rows for the Favorites grid. `SectionList`'s own `numColumns`
     doesn't exist — chunking rows by hand is the usual workaround — but a `FlatList`/`FlashList`
     switch isn't warranted here either: Favorites is a small, fixed-length subset, not a feed, so a
     plain `ScrollView` over pre-chunked rows is simplest. */
-function chunk<T>(items: T[], size: number): T[][] {
+export function chunk<T>(items: T[], size: number): T[][] {
   const rows: T[][] = [];
   for (let i = 0; i < items.length; i += size) rows.push(items.slice(i, i + size));
   return rows;
@@ -60,7 +59,8 @@ export function ToolGrid({
   const router = useRouter();
   const { colors } = useAppTheme();
   const { favorites, toggleFavorite } = useFavorites();
-  const visible = filterNavLinks(NAV_LINKS_DATA, query).filter((link) => link.href !== COMMUNITY_HREF);
+  // Community and Chord Charts each have their own tab in the bottom nav, so they aren't repeated here.
+  const visible = filterNavLinks(NAV_LINKS_DATA, query).filter((link) => !TAB_HREFS.includes(link.href));
   const sections = groupByCategory(visible);
   const favoriteItems = visible.filter((item) => favorites.includes(item.href));
 
@@ -132,7 +132,7 @@ export function ToolGrid({
   );
 }
 
-function ToolRow({
+export function ToolRow({
   item,
   favorited,
   onPress,
@@ -166,7 +166,7 @@ function ToolRow({
   );
 }
 
-function ToolTile({
+export function ToolTile({
   item,
   favorited,
   onPress,
@@ -197,8 +197,8 @@ function ToolTile({
         >
           {Icon ? <Icon color={colors.accent} size={20} /> : null}
         </View>
-        <Pressable onPress={onToggleFavorite} hitSlop={8} accessibilityLabel={`Unfavorite ${item.label}`}>
-          <StarIcon color={colors.accent} size={16} filled />
+        <Pressable onPress={onToggleFavorite} hitSlop={8} accessibilityLabel={favorited ? `Unfavorite ${item.label}` : `Favorite ${item.label}`}>
+          <StarIcon color={favorited ? colors.accent : colors.muted} size={16} filled={favorited} />
         </Pressable>
       </View>
       <Text

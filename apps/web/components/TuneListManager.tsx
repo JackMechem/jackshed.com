@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { ReactNode, useMemo, useRef, useState } from "react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import StandardsPicker from "@/components/StandardsPicker";
@@ -59,6 +61,7 @@ export default function TuneListManager({
   emptyMessage,
   exportFilenamePrefix,
   infoBlurb,
+  listId,
 }: {
   title: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -69,6 +72,8 @@ export default function TuneListManager({
   emptyMessage: string;
   exportFilenamePrefix: string;
   infoBlurb?: ReactNode;
+  /** Which list this is — each tune's name then links to its own page (`/tune`). */
+  listId?: "tunes" | "learn";
 }) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -213,15 +218,22 @@ export default function TuneListManager({
                   >
                     <CheckIcon className="h-3.5 w-3.5" />
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => toggleSelected(tune.id)}
-                    className="min-w-0 flex-1 text-left"
-                    tabIndex={-1}
-                  >
-                    <div className="truncate text-sm font-medium">{tune.name}</div>
-                    <div className="truncate text-xs text-muted">{summary(tune)}</div>
-                  </button>
+                  {listId ? (
+                    <Link href={`/tunes/tune?list=${listId}&id=${encodeURIComponent(tune.id)}`} className="min-w-0 flex-1 text-left">
+                      <div className="truncate text-sm font-medium hover:text-accent">{tune.name}</div>
+                      <div className="truncate text-xs text-muted">{summary(tune)}</div>
+                    </Link>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => toggleSelected(tune.id)}
+                      className="min-w-0 flex-1 text-left"
+                      tabIndex={-1}
+                    >
+                      <div className="truncate text-sm font-medium">{tune.name}</div>
+                      <div className="truncate text-xs text-muted">{summary(tune)}</div>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setEditing({ tune, isNew: false })}

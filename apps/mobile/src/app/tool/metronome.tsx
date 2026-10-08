@@ -37,6 +37,7 @@ import {
   updateMetronomeStructure,
 } from '@/lib/metronomeEngine';
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { ScreenSpinner, withScreenLoader } from '@/components/ScreenLoader';
 
 const SETTINGS_KEY = 'jam-practice-metronome';
 const DEFAULT_SETTINGS = {
@@ -67,9 +68,9 @@ const DEFAULT_SETTINGS = {
  * own `AsyncStorage` cache whenever the account isn't reachable — offline, or signed out) — see
  * that hook's own doc comment for exactly how the two are reconciled.
  */
-export default function MetronomeScreen() {
+function MetronomeScreen() {
   const { colors } = useAppTheme();
-  const [settings, updateSettings] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
+  const [settings, updateSettings, settingsReady] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
   const [optionsOpen, setOptionsOpen] = useState(false);
 
   const bpm = clampBpm(settings.bpm);
@@ -141,6 +142,9 @@ export default function MetronomeScreen() {
     }
     cycleSub(beatIndex, subIndex);
   }
+
+  // Saved settings not read yet — a spinner rather than defaults that then jump to the real values.
+  if (!settingsReady) return <ScreenSpinner />;
 
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background }}>
@@ -293,3 +297,5 @@ export default function MetronomeScreen() {
     </View>
   );
 }
+
+export default withScreenLoader(MetronomeScreen);

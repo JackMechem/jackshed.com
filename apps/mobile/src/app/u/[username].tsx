@@ -13,6 +13,7 @@ import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { UserAvatar } from '@/components/UserAvatar';
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { withScreenLoader } from '@/components/ScreenLoader';
 
 /**
  * Native port of `apps/web/components/PublicProfilePage.tsx` — a public profile page, reachable
@@ -29,7 +30,7 @@ import { useAppTheme } from '@/theme/ThemeProvider';
  * itself dropped its separate chord-chart-only post type (see `app/tool/community.tsx`'s own doc
  * comment); a post's own `chartCount` still shows as a small badge on each row.
  */
-export default function PublicProfileScreen() {
+function PublicProfileScreen() {
   const { colors } = useAppTheme();
   const { username } = useLocalSearchParams<{ username: string }>();
 
@@ -115,7 +116,7 @@ export default function PublicProfileScreen() {
           {profile.tunes.length > 0 ? (
             <View className="gap-2 rounded-2xl p-5" style={{ backgroundColor: colors.surface }}>
               <Text className="text-sm font-semibold font-inter-semibold" style={{ color: colors.muted }}>
-                Tunes
+                Tunes I Know
               </Text>
               <PublicTuneList tunes={profile.tunes} canAdd={canAdd} />
             </View>
@@ -159,3 +160,5 @@ export default function PublicProfileScreen() {
     </View>
   );
 }
+
+export default withScreenLoader(PublicProfileScreen);

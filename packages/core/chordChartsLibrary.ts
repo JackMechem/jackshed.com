@@ -58,13 +58,20 @@ export function mergeIntoLibrary(
   library: Library,
   incoming: IRealSong[],
   playlistName: string,
-): { library: Library; added: number; skipped: number } {
+  options: { replaceExisting?: boolean } = {},
+): { library: Library; added: number; skipped: number; updated: number } {
   const existingKeys = new Set(library.songs.map(songKey));
   const additions: StoredSong[] = [];
   const addedIds: string[] = [];
+  // With `replaceExisting`, a song already in the library is overwritten in place (same id and
+  // playlist) by the incoming version — for re-importing after the importer improved.
+  const replacements = new Map<string, IRealSong>();
   for (const song of incoming) {
     const key = songKey(song);
-    if (existingKeys.has(key)) continue;
+    if (existingKeys.has(key)) {
+      if (options.replaceExisting && !replacements.has(key)) replacements.set(key, song);
+      continue;
+    }
     existingKeys.add(key);
     const id = freshId(key);
     additions.push({ ...song, id });
@@ -83,10 +90,18 @@ export function mergeIntoLibrary(
           );
   }
 
+  const songs = replacements.size
+    ? library.songs.map((s) => {
+        const next = replacements.get(songKey(s));
+        return next ? { ...next, id: s.id } : s;
+      })
+    : library.songs;
+
   return {
-    library: { songs: [...library.songs, ...additions], playlists },
+    library: { songs: [...songs, ...additions], playlists },
     added: additions.length,
-    skipped: incoming.length - additions.length,
+    updated: replacements.size,
+    skipped: incoming.length - additions.length - replacements.size,
   };
 }
 
@@ -102,6 +117,45 @@ export function removeSongFromLibrary(library: Library, songId: string): Library
   };
 }
 
+/** Moves a song into the playlist named `playlistName` (an existing one, matched the same way
+    `mergeIntoLibrary` matches, or a new one), out of whichever playlist(s) held it before. Any
+    playlist left empty is dropped, same as `removeSongFromLibrary`. */
+export function moveSongToPlaylist(library: Library, songId: string, playlistName: string): Library {
+  const name = playlistName.trim() || "Imported";
+  const stripped = library.playlists.map((p) => ({ ...p, songIds: p.songIds.filter((id) => id !== songId) }));
+  const index = stripped.findIndex((p) => playlistNameKey(p.name) === playlistNameKey(name));
+  const playlists =
+    index === -1
+      ? [...stripped, { id: freshId(name), name, songIds: [songId] }]
+      : stripped.map((p, i) => (i === index ? { ...p, songIds: [...p.songIds, songId] } : p));
+  return { songs: library.songs, playlists: playlists.filter((p) => p.songIds.length > 0) };
+}
+
+/** Adds an empty, named playlist (no-op if one with that name already exists, matched the same
+    way `mergeIntoLibrary` matches). */
+export function createPlaylistInLibrary(library: Library, name: string): Library {
+  const trimmed = name.trim() || "Imported";
+  if (library.playlists.some((p) => playlistNameKey(p.name) === playlistNameKey(trimmed))) return library;
+  return { ...library, playlists: [...library.playlists, { id: freshId(trimmed), name: trimmed, songIds: [] }] };
+}
+
+/** Replaces one song's content (title/composer/style/key/time signature/bars) in place, keeping
+    its id and playlist membership. */
+export function updateSongInLibrary(library: Library, songId: string, song: IRealSong): Library {
+  return { ...library, songs: library.songs.map((s) => (s.id === songId ? { ...song, id: songId } : s)) };
+}
+
+/** Removes a playlist and every song in it. */
+export function deletePlaylistFromLibrary(library: Library, playlistId: string): Library {
+  const playlist = library.playlists.find((p) => p.id === playlistId);
+  if (!playlist) return library;
+  const gone = new Set(playlist.songIds);
+  return {
+    songs: library.songs.filter((s) => !gone.has(s.id)),
+    playlists: library.playlists.filter((p) => p.id !== playlistId),
+  };
+}
+
 export type ResolvedPlaylist = { id: string; name: string; songs: StoredSong[] };
 
 /** The library, grouped into playlists for display — what `ChordCharts.tsx` actually renders,
@@ -110,7 +164,7 @@ export type ResolvedPlaylist = { id: string; name: string; songs: StoredSong[] }
     `removeSongFromLibrary` but costs nothing to guard against), and collects any song that isn't
     in *any* playlist into a synthetic `UNSORTED_PLAYLIST_ID` playlist at the end — see that
     constant's own comment for when this actually happens. */
-export function resolvePlaylists(library: Library): ResolvedPlaylist[] {
+export function resolvePlaylists(library: Library, opts?: { includeEmpty?: boolean }): ResolvedPlaylist[] {
   const songsById = new Map(library.songs.map((s) => [s.id, s]));
   const assigned = new Set<string>();
   const resolved: ResolvedPlaylist[] = [];
@@ -119,7 +173,7 @@ export function resolvePlaylists(library: Library): ResolvedPlaylist[] {
       .map((id) => songsById.get(id))
       .filter((s): s is StoredSong => s !== undefined);
     for (const s of songs) assigned.add(s.id);
-    if (songs.length > 0) resolved.push({ id: playlist.id, name: playlist.name, songs });
+    if (songs.length > 0 || opts?.includeEmpty) resolved.push({ id: playlist.id, name: playlist.name, songs });
   }
   const orphans = library.songs.filter((s) => !assigned.has(s.id));
   if (orphans.length > 0) {

@@ -26,6 +26,7 @@ import { useSyncedSettings } from '@/lib/useSyncedSettings';
 import { getSnapshot, pause, resume, skip, start, stop, subscribe, type EngineState } from '@/lib/practiceTimerEngine';
 import { usePracticeSessions, type SessionInput } from '@/lib/usePracticeSessions';
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { ScreenSpinner, withScreenLoader } from '@/components/ScreenLoader';
 
 const SOUND_SETTINGS_KEY = 'jam-practice-timer-sound-settings';
 const DEFAULT_SOUND_SETTINGS = { soundEnabled: true, alarmMode: false, fullScreenAlert: false };
@@ -44,11 +45,11 @@ const DEFAULT_SOUND_SETTINGS = { soundEnabled: true, alarmMode: false, fullScree
  * set, it scrolls like any normal list once there's more than a screen's worth; that's the session
  * editor's own content area too.
  */
-export default function PracticeTimerScreen() {
+function PracticeTimerScreen() {
   const { colors } = useAppTheme();
   const { sessions, loading, createSession, updateSession, deleteSession } = usePracticeSessions();
   const engineState = useSyncExternalStore(subscribe, getSnapshot) as EngineState | null;
-  const [settings, updateSettings] = useSyncedSettings(SOUND_SETTINGS_KEY, DEFAULT_SOUND_SETTINGS);
+  const [settings, updateSettings, settingsReady] = useSyncedSettings(SOUND_SETTINGS_KEY, DEFAULT_SOUND_SETTINGS);
   const { soundEnabled, alarmMode, fullScreenAlert } = settings;
   const [draft, setDraft] = useState<Draft | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -94,6 +95,9 @@ export default function PracticeTimerScreen() {
     await deleteSession(deletingId);
     setDeletingId(null);
   }
+
+  // Saved settings not read yet — a spinner rather than defaults that then jump to the real values.
+  if (!settingsReady) return <ScreenSpinner />;
 
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background }}>
@@ -433,3 +437,5 @@ function LibraryButton({ onPress, label, children }: { onPress: () => void; labe
     </Pressable>
   );
 }
+
+export default withScreenLoader(PracticeTimerScreen);

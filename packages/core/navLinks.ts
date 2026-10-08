@@ -107,12 +107,6 @@ export const NAV_LINKS_DATA: NavLinkInfo[] = [
     category: "Audio",
   },
   {
-    href: "/chord-charts",
-    label: "Chord Charts",
-    description: "Import, build, and read chord charts, styled to match the rest of the site.",
-    category: "Practice",
-  },
-  {
     href: "/recorder",
     label: "Recorder",
     description: "Record yourself, play it back with loops and markers, and export the audio.",
@@ -131,6 +125,18 @@ export const NAV_LINKS_DATA: NavLinkInfo[] = [
     label: "Community",
     description:
       "Search public profiles for other musicians — see what they play and which tunes they know.",
+    category: "Community",
+  },
+  {
+    href: "/tunes",
+    label: "Tunes",
+    description: "Your tune lists — the tunes you know and the ones you're learning, with keys, notes and charts.",
+    category: "Community",
+  },
+  {
+    href: "/chord-charts",
+    label: "Chord Charts",
+    description: "Import, build, and read chord charts, styled to match the rest of the site.",
     category: "Community",
   },
 ];

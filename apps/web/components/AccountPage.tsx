@@ -619,7 +619,7 @@ export default function AccountPage() {
           <SidebarNavButton
             active={view === "tunes"}
             icon={ListIcon}
-            label="Tunes"
+            label="Tunes I Know"
             onClick={() => setView("tunes")}
           />
           <SidebarNavButton

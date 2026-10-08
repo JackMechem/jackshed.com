@@ -4,6 +4,7 @@ import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CloseIcon } from '@/components/icons';
+import { sheetEdge } from '@/components/sheetStyle';
 import { useAppTheme } from '@/theme/ThemeProvider';
 
 export type ToolOptionsTab = {
@@ -64,7 +65,7 @@ export function ToolOptionsSheet({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={{ flex: 1 }}>
         <Pressable
-          style={{ flex: 1, backgroundColor: `${colors.overlay}99` }}
+          style={{ flex: 1 }}
           onPress={onClose}
           accessibilityLabel="Close options"
         />
@@ -76,6 +77,7 @@ export function ToolOptionsSheet({
             right: 0,
             bottom: 0,
             maxHeight: '82%',
+            ...sheetEdge(colors),
             backgroundColor: colors.background,
             paddingBottom: insets.bottom + 12,
           }}

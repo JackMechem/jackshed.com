@@ -17,8 +17,10 @@ import type * as follows from "../follows.js";
 import type * as http from "../http.js";
 import type * as lib_chordCharts from "../lib/chordCharts.js";
 import type * as lib_resend from "../lib/resend.js";
+import type * as lib_setlists from "../lib/setlists.js";
 import type * as practiceSessions from "../practiceSessions.js";
 import type * as profiles from "../profiles.js";
+import type * as setlists from "../setlists.js";
 import type * as syncedSettings from "../syncedSettings.js";
 import type * as users from "../users.js";
 
@@ -38,8 +40,10 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   "lib/chordCharts": typeof lib_chordCharts;
   "lib/resend": typeof lib_resend;
+  "lib/setlists": typeof lib_setlists;
   practiceSessions: typeof practiceSessions;
   profiles: typeof profiles;
+  setlists: typeof setlists;
   syncedSettings: typeof syncedSettings;
   users: typeof users;
 }>;
