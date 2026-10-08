@@ -94,6 +94,13 @@ export const FolderIcon = mci('folder-music-outline');
 export const FolderPlusIcon = mci('folder-plus-outline');
 export const HistoryIcon = mci('history');
 export const ClearIcon = mci('close-circle');
+export const RepeatIcon = mci('repeat');
+export const FlagIcon = mci('flag-outline');
+export const ExpandHeightIcon = mci('arrow-expand-vertical');
+export const ShrinkHeightIcon = mci('arrow-collapse-vertical');
+export const Rewind5Icon = mci('rewind-5');
+export const Forward5Icon = mci('fast-forward-5');
+export const FileMusicIcon = mci('file-music-outline');
 
 export function StarIcon({ color, size = 18, filled }: IconProps & { filled?: boolean }) {
   return <MaterialCommunityIcons name={filled ? 'star' : 'star-outline'} size={size} color={color} />;

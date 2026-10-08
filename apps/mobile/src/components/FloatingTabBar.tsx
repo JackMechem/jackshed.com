@@ -52,7 +52,7 @@ const TABS = [
     changes again. */
 export const TAB_BAR_CONTENT_HEIGHT = 46;
 
-const HIDDEN_ON = ['/tool/chord-charts-editor', '/setlist-charts'];
+const HIDDEN_ON = ['/tool/chord-charts-editor', '/setlist-charts', '/tool/guess-the-chord'];
 
 export function FloatingTabBar() {
   const router = useRouter();

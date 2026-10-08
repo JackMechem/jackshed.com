@@ -93,7 +93,10 @@ function RootNavigator() {
         <Stack.Screen name="library/setlists" options={{ title: 'Setlists' }} />
         <Stack.Screen name="setlist-charts" options={{ title: '' }} />
         <Stack.Screen name="setlist/[id]" options={{ title: 'Setlist' }} />
+        <Stack.Screen name="tool/guess-the-chord" options={{ title: 'Guess the Chord' }} />
+        <Stack.Screen name="tool/guess-the-interval" options={{ title: 'Guess the Interval' }} />
         <Stack.Screen name="tool/interval-trainer" options={{ title: 'Interval Trainer' }} />
+        <Stack.Screen name="tool/slow-downer" options={{ title: 'Slow Downer' }} />
         <Stack.Screen name="tool/jam-practice" options={{ title: 'Jam Practice' }} />
         <Stack.Screen name="tool/metronome" options={{ title: 'Metronome' }} />
         <Stack.Screen name="tool/note-trainer" options={{ title: 'Note Trainer' }} />

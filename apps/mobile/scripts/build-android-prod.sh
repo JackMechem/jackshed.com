@@ -24,7 +24,7 @@ sed -i 's|android:scheme="sheddex"|android:scheme="sheddex-prod"|; s|android:sch
 grep -q "com.jackmechem.sheddex.prod" android-prod/app/build.gradle || { echo "couldn't set the prod application id" >&2; exit 1; }
 
 cd android-prod
-./gradlew assembleRelease -q
+./gradlew assembleRelease -q -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m"
 APK=app/build/outputs/apk/release/app-release.apk
 if [[ "${1:-}" != "--no-install" ]]; then
   nix shell nixpkgs#android-tools -c adb install -r "$APK"

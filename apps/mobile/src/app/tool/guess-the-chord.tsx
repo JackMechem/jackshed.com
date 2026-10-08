@@ -1,0 +1,787 @@
+import {
+  CHORD_CATEGORIES,
+  CHORD_QUALITIES,
+  DEFAULT_ENABLED_CHORD_IDS,
+  chordInputMatchesRound,
+  chordQualityById,
+  chordRoundForRootAndQuality,
+  chordRoundParts,
+  drillQueueForPool,
+  formatChordParts,
+  parseChordInput,
+  pcLabel,
+  randomChordRound,
+  type ChordQuality,
+  type ChordRound,
+} from '@jam-practice/core/chords';
+import { prettyQuality } from '@jam-practice/core/iRealPro';
+import { GRADE_COLOR, scoreOf, type Grade } from '@jam-practice/core/noteGrade';
+import { ACCIDENTAL_STYLES, type AccidentalStyle } from '@jam-practice/core/noteSpelling';
+import { bumpGradeCounts, rankWeak, type GradeCounts } from '@jam-practice/core/struggleStats';
+import { shuffled } from '@jam-practice/core/trainerUtils';
+import { Stack } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import { Pressable, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { ChordAnswerKeyboard } from '@/components/ChordAnswerKeyboard';
+import { CountdownRing } from '@/components/CountdownRing';
+import { ElapsedTimer } from '@/components/CountdownLabel';
+import { Dropdown } from '@/components/Dropdown';
+import { CountdownText, ProgressTab, ResultsCard } from '@/components/EarTrainingParts';
+import { Hint } from '@/components/Hint';
+import { SlidersIcon } from '@/components/icons';
+import { NumberStepper } from '@/components/NumberStepper';
+import { ScreenSpinner, withScreenLoader } from '@/components/ScreenLoader';
+import { SwitchRow } from '@/components/SwitchRow';
+import { ToolOptionsSheet } from '@/components/ToolOptionsSheet';
+import { DEFAULT_EAR_TRAINING_TONE_ID, EAR_TRAINING_TONES, asToneId, playNote, playNotesTogether } from '@/lib/sampledTones';
+import { startTone } from '@/lib/toneGenerator';
+import { useSyncedSettings } from '@/lib/useSyncedSettings';
+import { useAppTheme } from '@/theme/ThemeProvider';
+
+/**
+ * Native port of `apps/web/components/GuessTheChord.tsx` — same features, same synced settings key:
+ * a chord plays (the **same recorded piano/Rhodes samples** as the site, block or rolled), and you
+ * type its symbol — root, quality, optional /bass — graded by the same parser (`parseChordInput`,
+ * enharmonics don't matter; `m7`/`maj7`/`dim`/`sus4`… all accepted). "Give the root" pre-fills the
+ * root, "Chance of a slash chord" adds any bass note, and running out of time grades whatever's
+ * typed and reveals the answer. Same session machinery as Guess the Interval: rounds or "Drill
+ * every chord", Struggles + "Shed weak chords", History for identical settings.
+ *
+ * The mobile difference: instead of a text field (whose system keyboard would cover the round)
+ * plus web's symbol keypad, answers are typed on `ChordAnswerKeyboard`, fixed to the bottom of the
+ * screen, with the typed symbol previewed live in the ring. The tab bar is hidden on this screen
+ * for the keyboard's room.
+ */
+const MIN_ROUND_SECONDS = 5;
+const MAX_ROUND_SECONDS = 45;
+const DEFAULT_ROUND_SECONDS = 15;
+
+const CHORD_NOTE_DURATION_SECONDS = 1.8;
+const ARPEGGIO_GAP_MS = 90;
+
+const MIN_ROUND_COUNT = 5;
+const MAX_ROUND_COUNT = 50;
+const DEFAULT_ROUND_COUNT = 12;
+
+const MIN_ADVANCE_DELAY_MS = 0;
+const MAX_ADVANCE_DELAY_MS = 8000;
+const DEFAULT_ADVANCE_DELAY_MS = 2000;
+
+const DEFAULT_SLASH_CHANCE = 35;
+
+type PlaybackStyle = 'block' | 'arpeggio';
+const PLAYBACK_STYLES: { value: PlaybackStyle; label: string }[] = [
+  { value: 'block', label: 'Block (all notes at once)' },
+  { value: 'arpeggio', label: 'Arpeggio (quick roll)' },
+];
+
+type Register = { id: string; label: string; lowMidi: number; highMidi: number };
+const REGISTERS: Register[] = [
+  { id: 'low', label: 'Low', lowMidi: 36, highMidi: 47 },
+  { id: 'mid', label: 'Mid', lowMidi: 48, highMidi: 59 },
+  { id: 'high', label: 'High', lowMidi: 60, highMidi: 71 },
+  { id: 'wide', label: 'Wide (low to high)', lowMidi: 36, highMidi: 71 },
+];
+const DEFAULT_REGISTER_ID = 'mid';
+
+type Session = {
+  total: number;
+  index: number;
+  round: ChordRound | null;
+  best: Grade | null;
+  results: Grade[];
+  rounds: ChordRound[];
+  answers: string[];
+  queue: ChordRound[];
+};
+
+type Summary = { results: Grade[]; rounds: ChordRound[]; answers: string[] };
+
+type HistoryConfig = {
+  registerId: string;
+  drillMode: boolean;
+  roundCount: number;
+  chordIdsKey: string;
+  slashChance: number;
+  roundSeconds: number;
+  advanceDelayMs: number;
+  playbackStyle: PlaybackStyle;
+};
+
+function sameConfig(a: HistoryConfig, b: HistoryConfig): boolean {
+  return (Object.keys(a) as (keyof HistoryConfig)[]).every((key) => a[key] === b[key]);
+}
+
+type HistoryEntry = { at: number; elapsedMs: number; score: number; total: number; config: HistoryConfig };
+
+// Same key and shape as the website's, so both read and write the same synced settings.
+const SETTINGS_KEY = 'jam-practice-guess-the-chord';
+const DEFAULT_SETTINGS = {
+  registerId: DEFAULT_REGISTER_ID,
+  roundSeconds: DEFAULT_ROUND_SECONDS,
+  advanceDelayMs: DEFAULT_ADVANCE_DELAY_MS,
+  soundFeedback: false,
+  roundCount: DEFAULT_ROUND_COUNT,
+  drillMode: false,
+  slashChance: DEFAULT_SLASH_CHANCE,
+  giveRoot: true,
+  chordIds: DEFAULT_ENABLED_CHORD_IDS as string[],
+  chordStats: {} as Record<string, GradeCounts>,
+  toneId: DEFAULT_EAR_TRAINING_TONE_ID as string,
+  playbackStyle: 'block' as PlaybackStyle,
+  revealNotes: true,
+  accidentalStyle: 'sharp' as AccidentalStyle,
+  history: [] as HistoryEntry[],
+};
+
+function playClick() {
+  startTone(1000, 'sine', 0.5, 0.05);
+}
+
+type WeakChord = { key: string; quality: ChordQuality; counts: GradeCounts };
+
+function weakChordEntries(stats: Record<string, GradeCounts>): WeakChord[] {
+  return rankWeak(stats)
+    .map((entry) => {
+      const quality = chordQualityById(entry.key);
+      return quality && { key: entry.key, quality, counts: entry.counts };
+    })
+    .filter((e): e is WeakChord => !!e);
+}
+
+function GuessTheChordScreen() {
+  const { colors } = useAppTheme();
+  const [settings, updateSettings, settingsReady] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+
+  const { roundSeconds, advanceDelayMs, soundFeedback, drillMode, slashChance, giveRoot, playbackStyle, revealNotes } = settings;
+  const history = settings.history.filter((h): h is HistoryEntry => !!h && typeof h.config === 'object' && h.config !== null);
+  const accidentalStyle = ACCIDENTAL_STYLES.some((s) => s.value === settings.accidentalStyle) ? settings.accidentalStyle : 'sharp';
+  const toneId = asToneId(settings.toneId);
+  const roundCount = Math.min(MAX_ROUND_COUNT, Math.max(MIN_ROUND_COUNT, Math.round(settings.roundCount)));
+  const register = REGISTERS.find((r) => r.id === settings.registerId) ?? REGISTERS.find((r) => r.id === DEFAULT_REGISTER_ID)!;
+  const pool = CHORD_QUALITIES.filter((q) => settings.chordIds.includes(q.id));
+
+  const [round, setRound] = useState<ChordRound | null>(null);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<Grade | null>(null);
+  const [typed, setTyped] = useState('');
+  const [progress, setProgress] = useState<{ index: number; total: number } | null>(null);
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [lastElapsedMs, setLastElapsedMs] = useState<number | null>(null);
+  const [isNewBest, setIsNewBest] = useState(false);
+  const [roundSeed, setRoundSeed] = useState(0);
+  const [lastMode, setLastMode] = useState<'normal' | 'weak'>('normal');
+  const [noteTimer, setNoteTimer] = useState({ startedAt: 0, durationMs: 1000 });
+  const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
+
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const roundSeedRef = useRef(0);
+  const sessionStartRef = useRef<number | null>(null);
+  const toneIdRef = useRef(toneId);
+  const playbackStyleRef = useRef(playbackStyle);
+  const sessionRef = useRef<Session | null>(null);
+  const cfgRef = useRef({ advanceDelayMs, soundFeedback });
+  // What's typed, readable from the session timer's closure (created once per session).
+  const typedRef = useRef('');
+  const skipRef = useRef<(() => void) | null>(null);
+  const skipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playbackTimeouts = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const countdownClickTimeouts = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const chordStatsRef = useRef(settings.chordStats);
+
+  useEffect(() => {
+    toneIdRef.current = toneId;
+    playbackStyleRef.current = playbackStyle;
+    cfgRef.current = { advanceDelayMs, soundFeedback };
+  }, [toneId, playbackStyle, advanceDelayMs, soundFeedback]);
+
+  useEffect(() => {
+    chordStatsRef.current = settings.chordStats;
+  }, [settings.chordStats]);
+
+  useEffect(() => {
+    const playback = playbackTimeouts.current;
+    const clicks = countdownClickTimeouts.current;
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (skipTimeoutRef.current) clearTimeout(skipTimeoutRef.current);
+      playback.forEach(clearTimeout);
+      clicks.forEach(clearTimeout);
+    };
+  }, []);
+
+  function setTypedValue(value: string) {
+    setTyped(value);
+    typedRef.current = value;
+  }
+
+  function bumpChordStat(qualityId: string, grade: Grade) {
+    chordStatsRef.current = bumpGradeCounts(chordStatsRef.current, qualityId, grade);
+    updateSettings({ chordStats: chordStatsRef.current });
+  }
+
+  function clearPlayback() {
+    playbackTimeouts.current.forEach(clearTimeout);
+    playbackTimeouts.current = [];
+  }
+
+  function clearCountdownClicks() {
+    countdownClickTimeouts.current.forEach(clearTimeout);
+    countdownClickTimeouts.current = [];
+  }
+
+  function scheduleCountdownClicks(durationMs: number) {
+    clearCountdownClicks();
+    if (!cfgRef.current.soundFeedback) return;
+    for (let s = 1; s <= Math.floor(durationMs / 1000); s++) countdownClickTimeouts.current.push(setTimeout(playClick, s * 1000));
+  }
+
+  function playChordSound(notes: string[]) {
+    clearPlayback();
+    if (playbackStyleRef.current === 'arpeggio') {
+      notes.forEach((n, i) => {
+        playbackTimeouts.current.push(setTimeout(() => playNote(n, CHORD_NOTE_DURATION_SECONDS, toneIdRef.current), i * ARPEGGIO_GAP_MS));
+      });
+    } else {
+      void playNotesTogether(notes, CHORD_NOTE_DURATION_SECONDS, toneIdRef.current);
+    }
+  }
+
+  function endSession() {
+    if (skipTimeoutRef.current) clearTimeout(skipTimeoutRef.current);
+    skipTimeoutRef.current = null;
+    skipRef.current = null;
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    clearPlayback();
+    clearCountdownClicks();
+    sessionRef.current = null;
+    setRunning(false);
+    setStatus(null);
+    setProgress(null);
+  }
+
+  function scheduleAdvance(index: number) {
+    if (skipTimeoutRef.current) return;
+    skipTimeoutRef.current = setTimeout(() => {
+      skipTimeoutRef.current = null;
+      if (sessionRef.current?.index === index) skipRef.current?.();
+    }, cfgRef.current.advanceDelayMs);
+  }
+
+  function lockInRound(grade: Grade) {
+    const session = sessionRef.current;
+    if (!session || !session.round) return;
+    session.best = grade;
+    setStatus(grade);
+    const pauseMs = cfgRef.current.advanceDelayMs;
+    // eslint-disable-next-line react-hooks/purity -- only reached from key presses / the timer, never during render (same as web)
+    setNoteTimer({ startedAt: Date.now(), durationMs: pauseMs });
+    if (cfgRef.current.soundFeedback) {
+      playClick();
+      scheduleCountdownClicks(pauseMs);
+    }
+    scheduleAdvance(session.index);
+  }
+
+  /** Grades whatever's typed and reveals the answer — from Submit, "I don't know" (graded as
+      typed, usually wrong), or the max-time timer running out. */
+  function gradeAndReveal() {
+    const session = sessionRef.current;
+    if (!session || !session.round || session.best !== null) return;
+    const parsed = parseChordInput(typedRef.current);
+    const grade: Grade = parsed && chordInputMatchesRound(parsed, session.round) ? 'correct' : 'incorrect';
+    session.answers.push(typedRef.current.trim());
+    lockInRound(grade);
+  }
+
+  function giveUp() {
+    setTypedValue('');
+    gradeAndReveal();
+  }
+
+  function start(mode: 'normal' | 'weak' = 'normal') {
+    const weak = mode === 'weak';
+    setLastMode(mode);
+    const weakList = weak ? weakChordEntries(chordStatsRef.current) : [];
+    if (weak && weakList.length === 0) {
+      setError('No struggling chords yet — a wrong or missed answer builds this list up.');
+      return;
+    }
+    if (!weak && pool.length === 0) {
+      setError('Select at least one chord quality to practice.');
+      return;
+    }
+    setError(null);
+    setSummary(null);
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    clearPlayback();
+
+    const slashProbability = slashChance / 100;
+    const drilling = weak ? true : drillMode;
+    const queue = weak
+      ? shuffled(weakList.map((e) => randomChordRound(register.lowMidi, register.highMidi, [e.quality], slashProbability)))
+      : drilling
+        ? shuffled(drillQueueForPool(register.lowMidi, register.highMidi, pool, slashProbability))
+        : [];
+
+    sessionRef.current = { total: drilling ? queue.length : roundCount, index: 0, round: null, best: null, results: [], rounds: [], answers: [], queue };
+    // eslint-disable-next-line react-hooks/purity -- only reached from a button press, never during render (same as web)
+    sessionStartRef.current = Date.now();
+    setSessionStartedAt(sessionStartRef.current);
+
+    const seconds = Math.max(MIN_ROUND_SECONDS, roundSeconds);
+    const advance = () => {
+      if (skipTimeoutRef.current) {
+        clearTimeout(skipTimeoutRef.current);
+        skipTimeoutRef.current = null;
+      }
+      clearPlayback();
+      clearCountdownClicks();
+      const session = sessionRef.current;
+      if (session) {
+        const finishedGrade = session.best ?? 'incorrect';
+        if (session.round) {
+          session.results.push(finishedGrade);
+          session.rounds.push(session.round);
+          bumpChordStat(session.round.quality.id, finishedGrade);
+          if (drilling && finishedGrade === 'incorrect') {
+            const requeued = chordRoundForRootAndQuality(register.lowMidi, register.highMidi, session.round.quality, session.round.rootPc, session.round.bassPc);
+            if (requeued) session.queue.push(requeued);
+          }
+        }
+        const done = drilling ? session.queue.length === 0 : session.index >= session.total;
+        if (done) {
+          const elapsedMs = sessionStartRef.current ? Date.now() - sessionStartRef.current : 0;
+          sessionStartRef.current = null;
+          if (weak) {
+            setLastElapsedMs(null);
+            setIsNewBest(false);
+          } else {
+            const config: HistoryConfig = {
+              registerId: register.id,
+              drillMode,
+              roundCount,
+              chordIdsKey: pool.map((q) => q.id).sort().join(','),
+              slashChance,
+              roundSeconds,
+              advanceDelayMs,
+              playbackStyle,
+            };
+            const previousBest = history.filter((h) => sameConfig(h.config, config)).reduce((min, h) => Math.min(min, h.elapsedMs), Infinity);
+            const entry: HistoryEntry = { at: Date.now(), elapsedMs, score: scoreOf(session.results), total: session.results.length, config };
+            updateSettings({ history: [...history, entry].slice(-50) });
+            setLastElapsedMs(elapsedMs);
+            setIsNewBest(elapsedMs < previousBest);
+          }
+          setSummary({ results: session.results, rounds: session.rounds, answers: session.answers });
+          setRound(null);
+          endSession();
+          return;
+        }
+        session.index++;
+        session.best = null;
+        setStatus(null);
+        setProgress(drilling ? { index: session.index, total: session.index + session.queue.length } : { index: session.index, total: session.total });
+      }
+      const next = drilling && session ? session.queue.shift()! : randomChordRound(register.lowMidi, register.highMidi, pool, slashProbability);
+      if (session) session.round = next;
+      roundSeedRef.current++;
+      setRoundSeed(roundSeedRef.current);
+      setNoteTimer({ startedAt: Date.now(), durationMs: seconds * 1000 });
+      setRound(next);
+      setTypedValue(giveRoot ? pcLabel(next.rootPc, accidentalStyle, roundSeedRef.current) : '');
+      playChordSound(next.notes);
+    };
+
+    const onTimeUp = () => gradeAndReveal();
+    skipRef.current = () => {
+      advance();
+      if (sessionRef.current) {
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        intervalRef.current = setInterval(onTimeUp, seconds * 1000);
+      }
+    };
+
+    advance();
+    setRunning(true);
+    intervalRef.current = setInterval(onTimeUp, seconds * 1000);
+  }
+
+  const score = summary ? scoreOf(summary.results) : 0;
+  const tally = (grade: Grade) => summary?.results.filter((g) => g === grade).length ?? 0;
+  const currentConfig: HistoryConfig = {
+    registerId: register.id,
+    drillMode,
+    roundCount,
+    chordIdsKey: pool.map((q) => q.id).sort().join(','),
+    slashChance,
+    roundSeconds,
+    advanceDelayMs,
+    playbackStyle,
+  };
+  const matchingHistory = history.filter((h) => sameConfig(h.config, currentConfig));
+  const bestMs = matchingHistory.length ? Math.min(...matchingHistory.map((h) => h.elapsedMs)) : null;
+  const weakEntries = weakChordEntries(settings.chordStats);
+
+  function revealedLabel(r: ChordRound, seq: number) {
+    const parts = chordRoundParts(r, accidentalStyle, seq);
+    return `${parts.root}${parts.quality}${parts.bass ? `/${parts.bass}` : ''}`;
+  }
+
+  const revealedText = round && status ? revealedLabel(round, roundSeed) : null;
+  const typedParsed = round && !status ? parseChordInput(typed) : null;
+  const typedParts = typedParsed ? formatChordParts(typedParsed) : null;
+  const typedPreview = typedParts ? `${typedParts.root}${typedParts.quality}${typedParts.bass ? `/${typedParts.bass}` : ''}` : null;
+  const mainLabel = !round ? '—' : (revealedText ?? typedPreview ?? (typed ? typed : '?'));
+  const glow = running && status ? GRADE_COLOR[status] : null;
+  const answering = running && !!round && !status;
+  const showingSummary = summary !== null && !running;
+
+  if (!settingsReady) return <ScreenSpinner />;
+
+  const label = (text: string) => (
+    <Text className="font-inter-bold text-xs font-bold tracking-wide" style={{ color: colors.muted }}>
+      {text}
+    </Text>
+  );
+
+  return (
+    <View className="flex-1" style={{ backgroundColor: colors.background }}>
+      <Stack.Screen options={{ title: 'Guess the Chord' }} />
+      <SafeAreaView className="flex-1" edges={['bottom']}>
+        <View className="flex-1 px-5 py-3">
+          <View className="flex-row justify-end">
+            <Pressable
+              onPress={() => setOptionsOpen(true)}
+              hitSlop={8}
+              accessibilityLabel="Options"
+              className="flex-row items-center gap-1.5 rounded-full px-4 py-2"
+              style={{ backgroundColor: colors.surface }}
+            >
+              <SlidersIcon color={colors.foreground} size={18} />
+              <Text className="font-inter-bold text-sm font-bold" style={{ color: colors.foreground }}>
+                Options
+              </Text>
+            </Pressable>
+          </View>
+
+          <View className="flex-1 items-center justify-center gap-4">
+            {showingSummary && summary ? (
+              <ResultsCard
+                score={score}
+                total={summary.results.length}
+                elapsed={lastElapsedMs}
+                bestMs={bestMs}
+                isNewBest={isNewBest}
+                tallies={(['correct', 'incorrect'] as const).map((g) => ({ grade: g, count: tally(g) }))}
+                chips={summary.rounds.map((r, i) => ({
+                  label:
+                    summary.results[i] === 'incorrect' && summary.answers[i]
+                      ? `${revealedLabel(r, i)} (you: ${summary.answers[i]})`
+                      : revealedLabel(r, i),
+                  grade: summary.results[i],
+                }))}
+                onAgain={() => start(lastMode)}
+                onClose={() => setSummary(null)}
+              />
+            ) : (
+              <>
+                {status && running ? (
+                  <View className="items-center gap-0.5">
+                    {label('NEXT CHORD IN')}
+                    <CountdownText active={running} startedAt={noteTimer.startedAt} durationMs={noteTimer.durationMs} color={GRADE_COLOR[status]} />
+                  </View>
+                ) : null}
+
+                <CountdownRing active={running} startedAt={noteTimer.startedAt} durationMs={noteTimer.durationMs}>
+                  <View style={{ maxWidth: 120 }}>
+                    <Text
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.4}
+                      className="font-inter-bold text-center text-4xl font-bold"
+                      style={{
+                        color: glow ?? (answering && typedPreview ? colors.accent : colors.foreground),
+                        textShadowColor: glow ?? 'transparent',
+                        textShadowRadius: glow ? 10 : 0,
+                        textShadowOffset: { width: 0, height: 0 },
+                      }}
+                    >
+                      {mainLabel}
+                    </Text>
+                  </View>
+                </CountdownRing>
+
+                {running && round ? (
+                  <Pressable onPress={() => playChordSound(round.notes)} className="rounded-full px-4 py-2" style={{ backgroundColor: colors.surface }}>
+                    <Text className="font-inter-semibold text-sm font-semibold" style={{ color: colors.foreground }}>
+                      ▶ Replay
+                    </Text>
+                  </Pressable>
+                ) : null}
+
+                {revealNotes && status && round ? (
+                  <Text className="font-inter-semibold text-center text-sm font-semibold tabular-nums" style={{ color: colors.muted }}>
+                    {round.notes.join(' · ')}
+                  </Text>
+                ) : null}
+
+                {running && progress ? (
+                  <Text className="font-inter text-sm tabular-nums" style={{ color: colors.muted }}>
+                    Chord {progress.index} of {progress.total} · <ElapsedTimer active={running} startedAt={sessionStartedAt} />
+                  </Text>
+                ) : null}
+
+                {!running ? (
+                  <Text className="font-inter max-w-[300px] text-center text-xs" style={{ color: colors.muted }}>
+                    Type the root, then the quality, then an optional /bass — e.g. F♯Δ7 or A♭-7/D. m7 means minor 7; use maj7 or Δ for major 7.
+                  </Text>
+                ) : null}
+              </>
+            )}
+
+            {error ? (
+              <Text className="font-inter text-center text-sm" style={{ color: colors.danger }}>
+                {error}
+              </Text>
+            ) : null}
+
+            {!showingSummary && !answering ? (
+              <Pressable
+                onPress={running ? endSession : () => start()}
+                className="min-w-[200px] items-center rounded-full py-3.5"
+                style={{ backgroundColor: running ? colors.surface : colors.accent }}
+              >
+                <Text className="font-inter-bold text-base font-bold" style={{ color: running ? colors.foreground : colors['accent-foreground'] }}>
+                  {running ? 'Stop' : 'Start'}
+                </Text>
+              </Pressable>
+            ) : null}
+            {answering ? (
+              <Pressable onPress={endSession} hitSlop={8}>
+                <Text className="font-inter-semibold text-sm font-semibold" style={{ color: colors.muted }}>
+                  Stop session
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+        {answering ? (
+          <ChordAnswerKeyboard
+            onInsert={(t) => setTypedValue(typedRef.current + t)}
+            onBackspace={() => setTypedValue(typedRef.current.slice(0, -1))}
+            onClear={() => setTypedValue('')}
+            onGiveUp={giveUp}
+            onSubmit={gradeAndReveal}
+          />
+        ) : null}
+      </SafeAreaView>
+
+      <ToolOptionsSheet
+        visible={optionsOpen}
+        onClose={() => setOptionsOpen(false)}
+        title="Guess the Chord options"
+        tabs={[
+          {
+            key: 'chords',
+            label: 'Chords',
+            content: () => (
+              <>
+                <View className="flex-row items-center justify-between">
+                  <Text className="font-inter-semibold text-xs font-semibold" style={{ color: colors.muted }}>
+                    {pool.length} of {CHORD_QUALITIES.length} selected
+                  </Text>
+                  <View className="flex-row gap-3">
+                    <Pressable disabled={running} onPress={() => updateSettings({ chordIds: CHORD_QUALITIES.map((q) => q.id) })}>
+                      <Text className="font-inter-bold text-xs font-bold" style={{ color: colors.accent, opacity: running ? 0.5 : 1 }}>
+                        All
+                      </Text>
+                    </Pressable>
+                    <Pressable disabled={running} onPress={() => updateSettings({ chordIds: [] })}>
+                      <Text className="font-inter-bold text-xs font-bold" style={{ color: colors.muted, opacity: running ? 0.5 : 1 }}>
+                        None
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+                <Hint>Which chord qualities can be picked for a round. At least one must stay selected.</Hint>
+                {CHORD_CATEGORIES.map((category) => (
+                  <View key={category} className="gap-1.5">
+                    {label(category.toUpperCase())}
+                    <View className="flex-row flex-wrap gap-1.5">
+                      {CHORD_QUALITIES.filter((q) => q.category === category).map((quality) => {
+                        const selected = settings.chordIds.includes(quality.id);
+                        return (
+                          <Pressable
+                            key={quality.id}
+                            disabled={running}
+                            accessibilityLabel={quality.name}
+                            onPress={() =>
+                              updateSettings({ chordIds: selected ? settings.chordIds.filter((x) => x !== quality.id) : [...settings.chordIds, quality.id] })
+                            }
+                            className="rounded-full px-3 py-1.5"
+                            style={{ backgroundColor: selected ? colors.accent : colors.surface, opacity: running ? 0.6 : 1 }}
+                          >
+                            <Text className="font-inter-semibold text-xs font-semibold" style={{ color: selected ? colors['accent-foreground'] : colors.foreground }}>
+                              C{prettyQuality(quality.suffix)}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ))}
+                <NumberStepper
+                  label="Chance of a slash (bass note) chord"
+                  value={slashChance}
+                  unit="%"
+                  min={0}
+                  max={100}
+                  step={5}
+                  disabled={running}
+                  onChange={(v) => updateSettings({ slashChance: v })}
+                  hint="How often a round adds a bass note that isn't the root — anywhere from a normal inversion to a genuinely weird, unrelated bass note."
+                />
+                <SwitchRow
+                  label="Give the root"
+                  checked={giveRoot}
+                  onChange={(v) => updateSettings({ giveRoot: v })}
+                  disabled={running}
+                  hint="Pre-fills the answer with the chord's root, so it's about the quality and slash bass. Off makes the whole chord — root included — something you have to work out."
+                />
+              </>
+            ),
+          },
+          {
+            key: 'register',
+            label: 'Register',
+            content: () => (
+              <View className="gap-1.5">
+                {label('REGISTER')}
+                <Dropdown value={register.id} options={REGISTERS.map((r) => ({ value: r.id, label: r.label }))} onChange={(v) => updateSettings({ registerId: v })} />
+                <Hint>Which octave range the chord&apos;s root is drawn from — just where it sits for listening.</Hint>
+              </View>
+            ),
+          },
+          {
+            key: 'timing',
+            label: 'Timing',
+            content: () => (
+              <>
+                <NumberStepper
+                  label="Max time to answer"
+                  value={roundSeconds}
+                  unit="s"
+                  min={MIN_ROUND_SECONDS}
+                  max={MAX_ROUND_SECONDS}
+                  step={1}
+                  disabled={running}
+                  onChange={(v) => updateSettings({ roundSeconds: v })}
+                  hint="How long you have to enter and submit an answer before it's graded as typed."
+                />
+                <NumberStepper
+                  label="Time between rounds"
+                  value={advanceDelayMs / 1000}
+                  unit="s"
+                  min={MIN_ADVANCE_DELAY_MS / 1000}
+                  max={MAX_ADVANCE_DELAY_MS / 1000}
+                  step={0.25}
+                  disabled={running}
+                  onChange={(v) => updateSettings({ advanceDelayMs: Math.round(v * 1000) })}
+                  hint="How long the revealed answer (with its countdown ring) stays on screen before the next chord plays."
+                />
+                <SwitchRow
+                  label="Sound feedback"
+                  checked={soundFeedback}
+                  onChange={(v) => updateSettings({ soundFeedback: v })}
+                  disabled={running}
+                  hint="A click each second of the countdown, plus a click the instant a round is graded."
+                />
+                <SwitchRow
+                  label="Drill every chord"
+                  checked={drillMode}
+                  onChange={(v) => updateSettings({ drillMode: v })}
+                  disabled={running}
+                  hint="Plays every selected chord quality, starting on all 12 keys, each in a random octave (with an independent chance of a slash bass each time)."
+                />
+                {!drillMode ? (
+                  <NumberStepper
+                    label="Number of rounds"
+                    value={roundCount}
+                    unit=""
+                    min={MIN_ROUND_COUNT}
+                    max={MAX_ROUND_COUNT}
+                    step={1}
+                    disabled={running}
+                    onChange={(v) => updateSettings({ roundCount: v })}
+                    hint="How many chords make up one session."
+                  />
+                ) : null}
+              </>
+            ),
+          },
+          {
+            key: 'sound',
+            label: 'Sound & display',
+            content: () => (
+              <>
+                <View className="gap-1.5">
+                  {label('PLAYBACK STYLE')}
+                  <Dropdown value={playbackStyle} options={PLAYBACK_STYLES} onChange={(v) => updateSettings({ playbackStyle: v })} />
+                  <Hint>Whether the chord&apos;s notes play all at once or as a quick rolled arpeggio.</Hint>
+                </View>
+                <View className="gap-1.5">
+                  {label('TONE')}
+                  <Dropdown value={toneId} options={EAR_TRAINING_TONES.map((t) => ({ value: t.id, label: t.label }))} onChange={(v) => updateSettings({ toneId: v })} />
+                  <Hint>Which sound plays the chord — real recorded piano or Rhodes.</Hint>
+                </View>
+                <SwitchRow
+                  label="Reveal notes after answering"
+                  checked={revealNotes}
+                  onChange={(v) => updateSettings({ revealNotes: v })}
+                  hint="Shows the actual notes that were played once a round is graded."
+                />
+                <View className="gap-1.5">
+                  {label('ACCIDENTALS')}
+                  <Dropdown value={accidentalStyle} options={ACCIDENTAL_STYLES} onChange={(v) => updateSettings({ accidentalStyle: v })} />
+                  <Hint>How sharps and flats are spelled in the revealed answer, e.g. C# vs Db.</Hint>
+                </View>
+              </>
+            ),
+          },
+          {
+            key: 'progress',
+            label: 'Progress',
+            content: () => (
+              <ProgressTab
+                bestMs={bestMs}
+                history={matchingHistory}
+                onClearHistory={() => updateSettings({ history: history.filter((h) => !sameConfig(h.config, currentConfig)) })}
+                weak={weakEntries.map((e) => ({ key: e.key, label: e.quality.name, counts: e.counts }))}
+                weakNoun="chords"
+                running={running}
+                onShedWeak={() => {
+                  setOptionsOpen(false);
+                  start('weak');
+                }}
+                onClearStats={() => {
+                  chordStatsRef.current = {};
+                  updateSettings({ chordStats: {} });
+                }}
+              />
+            ),
+          },
+        ]}
+      />
+    </View>
+  );
+}
+
+export default withScreenLoader(GuessTheChordScreen);

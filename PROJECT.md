@@ -1520,6 +1520,40 @@ at 390px with no overflow and no console errors. **Not verified** (needs a signe
 sharing a link and opening it, posting a setlist, the new post cards with real posts, and Save as
 my setlist.
 
+### Mobile: Guess the Interval, Guess the Chord and Slow Downer ported (2026-10-07)
+
+All three now have real screens in `apps/mobile` (`app/tool/guess-the-interval.tsx`,
+`guess-the-chord.tsx`, `slow-downer.tsx`), with every web feature, in the app's usual shape:
+essentials on the main screen, the rest in the tabbed `ToolOptionsSheet`. Settings use the same
+synced keys as web, so they (and the ear trainers' Struggles/History) follow you between the two.
+
+- **Same samples as the site:** `lib/sampledTones.ts` plays the exact piano (Salamander) and Rhodes
+  (FluidR3) mp3s web's `lib/sampledTones.ts` uses, from the same URLs, decoded by
+  `react-native-audio-api` (`decodeAudioData` downloads a URL itself), nearest sample pitch-shifted
+  — and `playNotesTogether` waits for every note's sample before starting any, same as web. Web
+  centres these stereo files with `gain.channelCount = 1`; that's read-only here, so each sample is
+  averaged to mono once on decode instead.
+- `packages/core/chords.ts` — moved from `apps/web/lib/chords.ts` (shim left there).
+- **Guess the Chord** answers on `components/ChordAnswerKeyboard.tsx`, a fixed bottom keyboard
+  (roots, accidentals, digits, quality glyphs, sus/add/alt, `/`, backspace, I don't know, Submit)
+  instead of a text field — the system keyboard would cover the round. The floating tab bar is
+  hidden on this screen. "I don't know" grades an empty answer (web grades whatever's typed).
+- Shared ear-training pieces: `components/EarTrainingParts.tsx` (countdown text, results card with
+  per-round chips, the Progress tab: History + Struggles + Shed weak).
+- **Slow Downer:** `lib/slowDownerEngine.ts` decodes the whole file and plays it through
+  `createBufferSource({ pitchCorrection })` (keep-pitch speed), native buffer looping for a gapless
+  A–B loop, playhead from the audio clock. `lib/slowDownerFiles.ts` copies a picked file
+  (`expo-document-picker`, newly installed with `expo-file-system`) into the app's documents folder
+  and keeps the list + per-file markers in AsyncStorage (device-only, like web's IndexedDB).
+  `components/SlowDownerWaveform.tsx` (react-native-svg + gesture handler): tap seek, drag pan,
+  pinch zoom, long-press = web's right-click menu; A/B buttons set the loop at the playhead in place
+  of shift-drag. Decoding a long song holds it all in memory (~100 MB for 5 minutes of stereo).
+- The Android release build now needs `-Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m"`
+  (D8 ran out of heap at 2 GB); `scripts/build-android-prod.sh` passes it.
+
+Verified: `tsc`, `eslint`, a full release build, and the sample URLs/list against web's. **Not yet
+heard or touched on a device** — built and awaiting install.
+
 ## Tools (sidebar order)
 
 - **Jam Practice** (`components/JamPractice.tsx`) — random tune/tempo/key picker with a
