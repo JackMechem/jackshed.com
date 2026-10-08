@@ -6,7 +6,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { useChordChartBrowser } from '@/components/ChordChartList';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
+import { useTabBarSpace } from '@/components/FloatingTabBar';
 import { ChordChartIcon, CloseIcon, LinkIcon, PencilIcon, PlusIcon, TrashIcon } from '@/components/icons';
 import { InfoButton } from '@/components/InfoButton';
 import { forgetRecentTune } from '@/lib/chordChartRecents';
@@ -34,6 +34,7 @@ function parseTempos(raw: string, previous: Tempo[]): Tempo[] {
  * a new tune (optionally pre-named via `name`), added to `list` on Save.
  */
 function TuneEditScreen() {
+  const bottomSpace = useTabBarSpace();
   const { colors } = useAppTheme();
   const router = useRouter();
   const { isAuthenticated } = useConvexAuth();
@@ -117,7 +118,7 @@ function TuneEditScreen() {
           ),
         }}
       />
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: TAB_BAR_CONTENT_HEIGHT + 32 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: bottomSpace }}>
         <Field label="Name">
           <TextInput value={name} onChangeText={setName} placeholder="e.g. Autumn Leaves" placeholderTextColor={colors.muted} autoFocus={!existing && !params.name} className="font-inter text-base" style={input} />
         </Field>

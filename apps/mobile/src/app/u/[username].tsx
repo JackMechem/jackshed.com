@@ -82,7 +82,7 @@ function PublicProfileScreen() {
     <View className="flex-1" style={{ backgroundColor: colors.background }}>
       <Stack.Screen options={{ title: profile.username }} />
       <SafeAreaView className="flex-1" edges={['bottom']}>
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 16 + TAB_BAR_CONTENT_HEIGHT, gap: 16 }}>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 + TAB_BAR_CONTENT_HEIGHT, gap: 16 }}>
           <View className="items-center gap-3">
             <UserAvatar url={profile.avatarUrl} size="xl" />
             <Text className="text-2xl font-bold font-inter-bold" style={{ color: colors.accent }}>

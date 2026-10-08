@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 
 import { SearchField } from '@/components/ChordChartList';
-import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
+import { useTabBarSpace } from '@/components/FloatingTabBar';
 import { MicrophoneIcon } from '@/components/icons';
 import { RecordingRow, useRecordingPlayer, useTuneIndex } from '@/components/recordings/RecordingParts';
 import { ScreenSpinner, withScreenLoader } from '@/components/ScreenLoader';
@@ -15,6 +15,7 @@ import { useAppTheme } from '@/theme/ThemeProvider';
 /** Every saved recording, newest first: search by name, notes or tune; play inline; tap one to
     open it. */
 function RecordingsScreen() {
+  const bottomSpace = useTabBarSpace();
   const { colors } = useAppTheme();
   const router = useRouter();
   const { isAuthenticated } = useConvexAuth();
@@ -60,7 +61,7 @@ function RecordingsScreen() {
         data={shown}
         keyExtractor={(r) => r._id}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: TAB_BAR_CONTENT_HEIGHT + 40, gap: 10 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: bottomSpace, gap: 10 }}
         ListEmptyComponent={
           <Text className="font-inter py-12 text-center text-sm" style={{ color: colors.muted }}>
             {!isAuthenticated

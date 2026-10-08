@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ActionSheet } from '@/components/ActionSheet';
 import { SearchField } from '@/components/ChordChartList';
-import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
+import { useTabBarSpace } from '@/components/FloatingTabBar';
 import {
   BookIcon,
   ChevronRightIcon,
@@ -40,6 +40,7 @@ const SEARCH_LIMIT = 25;
  * (`app/charts/index.tsx`).
  */
 function LibraryScreen() {
+  const bottomSpace = useTabBarSpace();
   const { colors } = useAppTheme();
   const router = useRouter();
   const { isAuthenticated } = useConvexAuth();
@@ -48,7 +49,8 @@ function LibraryScreen() {
   const { openTuneMenu, tuneMenu } = useTuneMenu();
   const [query, setQuery] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
-  const [addingStandard, setAddingStandard] = useState(false);
+  const [addingStandard, setAddingStandard] = useState<TuneListId | null>(null);
+  const [listAdd, setListAdd] = useState<TuneListId | null>(null);
   const [namingSetlist, setNamingSetlist] = useState(false);
   const { setlists, ready: setlistsReady, create: createSetlist } = useSetlists();
 
@@ -116,7 +118,7 @@ function LibraryScreen() {
           <SearchField value={query} onChange={setQuery} placeholder="Search your tunes…" />
         </View>
 
-        <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ padding: 16, paddingTop: 8, paddingBottom: TAB_BAR_CONTENT_HEIGHT + 32, gap: 22 }}>
+        <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ padding: 16, paddingTop: 8, paddingBottom: bottomSpace, gap: 22 }}>
           {results ? (
             <>
               <ResultSection title="Tunes I Know" count={results.tunes.length}>
@@ -166,7 +168,10 @@ function LibraryScreen() {
               ) : null}
 
               <View className="gap-1">
-                <SectionHeader title="Setlists" detail={setlists.length > PREVIEW ? String(setlists.length) : undefined} href={setlists.length ? '/library/setlists' : undefined} />
+                <SectionHeader title="Setlists" detail={setlists.length > PREVIEW ? String(setlists.length) : undefined} href={setlists.length ? '/library/setlists' : undefined}
+                  onAdd={() => setNamingSetlist(true)}
+                  addLabel="New setlist"
+                />
                 {setlists.length === 0 ? (
                   <Pressable onPress={() => setNamingSetlist(true)} className="flex-row items-center gap-3 rounded-2xl p-4" style={{ backgroundColor: colors.surface }}>
                     <SetlistIcon color={colors.accent} size={22} />
@@ -187,6 +192,7 @@ function LibraryScreen() {
                   title="Tunes I Know"
                   detail={tunes.length && unlinked ? `${unlinked} without a chart` : undefined}
                   href={{ pathname: '/library/tunes', params: { list: 'tunes' } }}
+                  onAdd={() => setListAdd('tunes')}
                 />
                 {tunes.length === 0 ? (
                   <EmptyCard text="No tunes yet — tap + to add a jazz standard or your own." />
@@ -197,7 +203,7 @@ function LibraryScreen() {
 
               {isAuthenticated ? (
                 <View className="gap-1">
-                  <SectionHeader title="Tunes to Learn" href={{ pathname: '/library/tunes', params: { list: 'learn' } }} />
+                  <SectionHeader title="Tunes to Learn" href={{ pathname: '/library/tunes', params: { list: 'learn' } }} onAdd={() => setListAdd('learn')} />
                   {learn.length === 0 ? (
                     <EmptyCard text="Tunes you want to learn, kept apart from your practice list." />
                   ) : (
@@ -218,11 +224,25 @@ function LibraryScreen() {
         onClose={() => setCreateOpen(false)}
         actions={[
           { key: 'setlist', icon: <SetlistIcon color={colors.accent} size={22} />, label: 'New setlist', onPress: () => setNamingSetlist(true) },
-          { key: 'standard', icon: <BookIcon color={colors.accent} size={22} />, label: 'Jazz standard', onPress: () => setAddingStandard(true) },
+          { key: 'standard', icon: <BookIcon color={colors.accent} size={22} />, label: 'Jazz standard', onPress: () => setAddingStandard('tunes') },
           { key: 'tune', icon: <MusicNoteIcon color={colors.accent} size={22} />, label: 'New tune', onPress: () => router.push({ pathname: '/library/tune-edit', params: { list: 'tunes' } }) },
           ...(isAuthenticated
             ? [{ key: 'learn', icon: <StarOutlineIcon color={colors.accent} size={22} />, label: 'Tune to learn', onPress: () => router.push({ pathname: '/library/tune-edit', params: { list: 'learn' } }) }]
             : []),
+        ]}
+      />
+      <ActionSheet
+        visible={listAdd !== null}
+        title={listAdd === 'learn' ? 'Add to Tunes to Learn' : 'Add to Tunes I Know'}
+        onClose={() => setListAdd(null)}
+        actions={[
+          { key: 'standard', icon: <BookIcon color={colors.accent} size={22} />, label: 'Jazz standard', onPress: () => setAddingStandard(listAdd) },
+          {
+            key: 'tune',
+            icon: <MusicNoteIcon color={colors.accent} size={22} />,
+            label: listAdd === 'learn' ? 'New tune to learn' : 'New tune',
+            onPress: () => router.push({ pathname: '/library/tune-edit', params: { list: listAdd ?? 'tunes' } }),
+          },
         ]}
       />
       <NameDialog
@@ -238,12 +258,12 @@ function LibraryScreen() {
       />
       {addingStandard ? (
         <StandardsPicker
-          tunes={lists.tunes.tunes}
-          setTunes={lists.tunes.setTunes}
-          onClose={() => setAddingStandard(false)}
+          tunes={lists[addingStandard].tunes}
+          setTunes={lists[addingStandard].setTunes}
+          onClose={() => setAddingStandard(null)}
           onCreateCustom={(name) => {
-            setAddingStandard(false);
-            router.push({ pathname: '/library/tune-edit', params: { list: 'tunes', name } });
+            router.push({ pathname: '/library/tune-edit', params: { list: addingStandard, name } });
+            setAddingStandard(null);
           }}
         />
       ) : null}
@@ -268,15 +288,26 @@ function StatCard({ Icon, count, label, onPress }: { Icon: ComponentType<IconPro
   );
 }
 
-function SectionHeader({ title, detail, href }: { title: string; detail?: string; href?: Href }) {
+function SectionHeader({ title, detail, href, onAdd, addLabel }: { title: string; detail?: string; href?: Href; onAdd?: () => void; addLabel?: string }) {
   const { colors } = useAppTheme();
   const router = useRouter();
   return (
     <View className="flex-row items-end justify-between px-1 pb-1">
-      <View className="flex-row items-baseline gap-2">
+      <View className="flex-row items-center gap-2">
         <Text className="font-inter-bold text-lg font-bold" style={{ color: colors.foreground }}>
           {title}
         </Text>
+        {onAdd ? (
+          <Pressable
+            onPress={onAdd}
+            hitSlop={8}
+            accessibilityLabel={addLabel ?? `Add to ${title}`}
+            className="h-7 w-7 items-center justify-center rounded-full"
+            style={{ backgroundColor: colors.surface }}
+          >
+            <PlusIcon color={colors.accent} size={16} />
+          </Pressable>
+        ) : null}
         {detail ? (
           <Text className="font-inter text-xs" style={{ color: colors.muted }}>
             {detail}

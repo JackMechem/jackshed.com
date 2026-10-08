@@ -189,9 +189,12 @@ export default defineSchema({
       single JSON document over Convex's 1 MiB per-document limit, and the write was rejected
       outright (`Value is too large (4.62 MiB > maximum size 1 MiB)`). Split across three tables
       instead, specifically so no single document's size grows with the size of the library:
-      - `chordChartPlaylists` — just a name; songs reference it via `playlistId`, not the other way
-        around (no `songIds` array on the playlist row, which would itself grow unboundedly as
-        more songs are added to a big playlist).
+      - `chordChartPlaylists` — just a name. Charts live once in the library ("All charts") and a
+        playlist only *references* them, so one chart can be in several playlists. A chart's
+        memberships are its own `playlistId` (optional — the first playlist it landed in, kept on
+        the row so the common one-playlist case costs no extra reads and older data needs no
+        migration) plus any `chordChartPlaylistEntries` rows. No `songIds` array on the playlist
+        row, which would grow unboundedly for a big playlist.
       - `chordChartSongs` — one row per song, metadata only (title/composer/style/key/time
         signature) — deliberately *not* `bars`, so listing or deduping a library never has to
         touch each song's own (often much larger) notation.
@@ -238,7 +241,9 @@ export default defineSchema({
 
   chordChartSongs: defineTable({
     userId: v.id("users"),
-    playlistId: v.id("chordChartPlaylists"),
+    /** One playlist this chart is in (see `chordChartPlaylists`'s comment) — absent when it's in
+        none, or only in playlists listed in `chordChartPlaylistEntries`. */
+    playlistId: v.optional(v.id("chordChartPlaylists")),
     title: v.string(),
     composer: v.string(),
     style: v.string(),
@@ -248,6 +253,17 @@ export default defineSchema({
   })
     .index("by_user", ["userId"])
     .index("by_playlist", ["playlistId"]),
+
+  /** A chart's *other* playlist memberships, beyond `chordChartSongs.playlistId`. */
+  chordChartPlaylistEntries: defineTable({
+    userId: v.id("users"),
+    playlistId: v.id("chordChartPlaylists"),
+    songId: v.id("chordChartSongs"),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_playlist", ["playlistId"])
+    .index("by_song", ["songId"]),
 
   chordChartSongBars: defineTable({
     songId: v.id("chordChartSongs"),

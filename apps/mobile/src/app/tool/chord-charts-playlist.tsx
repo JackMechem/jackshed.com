@@ -1,4 +1,3 @@
-import { UNSORTED_PLAYLIST_ID } from '@jam-practice/core/chordChartsLibrary';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
@@ -13,6 +12,7 @@ import {
   letterOf,
   songSubtitle,
   useChordChartBrowser,
+  ALL_CHARTS_ID,
 } from '@/components/ChordChartList';
 import { DotsVerticalIcon, PlusIcon } from '@/components/icons';
 import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
@@ -38,8 +38,9 @@ function ChordChartsPlaylistScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   // Deleting this playlist (from its own ⋮) leaves nothing to show — go back.
-  const { playlists, loading, openSong, openMenu, openPlaylistMenu, menu } = useChordChartBrowser({ onPlaylistDeleted: () => router.back() });
-  const playlist = playlists.find((p) => p.id === id);
+  const { playlists, allCharts, songIndex, loading, openSong, openMenu, openPlaylistMenu, menu } = useChordChartBrowser({ onPlaylistDeleted: () => router.back() });
+  const isAll = id === ALL_CHARTS_ID;
+  const playlist = isAll ? allCharts : playlists.find((p) => p.id === id);
   const [query, setQuery] = useState('');
   const listRef = useRef<FlatList<LibrarySongMeta>>(null);
 
@@ -76,12 +77,12 @@ function ChordChartsPlaylistScreen() {
     ({ item }: { item: LibrarySongMeta }) => (
       <SongRow
         song={item}
-        subtitle={songSubtitle(item)}
+        subtitle={songSubtitle(item, isAll ? songIndex.get(item.id)?.playlistName : undefined)}
         onSelect={() => openSong(item.id)}
-        onMenu={() => playlist && openMenu({ song: item, playlistId: playlist.id })}
+        onMenu={() => openMenu({ song: item, playlistId: isAll ? null : (playlist?.id ?? null) })}
       />
     ),
-    [openSong, openMenu, playlist],
+    [openSong, openMenu, playlist, isAll, songIndex],
   );
 
   const showScrubber = !q && songs.length > 30 && letterIndex.size > 1;
@@ -93,23 +94,25 @@ function ChordChartsPlaylistScreen() {
         options={{
           title,
           headerRight: () =>
-            playlist && playlist.id !== UNSORTED_PLAYLIST_ID ? (
+            playlist ? (
               <View className="flex-row items-center gap-1">
                 <Pressable
-                  onPress={() => router.push({ pathname: '/tool/chord-charts-new', params: { playlist: playlist.name } })}
+                  onPress={() => router.push({ pathname: '/tool/chord-charts-new', params: isAll ? {} : { playlist: playlist.name } })}
                   accessibilityLabel={`New chord chart in ${title}`}
                   className="h-10 w-10 items-center justify-center rounded-full"
                   style={{ backgroundColor: colors.accent }}
                 >
                   <PlusIcon color={colors['accent-foreground']} size={22} />
                 </Pressable>
-                <Pressable
-                  onPress={() => openPlaylistMenu({ id: playlist.id, name: playlist.name, count: playlist.songs.length })}
-                  accessibilityLabel={`Options for ${title}`}
-                  className="h-10 w-9 items-center justify-center"
-                >
-                  <DotsVerticalIcon color={colors.foreground} size={22} />
-                </Pressable>
+                {isAll ? null : (
+                  <Pressable
+                    onPress={() => openPlaylistMenu({ id: playlist.id, name: playlist.name, count: playlist.songs.length })}
+                    accessibilityLabel={`Options for ${title}`}
+                    className="h-10 w-9 items-center justify-center"
+                  >
+                    <DotsVerticalIcon color={colors.foreground} size={22} />
+                  </Pressable>
+                )}
               </View>
             ) : null,
         }}
@@ -141,10 +144,10 @@ function ChordChartsPlaylistScreen() {
               windowSize={11}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
-              contentContainerStyle={{ paddingLeft: 16, paddingRight: showScrubber ? 0 : 16, paddingBottom: 16 + TAB_BAR_CONTENT_HEIGHT }}
+              contentContainerStyle={{ paddingLeft: 16, paddingRight: showScrubber ? 0 : 16, paddingBottom: 32 + TAB_BAR_CONTENT_HEIGHT }}
               ListEmptyComponent={
                 <Text className="font-inter py-4 text-sm" style={{ color: colors.muted }}>
-                  {q ? <>No charts match &ldquo;{query}&rdquo;.</> : 'No charts here yet — tap + to create one, or move charts in with ⋮.'}
+                  {q ? <>No charts match &ldquo;{query}&rdquo;.</> : isAll ? 'No charts yet — tap + to create one.' : 'No charts here yet — tap + to create one, or add charts with a chart’s ⋮ → Playlists.'}
                 </Text>
               }
             />

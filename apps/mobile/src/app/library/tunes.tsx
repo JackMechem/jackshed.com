@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 
 import { SearchField } from '@/components/ChordChartList';
-import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
+import { useTabBarSpace } from '@/components/FloatingTabBar';
 import { PlusIcon } from '@/components/icons';
 import { TUNE_ROW_H, TuneRow } from '@/components/library/TuneRow';
 import { useTuneMenu } from '@/components/library/useTuneMenu';
@@ -20,6 +20,7 @@ import { useAppTheme } from '@/theme/ThemeProvider';
  * also offers "create your own" for anything not in it.
  */
 function TunesListScreen() {
+  const bottomSpace = useTabBarSpace();
   const { colors } = useAppTheme();
   const router = useRouter();
   const list = asTuneListId(useLocalSearchParams<{ list?: string }>().list);
@@ -69,7 +70,7 @@ function TunesListScreen() {
             getItemLayout={(_, index) => ({ length: TUNE_ROW_H, offset: TUNE_ROW_H * index, index })}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
-            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: TAB_BAR_CONTENT_HEIGHT + 24 }}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: bottomSpace }}
             renderItem={({ item }) => (
               <TuneRow
                 tune={item}

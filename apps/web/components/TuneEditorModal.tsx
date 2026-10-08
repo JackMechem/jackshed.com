@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { KeyPicker, MeterPicker, TempoPicker } from "@/components/TuneFields";
+import { sortByText } from "@jam-practice/core/sortText";
 import { useChordChartsLibrary } from "@/lib/useChordChartsLibrary";
 import { Tune } from "@/lib/types";
 
@@ -19,7 +20,7 @@ export default function TuneEditorModal({
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<Tune>(initial);
-  const { playlists } = useChordChartsLibrary(null);
+  const { allSongs } = useChordChartsLibrary(null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !e.defaultPrevented) {
@@ -117,20 +118,16 @@ export default function TuneEditorModal({
               className={inputClass}
             >
               <option value="">None</option>
-              {playlists.length === 0 ? (
+              {allSongs.length === 0 ? (
                 <option value="" disabled>
                   (no charts in your library yet)
                 </option>
               ) : (
-                playlists.map((playlist) => (
-                  <optgroup key={playlist.id} label={playlist.name}>
-                    {playlist.songs.map((song) => (
-                      <option key={song.id} value={song.id}>
-                        {song.title}
-                        {song.composer ? ` — ${song.composer}` : ""}
-                      </option>
-                    ))}
-                  </optgroup>
+                sortByText(allSongs, (s) => s.title).map((song) => (
+                  <option key={song.id} value={song.id}>
+                    {song.title}
+                    {song.composer ? ` — ${song.composer}` : ""}
+                  </option>
                 ))
               )}
             </select>

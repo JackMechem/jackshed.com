@@ -11,11 +11,13 @@ import { ScreenSpinner, withScreenLoader } from '@/components/ScreenLoader';
 import { formatDuration, formatRecordedAt, recordingsApi } from '@/lib/recordings';
 import { useKeyboardHeight } from '@/lib/useKeyboardHeight';
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { useTabBarSpace } from '@/components/FloatingTabBar';
 
 /** One saved recording: play it, rename it, keep notes on it, link it to a tune (or change or
     unlink it), or delete it. Edited name/notes show a Save button in the header; they also save
     when you leave the page, so nothing typed is lost. */
 function RecordingScreen() {
+  const bottomSpace = useTabBarSpace();
   const { colors } = useAppTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -113,7 +115,7 @@ function RecordingScreen() {
             ),
         }}
       />
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 18, paddingBottom: keyboard + 120 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 18, paddingBottom: keyboard ? keyboard + 40 : bottomSpace }}>
         <View className="gap-3 rounded-3xl p-4" style={{ backgroundColor: colors.surface }}>
           <View className="flex-row items-center gap-3">
             <PlayButton playing={active && player.playing} onPress={() => player.toggle(rec._id, rec.url)} size={52} />

@@ -1,6 +1,5 @@
 import { sortByText } from '@jam-practice/core/sortText';
 import { formatComposer } from '@jam-practice/core/iRealPro';
-import { UNSORTED_PLAYLIST_ID } from '@jam-practice/core/chordChartsLibrary';
 import { useRouter } from 'expo-router';
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
@@ -35,49 +34,52 @@ export function songSubtitle(song: LibrarySongMeta, playlistName?: string) {
 
 export type SortedPlaylist = { id: string; name: string; songs: LibrarySongMeta[] };
 
-/** The library hook plus everything both screens derive from it: playlists sorted by name
-    ("Unsorted" last) with songs sorted by title, an id → {song, playlist} index, and the ⋮ menu
-    (state + the rendered sheet, ready to drop into a screen). */
+/** The playlist-screen id for "All charts" — every chart in the library, once. */
+export const ALL_CHARTS_ID = 'all';
+
+/** The library hook plus everything the screens derive from it: playlists sorted by name with
+    their charts sorted by title, "All charts" (`allCharts`, the whole library), an id → {song,
+    names of its playlists} index, and the ⋮ menus (state + the rendered sheets, ready to drop into
+    a screen). A chart can be in several playlists, or none. */
 export function useChordChartBrowser(options: { onPlaylistDeleted?: (id: string) => void } = {}) {
   const router = useRouter();
   const library = useChordChartsLibrary(null);
-  const { playlists: raw, moveSong, deleteSong, deletePlaylist } = library;
+  const { playlists: raw, allSongs, addToPlaylist, removeFromPlaylist, deleteSong, deletePlaylist } = library;
   const { colors } = useAppTheme();
 
-  const playlists: SortedPlaylist[] = useMemo(() => {
-    const real = sortByText(raw.filter((p) => p.id !== UNSORTED_PLAYLIST_ID), (p) => p.name);
-    const unsorted = raw.filter((p) => p.id === UNSORTED_PLAYLIST_ID);
-    return [...real, ...unsorted].map((p) => ({
-      id: p.id,
-      name: p.name,
-      songs: sortByText(p.songs, (s) => s.title),
-    }));
-  }, [raw]);
+  const playlists: SortedPlaylist[] = useMemo(
+    () => sortByText(raw, (p) => p.name).map((p) => ({ id: p.id, name: p.name, songs: sortByText(p.songs, (s) => s.title) })),
+    [raw],
+  );
+  const allCharts: SortedPlaylist = useMemo(() => ({ id: ALL_CHARTS_ID, name: 'All charts', songs: sortByText(allSongs, (s) => s.title) }), [allSongs]);
 
   const songIndex = useMemo(() => {
-    const map = new Map<string, { song: LibrarySongMeta; playlistId: string; playlistName: string }>();
-    for (const p of playlists) for (const s of p.songs) map.set(s.id, { song: s, playlistId: p.id, playlistName: p.name });
+    const names = new Map(raw.map((p) => [p.id, p.name]));
+    const map = new Map<string, { song: LibrarySongMeta; playlistName: string }>();
+    for (const s of allSongs) map.set(s.id, { song: s, playlistName: s.playlistIds.map((id) => names.get(id)).filter(Boolean).join(', ') });
     return map;
-  }, [playlists]);
+  }, [raw, allSongs]);
 
   const summaries = useMemo(() => playlists.map((p) => ({ id: p.id, name: p.name, count: p.songs.length })), [playlists]);
 
   const [menuTarget, setMenuTarget] = useState<MenuTarget | null>(null);
   // The playlist ⋮ menu, and the delete confirmation it leads to.
-  const [playlistTarget, setPlaylistTarget] = useState<{ id: string; name: string; count: number } | null>(null);
-  const [deletingPlaylist, setDeletingPlaylist] = useState<{ id: string; name: string; count: number } | null>(null);
+  type PlaylistSummary = { id: string; name: string; count: number };
+  const [playlistTarget, setPlaylistTarget] = useState<PlaylistSummary | null>(null);
+  const [deletingPlaylist, setDeletingPlaylist] = useState<(PlaylistSummary & { deleteCharts: boolean }) | null>(null);
 
   const openSong = useCallback(
     (id: string) => router.push({ pathname: '/tool/chord-charts-view', params: { id } }),
     [router],
   );
 
+  const plural = (n: number) => `${n} chart${n === 1 ? '' : 's'}`;
   const menu = (
     <>
     <ActionSheet
       visible={!!playlistTarget}
       title={playlistTarget?.name}
-      subtitle={playlistTarget ? `${playlistTarget.count} chart${playlistTarget.count === 1 ? '' : 's'}` : undefined}
+      subtitle={playlistTarget ? plural(playlistTarget.count) : undefined}
       onClose={() => setPlaylistTarget(null)}
       actions={[
         {
@@ -85,7 +87,14 @@ export function useChordChartBrowser(options: { onPlaylistDeleted?: (id: string)
           icon: <TrashIcon color={colors.danger} size={22} />,
           label: 'Delete playlist',
           danger: true,
-          onPress: () => setDeletingPlaylist(playlistTarget),
+          onPress: () => playlistTarget && setDeletingPlaylist({ ...playlistTarget, deleteCharts: false }),
+        },
+        {
+          key: 'delete-charts',
+          icon: <TrashIcon color={colors.danger} size={22} />,
+          label: 'Delete playlist and its charts',
+          danger: true,
+          onPress: () => playlistTarget && setDeletingPlaylist({ ...playlistTarget, deleteCharts: true }),
         },
       ]}
     />
@@ -93,14 +102,16 @@ export function useChordChartBrowser(options: { onPlaylistDeleted?: (id: string)
       visible={!!deletingPlaylist}
       title={`Delete "${deletingPlaylist?.name ?? ''}"?`}
       message={
-        deletingPlaylist
-          ? `This deletes the playlist and all ${deletingPlaylist.count} chart${deletingPlaylist.count === 1 ? '' : 's'} in it. Tunes linked to those charts keep their notes and keys. This can't be undone.`
-          : ''
+        !deletingPlaylist
+          ? ''
+          : deletingPlaylist.deleteCharts
+            ? `This deletes the playlist and its ${plural(deletingPlaylist.count)} — except any that are also in another playlist, which stay. Tunes linked to deleted charts keep their notes and keys. This can't be undone.`
+            : `Only the playlist goes — its ${plural(deletingPlaylist.count)} stay in All charts and any other playlists.`
       }
-      confirmLabel="Delete playlist"
+      confirmLabel={deletingPlaylist?.deleteCharts ? 'Delete both' : 'Delete playlist'}
       onConfirm={() => {
         if (deletingPlaylist) {
-          void deletePlaylist(deletingPlaylist.id);
+          void deletePlaylist(deletingPlaylist.id, { deleteCharts: deletingPlaylist.deleteCharts });
           options.onPlaylistDeleted?.(deletingPlaylist.id);
         }
         setDeletingPlaylist(null);
@@ -112,7 +123,8 @@ export function useChordChartBrowser(options: { onPlaylistDeleted?: (id: string)
       playlists={summaries}
       onClose={() => setMenuTarget(null)}
       onEdit={(songId) => router.push({ pathname: '/tool/chord-charts-editor', params: { songId } })}
-      onMove={(songId, name) => void moveSong(songId, name)}
+      onAddToPlaylist={(songId, name) => void addToPlaylist(songId, name)}
+      onRemoveFromPlaylist={(songId, playlistId) => void removeFromPlaylist(songId, playlistId)}
       onDelete={(songId) => {
         void deleteSong(songId);
         forgetRecentChart(songId);
@@ -121,12 +133,12 @@ export function useChordChartBrowser(options: { onPlaylistDeleted?: (id: string)
     </>
   );
 
-  /** Opens the ⋮ menu for a playlist (the synthetic "Unsorted" bucket has nothing to delete). */
-  const openPlaylistMenu = (p: { id: string; name: string; count: number }) => {
-    if (p.id !== UNSORTED_PLAYLIST_ID) setPlaylistTarget(p);
+  /** Opens the ⋮ menu for a playlist ("All charts" has none). */
+  const openPlaylistMenu = (p: PlaylistSummary) => {
+    if (p.id !== ALL_CHARTS_ID) setPlaylistTarget(p);
   };
 
-  return { ...library, playlists, songIndex, openSong, openMenu: setMenuTarget, openPlaylistMenu, menu };
+  return { ...library, playlists, allCharts, songIndex, openSong, openMenu: setMenuTarget, openPlaylistMenu, menu };
 }
 
 export const SongRow = memo(function SongRow({

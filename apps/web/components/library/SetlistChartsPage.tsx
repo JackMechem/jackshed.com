@@ -1,5 +1,6 @@
 "use client";
 
+import { BackButton } from "@/components/library/shared";
 import { useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -118,9 +119,7 @@ function Pager({ pages, title, start, onBack }: { pages: ChartPage[]; title: str
   return (
     <>
       <header className="flex items-center gap-3 px-4 py-2 sm:px-6">
-        <button type="button" onClick={onBack} className="text-sm text-muted hover:text-foreground">
-          ← Back
-        </button>
+        <BackButton onClick={onBack} />
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-lg font-bold text-accent">{current?.name ?? title}</h1>
           <p className="truncate text-xs text-muted">{pages.length ? `${index + 1} of ${pages.length} · ${title}` : title}</p>

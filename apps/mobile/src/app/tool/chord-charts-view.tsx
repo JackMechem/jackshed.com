@@ -1,5 +1,4 @@
 import { formatComposer, KEY_NAMES, keyPitchClass, transposeSong } from '@jam-practice/core/iRealPro';
-import { UNSORTED_PLAYLIST_ID } from '@jam-practice/core/chordChartsLibrary';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
@@ -23,7 +22,7 @@ const BARS_PER_ROW = 4;
  * chart itself as much of the screen as possible: the title and info (composer · style · key ·
  * time signature) live *in the navigation header*, next to the back button, rather than in a block
  * above the chart; the header's right side holds a compact key button (transpose, display-only —
- * accent-filled while transposed) and the same ⋮ menu the library rows use (Edit / Move / Delete).
+ * accent-filled while transposed) and the same ⋮ menu the library rows use (Edit / Playlists / Delete).
  * Below the header there's nothing but the chart, with tight side padding so it renders as large as
  * the width allows.
  */
@@ -32,7 +31,7 @@ function ChordChartsViewScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
 
-  const { selectedSong: selected, selectedSongLoading, deleteSong, moveSong, playlists } = useChordChartsLibrary(id ?? null);
+  const { selectedSong: selected, selectedSongLoading, deleteSong, addToPlaylist, removeFromPlaylist, playlists, allSongs } = useChordChartsLibrary(id ?? null);
   const [transposeKey, setTransposeKey] = useState('');
   const [menuTarget, setMenuTarget] = useState<MenuTarget | null>(null);
 
@@ -47,8 +46,7 @@ function ChordChartsViewScreen() {
     [selected, transposeSemitones],
   );
 
-  const owner = playlists.find((p) => p.songs.some((s) => s.id === id));
-  const meta = owner?.songs.find((s) => s.id === id);
+  const meta = allSongs.find((s) => s.id === id);
 
   const subtitle = displayed
     ? [
@@ -91,9 +89,9 @@ function ChordChartsViewScreen() {
                     ...KEY_NAMES.map((k) => ({ value: k, label: k })),
                   ]}
                 />
-                {meta && owner ? (
+                {meta ? (
                   <Pressable
-                    onPress={() => setMenuTarget({ song: meta, playlistId: owner.id })}
+                    onPress={() => setMenuTarget({ song: meta, playlistId: null })}
                     accessibilityLabel="Chart options"
                     className="h-10 w-9 items-center justify-center"
                   >
@@ -124,12 +122,11 @@ function ChordChartsViewScreen() {
 
       <ChordChartSongMenu
         target={menuTarget}
-        playlists={playlists
-          .filter((p) => p.id !== UNSORTED_PLAYLIST_ID || p.id === owner?.id)
-          .map((p) => ({ id: p.id, name: p.name, count: p.songs.length }))}
+        playlists={playlists.map((p) => ({ id: p.id, name: p.name, count: p.songs.length }))}
         onClose={() => setMenuTarget(null)}
         onEdit={(songId) => router.push({ pathname: '/tool/chord-charts-editor', params: { songId } })}
-        onMove={(songId, name) => void moveSong(songId, name)}
+        onAddToPlaylist={(songId, name) => void addToPlaylist(songId, name)}
+        onRemoveFromPlaylist={(songId, playlistId) => void removeFromPlaylist(songId, playlistId)}
         onDelete={(songId) => {
           void deleteSong(songId);
           forgetRecentChart(songId);

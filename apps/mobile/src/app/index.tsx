@@ -5,7 +5,7 @@ import { useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
+import { useTabBarSpace } from '@/components/FloatingTabBar';
 import {
   ChevronRightIcon,
   ChordChartIcon,
@@ -40,6 +40,7 @@ const TOOL_BY_HREF = new Map(TOOLS.map((l) => [l.href, l]));
  * category. The search finds tools and your tunes.
  */
 function Home() {
+  const bottomSpace = useTabBarSpace();
   const router = useRouter();
   const { colors } = useAppTheme();
   const [query, setQuery] = useState('');
@@ -48,16 +49,16 @@ function Home() {
   const recentItems = useRecentItems();
   const { lists, ready: tunesReady } = useTuneLists();
   const { setlists } = useSetlists();
-  const { playlists, totalSongs } = useChordChartsLibrary(null);
+  const { allSongs, totalSongs } = useChordChartsLibrary(null);
 
   const q = query.trim();
   const openTool = (item: NavLinkInfo) => router.push(`/tool/${hrefToSlug(item.href)}`);
 
   const chartMeta = useMemo(() => {
     const m = new Map<string, { title: string; key: string }>();
-    for (const p of playlists) for (const s of p.songs) m.set(s.id, { title: s.title, key: s.key });
+    for (const s of allSongs) m.set(s.id, { title: s.title, key: s.key });
     return m;
-  }, [playlists]);
+  }, [allSongs]);
 
   const tuneMatches = useMemo(() => {
     if (!q) return [];
@@ -159,7 +160,7 @@ function Home() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 10, paddingBottom: TAB_BAR_CONTENT_HEIGHT + 40, gap: 26 }}
+          contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 10, paddingBottom: bottomSpace, gap: 26 }}
         >
           {q ? (
             <>

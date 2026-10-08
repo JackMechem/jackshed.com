@@ -6,60 +6,76 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import ContextMenu, { type MenuItem, type MenuState } from "@/components/ContextMenu";
 import PromptDialog from "@/components/PromptDialog";
 import { menuPosition } from "@/components/library/shared";
-import { UNSORTED_PLAYLIST_ID } from "@/lib/chordChartsLibrary";
 import { useRecentCharts } from "@/lib/recents";
-import { useChordChartsLibrary } from "@/lib/useChordChartsLibrary";
+import { useChordChartsLibrary, type LibrarySongMeta } from "@/lib/useChordChartsLibrary";
+
+/** The `/chord-charts/playlist?id=` id for "All charts" — every chart in the library, once. */
+export const ALL_CHARTS_ID = "all";
 
 /**
- * The ⋮ menus for chord charts and playlists, shared by every Chord Charts page: a chart's menu
- * (Edit / Move to a playlist / Move to a new playlist… / Delete) and a playlist's (Delete playlist,
- * confirmed). Returns the openers plus `element` — the menu and its dialogs — to render once.
+ * The ⋮ menus for chord charts and playlists, shared by every Chord Charts page. A chart lives once
+ * in the library and can be in several playlists, so its menu is Edit / Remove from <the playlist
+ * it was opened in> / Add to or Remove from each playlist / Add to a new playlist… / Delete. A
+ * playlist's: Delete playlist (charts stay in All charts) or Delete playlist and its charts. Returns the openers plus `element` — the menu and its dialogs — to render once.
  */
 export function useChartActions(options: { onPlaylistDeleted?: () => void; onSongDeleted?: () => void } = {}) {
   const router = useRouter();
-  const { playlists, moveSong, deleteSong, deletePlaylist } = useChordChartsLibrary(null);
+  const { playlists, addToPlaylist, removeFromPlaylist, deleteSong, deletePlaylist } = useChordChartsLibrary(null);
   const recents = useRecentCharts();
   const [menu, setMenu] = useState<MenuState | null>(null);
-  const [movingToNew, setMovingToNew] = useState<string | null>(null);
+  const [addingToNew, setAddingToNew] = useState<string | null>(null);
   const [deletingSong, setDeletingSong] = useState<{ id: string; title: string } | null>(null);
-  const [deletingPlaylist, setDeletingPlaylist] = useState<{ id: string; name: string; count: number } | null>(null);
+  const [deletingPlaylist, setDeletingPlaylist] = useState<{ id: string; name: string; count: number; deleteCharts: boolean } | null>(null);
 
-  function openSongMenu(e: React.MouseEvent, song: { id: string; title: string }, playlistId: string) {
+  /** `playlistId`: the playlist the chart is being shown in (offers "Remove from" it first), or null. */
+  function openSongMenu(e: React.MouseEvent, song: Pick<LibrarySongMeta, "id" | "title" | "playlistIds">, playlistId: string | null) {
+    const current = playlists.find((p) => p.id === playlistId);
     const items: MenuItem[] = [
       { label: "Edit chart", onSelect: () => router.push(`/chord-charts/edit?id=${encodeURIComponent(song.id)}`) },
+      ...(current ? [{ label: `Remove from ${current.name}`, onSelect: () => void removeFromPlaylist(song.id, current.id) }] : []),
       ...playlists
-        .filter((p) => p.id !== playlistId && p.id !== UNSORTED_PLAYLIST_ID)
-        .slice(0, 8)
-        .map((p) => ({ label: `Move to ${p.name}`, onSelect: () => void moveSong(song.id, p.name) })),
-      { label: "Move to a new playlist…", onSelect: () => setMovingToNew(song.id) },
+        .filter((p) => p.id !== playlistId)
+        .slice(0, 10)
+        .map((p) =>
+          song.playlistIds.includes(p.id)
+            ? { label: `Remove from ${p.name}`, onSelect: () => void removeFromPlaylist(song.id, p.id) }
+            : { label: `Add to ${p.name}`, onSelect: () => void addToPlaylist(song.id, p.name) },
+        ),
+      { label: "Add to a new playlist…", onSelect: () => setAddingToNew(song.id) },
       { label: "Delete chart", danger: true, onSelect: () => setDeletingSong(song) },
     ];
     setMenu({ ...menuPosition(e), items });
   }
 
   function openPlaylistMenu(e: React.MouseEvent, playlist: { id: string; name: string; count: number }) {
-    if (playlist.id === UNSORTED_PLAYLIST_ID) return;
-    setMenu({ ...menuPosition(e), items: [{ label: "Delete playlist", danger: true, onSelect: () => setDeletingPlaylist(playlist) }] });
+    if (playlist.id === ALL_CHARTS_ID) return;
+    setMenu({
+      ...menuPosition(e),
+      items: [
+        { label: "Delete playlist", danger: true, onSelect: () => setDeletingPlaylist({ ...playlist, deleteCharts: false }) },
+        { label: "Delete playlist and its charts", danger: true, onSelect: () => setDeletingPlaylist({ ...playlist, deleteCharts: true }) },
+      ],
+    });
   }
 
   const element = (
     <>
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
-      {movingToNew && (
+      {addingToNew && (
         <PromptDialog
-          title="Move to a new playlist"
+          title="Add to a new playlist"
           initialValue=""
           onSubmit={(name) => {
-            if (name.trim()) void moveSong(movingToNew, name.trim());
-            setMovingToNew(null);
+            if (name.trim()) void addToPlaylist(addingToNew, name.trim());
+            setAddingToNew(null);
           }}
-          onCancel={() => setMovingToNew(null)}
+          onCancel={() => setAddingToNew(null)}
         />
       )}
       {deletingSong && (
         <ConfirmDialog
           title={`Delete "${deletingSong.title}"?`}
-          message="This removes the chart from your library. This can't be undone."
+          message="This removes the chart from your library and every playlist it's in. This can't be undone."
           confirmLabel="Delete"
           onConfirm={() => {
             void deleteSong(deletingSong.id);
@@ -73,10 +89,14 @@ export function useChartActions(options: { onPlaylistDeleted?: () => void; onSon
       {deletingPlaylist && (
         <ConfirmDialog
           title={`Delete "${deletingPlaylist.name}"?`}
-          message={`This deletes the playlist and all ${deletingPlaylist.count} chart${deletingPlaylist.count === 1 ? "" : "s"} in it. Tunes linked to those charts keep their notes and keys. This can't be undone.`}
-          confirmLabel="Delete playlist"
+          message={
+            deletingPlaylist.deleteCharts
+              ? `This deletes the playlist and its ${deletingPlaylist.count} chart${deletingPlaylist.count === 1 ? "" : "s"} — except any that are also in another playlist, which stay. Tunes linked to deleted charts keep their notes and keys. This can't be undone.`
+              : `Only the playlist goes — its ${deletingPlaylist.count} chart${deletingPlaylist.count === 1 ? "" : "s"} stay in All charts and any other playlists.`
+          }
+          confirmLabel={deletingPlaylist.deleteCharts ? "Delete both" : "Delete playlist"}
           onConfirm={() => {
-            void deletePlaylist(deletingPlaylist.id);
+            void deletePlaylist(deletingPlaylist.id, { deleteCharts: deletingPlaylist.deleteCharts });
             setDeletingPlaylist(null);
             options.onPlaylistDeleted?.();
           }}

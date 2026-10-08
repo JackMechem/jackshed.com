@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@jam-practice/convex/_generated/api";
-import { PageShell, tuneSummary } from "@/components/library/shared";
+import { BackButton, PageShell, tuneSummary } from "@/components/library/shared";
 import { TunePickerModal } from "@/components/library/setlistParts";
 import { useTuneLists } from "@/components/library/useTuneActions";
 import LoadingSpinner from "@/components/LoadingSpinner";
@@ -81,9 +81,7 @@ export default function NewPostPage({ setlistId }: { setlistId?: string }) {
     <PageShell>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <button type="button" onClick={() => router.back()} className="mb-1 text-sm text-muted hover:text-foreground">
-            ← Back
-          </button>
+          <BackButton onClick={() => router.back()} className="mb-2" />
           <h1 className="text-3xl font-extrabold tracking-tight">{fromSetlist ? "Post a setlist" : "New post"}</h1>
         </div>
         {!loading && !blocked && (

@@ -9,7 +9,7 @@ import { api } from "@jam-practice/convex/_generated/api";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import ContextMenu, { type MenuItem, type MenuState } from "@/components/ContextMenu";
 import PromptDialog from "@/components/PromptDialog";
-import { MenuButton, PageShell, menuPosition } from "@/components/library/shared";
+import { BackButton, MenuButton, PageShell, menuPosition } from "@/components/library/shared";
 import { DraggableList, PlayInfoLine, SetlistTuneDialog, TunePickerModal, playInfo } from "@/components/library/setlistParts";
 import { tuneHref, useTuneLists, type TuneListId } from "@/components/library/useTuneActions";
 import { ChordChartIcon, DotsVerticalIcon, DragIcon, PlusIcon, ShareIcon, SlidesIcon, UsersIcon } from "@/components/tools";
@@ -33,12 +33,12 @@ export default function SetlistPage({ id }: { id: string }) {
   const { setlists, patch, remove } = useSetlists();
   const lists = useTuneLists();
   const { share, unshare } = useShareSetlist();
-  const { playlists } = useChordChartsLibrary(null);
+  const { allSongs } = useChordChartsLibrary(null);
   const chartKeys = useMemo(() => {
     const m = new Map<string, string>();
-    for (const p of playlists) for (const song of p.songs) m.set(song.id, song.key);
+    for (const song of allSongs) m.set(song.id, song.key);
     return m;
-  }, [playlists]);
+  }, [allSongs]);
   const setlist = setlists.find((s) => s.id === id);
   const postId = useQuery(api.communityTunes.postForSetlist, isAuthenticated && id ? { setlistId: id } : "skip") ?? null;
 
@@ -54,9 +54,7 @@ export default function SetlistPage({ id }: { id: string }) {
   if (!setlist) {
     return (
       <PageShell>
-        <Link href="/tunes" className="self-start text-sm text-muted hover:text-foreground">
-          ← Tunes
-        </Link>
+        <BackButton href="/tunes" label="Tunes" />
         <p className="py-10 text-center text-sm text-muted">That setlist isn&apos;t here — it may have been deleted.</p>
       </PageShell>
     );
@@ -144,9 +142,7 @@ export default function SetlistPage({ id }: { id: string }) {
     <PageShell>
       <div className="flex items-end gap-3">
         <div className="min-w-0 flex-1">
-          <Link href="/tunes" className="mb-1 block text-sm text-muted hover:text-foreground">
-            ← Tunes
-          </Link>
+          <BackButton href="/tunes" label="Tunes" className="mb-2" />
           <h1 className="truncate text-3xl font-extrabold tracking-tight">{setlist.name}</h1>
           <p className="truncate text-sm text-muted">
             Setlist · {tunes.length} tune{tunes.length === 1 ? "" : "s"}

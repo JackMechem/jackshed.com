@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import ChordChartEditor from "@/components/ChordChartEditor";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import { PageShell } from "@/components/library/shared";
-import { UNSORTED_PLAYLIST_ID } from "@/lib/chordChartsLibrary";
 import { useChordChartsLibrary } from "@/lib/useChordChartsLibrary";
 
 /** The chart builder as a page: a new chart (`/chord-charts/new`, optionally `?playlist=` to
@@ -12,7 +11,7 @@ import { useChordChartsLibrary } from "@/lib/useChordChartsLibrary";
 export default function ChartEditorPage({ editId, playlist }: { editId?: string; playlist?: string }) {
   const router = useRouter();
   const { playlists, loading, selectedSong, selectedSongLoading, importSongs, updateSong } = useChordChartsLibrary(editId ?? null);
-  const names = playlists.filter((p) => p.id !== UNSORTED_PLAYLIST_ID).map((p) => p.name);
+  const names = playlists.map((p) => p.name);
 
   if (loading || (editId && (selectedSongLoading || !selectedSong))) {
     return (

@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 
 import { SearchField } from '@/components/ChordChartList';
-import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
+import { useTabBarSpace } from '@/components/FloatingTabBar';
 import { PlusIcon } from '@/components/icons';
 import { SETLIST_ROW_H, SetlistRow } from '@/components/library/SetlistRow';
 import { NameDialog } from '@/components/NameDialog';
@@ -20,6 +20,7 @@ type Sort = 'recent' | 'name';
  * in it), sorted by most recently changed or A–Z; + makes a new one.
  */
 function SetlistsScreen() {
+  const bottomSpace = useTabBarSpace();
   const { colors } = useAppTheme();
   const router = useRouter();
   const { setlists, ready, create } = useSetlists();
@@ -84,7 +85,7 @@ function SetlistsScreen() {
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
             getItemLayout={(_, i) => ({ length: SETLIST_ROW_H + 6, offset: (SETLIST_ROW_H + 6) * i, index: i })}
-            contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: TAB_BAR_CONTENT_HEIGHT + 24 }}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: bottomSpace }}
             renderItem={({ item }) => <SetlistRow setlist={item} />}
             ListEmptyComponent={
               <Text className="font-inter py-8 text-center text-sm" style={{ color: colors.muted }}>

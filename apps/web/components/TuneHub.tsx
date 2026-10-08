@@ -1,5 +1,6 @@
 "use client";
 
+import { BackButton } from "@/components/library/shared";
 import { useConvexAuth } from "@convex-dev/auth/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -107,7 +108,7 @@ function Hub({
   onDeleted: () => void;
 }) {
   const router = useRouter();
-  const { selectedSong: chart, selectedSongLoading, loading: libraryLoading, playlists } = useChordChartsLibrary(tune.chordChartId ?? null);
+  const { selectedSong: chart, selectedSongLoading, loading: libraryLoading, allSongs } = useChordChartsLibrary(tune.chordChartId ?? null);
   const [previewKey, setPreviewKey] = useState("");
   const [editing, setEditing] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -156,9 +157,9 @@ function Hub({
     if (tune.chordChartId) return [];
     const want = titleKey(tune.name);
     const out: { song: LibrarySongMeta; playlist: string }[] = [];
-    for (const p of playlists) for (const s of p.songs) if (titleKey(s.title) === want) out.push({ song: s, playlist: p.name });
+    for (const s of allSongs) if (titleKey(s.title) === want) out.push({ song: s, playlist: s.playlistNames });
     return out.slice(0, 3);
-  }, [tune.chordChartId, tune.name, playlists]);
+  }, [tune.chordChartId, tune.name, allSongs]);
 
   const shownChart = useMemo(() => {
     if (!chart || !previewKey) return chart;
@@ -188,9 +189,7 @@ function Hub({
     <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 pb-16 pt-[calc(env(safe-area-inset-top)+4.5rem)] sm:px-6 lg:pt-12">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <button type="button" onClick={() => router.back()} className="mb-1 text-sm text-muted hover:text-foreground">
-            ← Back
-          </button>
+          <BackButton onClick={() => router.back()} className="mb-2" />
           <h1 className="truncate text-3xl font-bold">{tune.name}</h1>
           <p className="text-sm text-muted">
             {[LIST_LABEL[list], tune.timeSignature, tempos.length ? `${tempos.join(", ")} BPM` : null].filter(Boolean).join(" · ")}
@@ -331,7 +330,7 @@ function Hub({
       {editing && <TuneEditorModal initial={tune} isNew={false} onSave={(t) => { patch(t); setEditing(false); }} onClose={() => setEditing(false)} />}
       {picking && (
         <ChartLinkPicker
-          playlists={playlists}
+          songs={allSongs}
           initialQuery={tune.name}
           onPick={(songId) => {
             patch({ chordChartId: songId });

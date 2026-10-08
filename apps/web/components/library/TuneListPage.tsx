@@ -1,7 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { PageShell } from "@/components/library/shared";
+import { BackButton, PageShell } from "@/components/library/shared";
 import { TUNE_LIST_LABEL, useTuneLists, type TuneListId } from "@/components/library/useTuneActions";
 import { BookIcon, ListIcon } from "@/components/tools";
 import TuneListManager from "@/components/TuneListManager";
@@ -9,13 +8,10 @@ import TuneListManager from "@/components/TuneListManager";
 /** Every tune in one list (Tunes I Know or Tunes to Learn) — search, add (jazz standards or your
     own), edit, bulk select/export/import/delete; each tune's name opens its own page. */
 export default function TuneListPage({ list }: { list: TuneListId }) {
-  const router = useRouter();
   const lists = useTuneLists();
   return (
     <PageShell>
-      <button type="button" onClick={() => router.push("/tunes")} className="-mb-4 self-start text-sm text-muted hover:text-foreground">
-        ← Tunes
-      </button>
+      <BackButton href="/tunes" label="Tunes" className="-mb-4" />
       <TuneListManager
         title={TUNE_LIST_LABEL[list]}
         icon={list === "learn" ? BookIcon : ListIcon}

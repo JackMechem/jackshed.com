@@ -6,12 +6,11 @@ import {
   createPlaylistInLibrary,
   deletePlaylistFromLibrary,
   mergeIntoLibrary,
-  songKey,
-  moveSongToPlaylist,
+  addSongToPlaylist,
+  removeSongFromPlaylist,
   removeSongFromLibrary,
   updateSongInLibrary,
   resolvePlaylists,
-  UNSORTED_PLAYLIST_ID,
   type Library,
 } from '@jam-practice/core/chordChartsLibrary';
 import type { IRealSong } from '@jam-practice/core/iRealPro';
@@ -29,6 +28,10 @@ export type LibrarySongMeta = {
   style: string;
   key: string;
   timeSignature: { top: number; bottom: number };
+  /** Every playlist this chart is in (a chart can be in several, or none). */
+  playlistIds: string[];
+  /** Those playlists' names, comma-separated ("" when it's in none) — for a row's subtitle. */
+  playlistNames: string;
 };
 
 export type LibraryPlaylist = { id: string; name: string; songs: LibrarySongMeta[] };
@@ -152,7 +155,8 @@ export function useChordChartsLibrary(selectedSongId: string | null) {
   const importMutation = useMutation(api.chordCharts.importSongs);
   const deleteMutation = useMutation(api.chordCharts.deleteSong);
   const clearMutation = useMutation(api.chordCharts.clearAll);
-  const moveMutation = useMutation(api.chordCharts.moveSong);
+  const addToPlaylistMutation = useMutation(api.chordCharts.addToPlaylist);
+  const removeFromPlaylistMutation = useMutation(api.chordCharts.removeFromPlaylist);
   const createPlaylistMutation = useMutation(api.chordCharts.createPlaylist);
   const updateMutation = useMutation(api.chordCharts.updateSong);
   const deletePlaylistMutation = useMutation(api.chordCharts.deletePlaylist);
@@ -168,28 +172,46 @@ export function useChordChartsLibrary(selectedSongId: string | null) {
     if (!isAuthenticated) migratedRef.current = false;
   }, [isAuthenticated, migrateMutation]);
 
-  const playlists: LibraryPlaylist[] = useMemo(() => {
-    if (!isAuthenticated) return resolvePlaylists(localLibrary, { includeEmpty: true });
-    if (!convexLibrary) return [];
-    const playlistIds = new Set(convexLibrary.playlists.map((p) => p.id));
+  // Every chart once ("All charts"), with the playlists it's in; and each playlist with its charts
+  // (a chart in several playlists shows in each).
+  const { allSongs, playlists } = useMemo((): { allSongs: LibrarySongMeta[]; playlists: LibraryPlaylist[] } => {
+    if (!isAuthenticated) {
+      const resolved = resolvePlaylists(localLibrary);
+      const names = new Map(localLibrary.playlists.map((p) => [p.id, p.name]));
+      const memberships = new Map<string, string[]>();
+      for (const p of localLibrary.playlists) for (const id of p.songIds) memberships.set(id, [...(memberships.get(id) ?? []), p.id]);
+      const all = localLibrary.songs.map((s) => ({
+        id: s.id,
+        title: s.title,
+        composer: s.composer,
+        style: s.style,
+        key: s.key,
+        timeSignature: s.timeSignature,
+        playlistIds: memberships.get(s.id) ?? [],
+        playlistNames: (memberships.get(s.id) ?? []).map((id) => names.get(id)).filter(Boolean).join(', '),
+      }));
+      const byId = new Map(all.map((s) => [s.id, s]));
+      return {
+        allSongs: all,
+        playlists: resolved.map((p) => ({ id: p.id, name: p.name, songs: p.songs.map((s) => byId.get(s.id)!).filter(Boolean) })),
+      };
+    }
+    if (!convexLibrary) return { allSongs: [], playlists: [] };
+    const names = new Map(convexLibrary.playlists.map((p) => [p.id as string, p.name]));
+    const all: LibrarySongMeta[] = convexLibrary.songs.map((s) => ({
+      id: s.id,
+      title: s.title,
+      composer: s.composer,
+      style: s.style,
+      key: s.key,
+      timeSignature: s.timeSignature,
+      playlistIds: s.playlistIds,
+      playlistNames: s.playlistIds.map((id) => names.get(id)).filter(Boolean).join(', '),
+    }));
     const byPlaylist = new Map<string, LibrarySongMeta[]>();
-    const orphans: LibrarySongMeta[] = [];
-    for (const song of convexLibrary.songs) {
-      if (playlistIds.has(song.playlistId)) {
-        const list = byPlaylist.get(song.playlistId) ?? [];
-        list.push(song);
-        byPlaylist.set(song.playlistId, list);
-      } else {
-        orphans.push(song);
-      }
-    }
-    const resolved: LibraryPlaylist[] = convexLibrary.playlists
-      // Empty playlists are kept: the user can create one (New → Playlist) before adding charts.
-      .map((p) => ({ id: p.id, name: p.name, songs: byPlaylist.get(p.id) ?? [] }));
-    if (orphans.length > 0) {
-      resolved.push({ id: UNSORTED_PLAYLIST_ID, name: 'Unsorted', songs: orphans });
-    }
-    return resolved;
+    for (const song of all) for (const pid of song.playlistIds) byPlaylist.set(pid, [...(byPlaylist.get(pid) ?? []), song]);
+    // Empty playlists are kept: one can be made before any chart is in it.
+    return { allSongs: all, playlists: convexLibrary.playlists.map((p) => ({ id: p.id, name: p.name, songs: byPlaylist.get(p.id) ?? [] })) };
   }, [isAuthenticated, localLibrary, convexLibrary]);
 
   const totalSongs = isAuthenticated ? (convexLibrary?.songs.length ?? 0) : localLibrary.songs.length;
@@ -199,12 +221,8 @@ export function useChordChartsLibrary(selectedSongId: string | null) {
 
   const selectedMeta = useMemo(() => {
     if (!isAuthenticated || !selectedSongId) return null;
-    for (const p of playlists) {
-      const found = p.songs.find((s) => s.id === selectedSongId);
-      if (found) return found;
-    }
-    return null;
-  }, [isAuthenticated, playlists, selectedSongId]);
+    return allSongs.find((s) => s.id === selectedSongId) ?? null;
+  }, [isAuthenticated, allSongs, selectedSongId]);
 
   const selectedSong: IRealSong | null = useMemo(() => {
     if (!selectedSongId) return null;
@@ -225,14 +243,14 @@ export function useChordChartsLibrary(selectedSongId: string | null) {
   const selectedSongLoading =
     isAuthenticated && !!selectedSongId && !!selectedMeta && convexBars === undefined;
 
-  async function importSongs(songs: IRealSong[], playlistName: string, options: { replaceExisting?: boolean } = {}) {
+  async function importSongs(songs: IRealSong[], playlistName: string | null, options: { replaceExisting?: boolean } = {}) {
     if (isAuthenticated) {
       // In chunks: one Convex function can only read/write so much (4,096 reads), and updating
       // charts you already have reads each one's existing bars — a whole 1,400-chart playlist in a
       // single call goes over.
       const totals = { added: 0, skipped: 0, updated: 0, ids: [] as string[] };
       for (let i = 0; i < songs.length; i += IMPORT_CHUNK) {
-        const r = await importMutation({ playlistName, songs: songs.slice(i, i + IMPORT_CHUNK), replaceExisting: options.replaceExisting });
+        const r = await importMutation({ playlistName: playlistName ?? undefined, songs: songs.slice(i, i + IMPORT_CHUNK), replaceExisting: options.replaceExisting });
         totals.added += r.added;
         totals.skipped += r.skipped;
         totals.updated += r.updated;
@@ -242,9 +260,7 @@ export function useChordChartsLibrary(selectedSongId: string | null) {
     }
     const result = mergeIntoLibrary(localLibrary, songs, playlistName, options);
     updateLocalLibrary(result.library);
-    const byKey = new Map(result.library.songs.map((s) => [songKey(s), s.id]));
-    const ids = songs.map((s) => byKey.get(songKey(s)) ?? '');
-    return { added: result.added, skipped: result.skipped, updated: result.updated, ids };
+    return { added: result.added, skipped: result.skipped, updated: result.updated, ids: result.ids };
   }
 
   async function deleteSong(songId: string) {
@@ -255,13 +271,24 @@ export function useChordChartsLibrary(selectedSongId: string | null) {
     updateLocalLibrary(removeSongFromLibrary(localLibrary, songId));
   }
 
-  async function moveSong(songId: string, playlistName: string) {
+  /** Adds a chart to the playlist named `playlistName` (existing or new); it stays in any others. */
+  async function addToPlaylist(songId: string, playlistName: string) {
     if (isAuthenticated) {
-      await moveMutation({ songId: songId as Id<'chordChartSongs'>, playlistName });
+      await addToPlaylistMutation({ songId: songId as Id<'chordChartSongs'>, playlistName });
       return;
     }
-    updateLocalLibrary(moveSongToPlaylist(localLibrary, songId, playlistName));
+    updateLocalLibrary(addSongToPlaylist(localLibrary, songId, playlistName));
   }
+
+  /** Takes a chart out of one playlist; it stays in All charts. */
+  async function removeFromPlaylist(songId: string, playlistId: string) {
+    if (isAuthenticated) {
+      await removeFromPlaylistMutation({ songId: songId as Id<'chordChartSongs'>, playlistId: playlistId as Id<'chordChartPlaylists'> });
+      return;
+    }
+    updateLocalLibrary(removeSongFromPlaylist(localLibrary, songId, playlistId));
+  }
+
 
   async function updateSong(songId: string, song: IRealSong) {
     if (isAuthenticated) {
@@ -279,12 +306,12 @@ export function useChordChartsLibrary(selectedSongId: string | null) {
     updateLocalLibrary(createPlaylistInLibrary(localLibrary, name));
   }
 
-  async function deletePlaylist(playlistId: string) {
+  async function deletePlaylist(playlistId: string, options: { deleteCharts?: boolean } = {}) {
     if (isAuthenticated) {
-      await deletePlaylistMutation({ playlistId: playlistId as Id<'chordChartPlaylists'> });
+      await deletePlaylistMutation({ playlistId: playlistId as Id<'chordChartPlaylists'>, deleteCharts: options.deleteCharts });
       return;
     }
-    updateLocalLibrary(deletePlaylistFromLibrary(localLibrary, playlistId));
+    updateLocalLibrary(deletePlaylistFromLibrary(localLibrary, playlistId, options));
   }
 
   async function clearAll() {
@@ -297,13 +324,15 @@ export function useChordChartsLibrary(selectedSongId: string | null) {
 
   return {
     playlists,
+    allSongs,
     totalSongs,
     loading,
     selectedSong,
     selectedSongLoading,
     importSongs,
     deleteSong,
-    moveSong,
+    addToPlaylist,
+    removeFromPlaylist,
     createPlaylist,
     updateSong,
     deletePlaylist,

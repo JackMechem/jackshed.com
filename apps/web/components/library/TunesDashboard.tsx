@@ -39,7 +39,7 @@ export default function TunesDashboard() {
   const { openTuneMenu, element } = useTuneActions();
   const [query, setQuery] = useState("");
   const [addMenu, setAddMenu] = useState<MenuState | null>(null);
-  const [addingStandard, setAddingStandard] = useState(false);
+  const [addingStandard, setAddingStandard] = useState<TuneListId | null>(null);
   const [creating, setCreating] = useState<{ list: TuneListId; tune: Tune } | null>(null);
 
   const tunes = lists.tunes.tunes;
@@ -71,6 +71,17 @@ export default function TunesDashboard() {
     })
     .filter((x) => x !== null);
 
+  /** The + next to Tunes I Know / Tunes to Learn: a standard or a new tune, into that list. */
+  function openListAdd(e: React.MouseEvent, list: TuneListId) {
+    setAddMenu({
+      ...menuPosition(e),
+      items: [
+        { label: "Add a jazz standard", onSelect: () => setAddingStandard(list) },
+        { label: list === "learn" ? "New tune to learn" : "New tune", onSelect: () => setCreating({ list, tune: blankTune() }) },
+      ],
+    });
+  }
+
   function row(list: TuneListId) {
     return function renderTune(tune: Tune) {
       return <TuneRow key={tune.id} tune={tune} href={tuneHref(list, tune.id)} onMenu={(e) => openTuneMenu(e, list, tune)} />;
@@ -89,7 +100,7 @@ export default function TunesDashboard() {
                 ...menuPosition(e),
                 items: [
                   { label: "New setlist", onSelect: () => setNamingSetlist(true) },
-                  { label: "Add a jazz standard", onSelect: () => setAddingStandard(true) },
+                  { label: "Add a jazz standard", onSelect: () => setAddingStandard("tunes") },
                   { label: "New tune", onSelect: () => setCreating({ list: "tunes", tune: blankTune() }) },
                   ...(isAuthenticated ? [{ label: "New tune to learn", onSelect: () => setCreating({ list: "learn", tune: blankTune() }) }] : []),
                 ],
@@ -136,7 +147,13 @@ export default function TunesDashboard() {
           )}
 
           <section className="flex flex-col gap-1.5">
-            <SectionHeader title="Setlists" detail={setlists.length > PREVIEW ? String(setlists.length) : undefined} href={setlists.length ? "/tunes/setlists" : undefined} />
+            <SectionHeader
+              title="Setlists"
+              detail={setlists.length > PREVIEW ? String(setlists.length) : undefined}
+              href={setlists.length ? "/tunes/setlists" : undefined}
+              onAdd={() => setNamingSetlist(true)}
+              addLabel="New setlist"
+            />
             {setlists.length === 0 ? (
               <button type="button" onClick={() => setNamingSetlist(true)} className="flex items-center gap-3 rounded-2xl bg-surface p-4 text-left text-sm text-muted hover:bg-surface-hover">
                 <SetlistIcon className="h-5 w-5 shrink-0 text-accent" />
@@ -151,13 +168,18 @@ export default function TunesDashboard() {
           </section>
 
           <section className="flex flex-col gap-1">
-            <SectionHeader title={TUNE_LIST_LABEL.tunes} detail={tunes.length ? `${tunes.length - withChart} without a chart` : undefined} href="/tunes/list?list=tunes" />
+            <SectionHeader
+              title={TUNE_LIST_LABEL.tunes}
+              detail={tunes.length ? `${tunes.length - withChart} without a chart` : undefined}
+              href="/tunes/list?list=tunes"
+              onAdd={(e) => openListAdd(e, "tunes")}
+            />
             {tunes.length === 0 ? <EmptyCard>No tunes yet — press + to add a jazz standard or your own.</EmptyCard> : [...tunes].reverse().slice(0, PREVIEW).map(row("tunes"))}
           </section>
 
           {isAuthenticated && (
             <section className="flex flex-col gap-1">
-              <SectionHeader title={TUNE_LIST_LABEL.learn} href="/tunes/list?list=learn" />
+              <SectionHeader title={TUNE_LIST_LABEL.learn} href="/tunes/list?list=learn" onAdd={(e) => openListAdd(e, "learn")} />
               {learn.length === 0 ? <EmptyCard>Tunes you want to learn, kept apart from the ones you know.</EmptyCard> : [...learn].reverse().slice(0, PREVIEW).map(row("learn"))}
             </section>
           )}
@@ -181,12 +203,12 @@ export default function TunesDashboard() {
       )}
       {addingStandard && (
         <StandardsPicker
-          tunes={lists.tunes.tunes}
-          setTunes={lists.tunes.setTunes}
-          onClose={() => setAddingStandard(false)}
+          tunes={lists[addingStandard].tunes}
+          setTunes={lists[addingStandard].setTunes}
+          onClose={() => setAddingStandard(null)}
           onCreateCustom={(name) => {
-            setAddingStandard(false);
-            setCreating({ list: "tunes", tune: blankTune(name) });
+            setCreating({ list: addingStandard, tune: blankTune(name) });
+            setAddingStandard(null);
           }}
         />
       )}

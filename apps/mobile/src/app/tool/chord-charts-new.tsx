@@ -1,5 +1,4 @@
 import { sortByText } from '@jam-practice/core/sortText';
-import { UNSORTED_PLAYLIST_ID } from '@jam-practice/core/chordChartsLibrary';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
@@ -16,7 +15,7 @@ import { ScreenSpinner, withScreenLoader } from '@/components/ScreenLoader';
  * right where the keyboard slides up, which was reported as annoying to type into. Here the text
  * fields come first (Title focused on open) at the top of the screen, the playlist picker (tap-only,
  * no keyboard) below them, and "Start building" lives in the header so the keyboard never covers it.
- * Every chart must be in a playlist: pick one or name a new one. On continue this *replaces* itself
+ * The chart can go in a playlist (pick one or name a new one) or just in All charts. On continue this *replaces* itself
  * with the chart builder (`chord-charts-editor`), passing the details along, so back from the
  * builder returns to the list rather than to this form.
  */
@@ -26,7 +25,7 @@ function NewChordChartScreen() {
   const params = useLocalSearchParams<{ playlist?: string; title?: string }>();
   const { playlists: raw, loading } = useChordChartsLibrary(null);
   const playlists = sortByText(
-    raw.filter((p) => p.id !== UNSORTED_PLAYLIST_ID).map((p) => p.name),
+    raw.map((p) => p.name),
     (name) => name,
   );
 
@@ -34,17 +33,17 @@ function NewChordChartScreen() {
   const [composer, setComposer] = useState('');
   const [style, setStyle] = useState('');
   const [key, setKey] = useState('');
-  // `undefined` = nothing picked yet (falls back to the first playlist); `null` = "New playlist…".
-  const [picked, setPicked] = useState<string | null | undefined>(params.playlist);
+  // A playlist's name; `''` = no playlist (All charts only); `null` = "New playlist…".
+  const [picked, setPicked] = useState<string | null>(params.playlist ?? '');
   const [newPlaylist, setNewPlaylist] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const chosen = picked === undefined ? (playlists[0] ?? null) : picked;
+  const chosen = picked;
 
   function submit() {
     const playlist = chosen ?? newPlaylist.trim();
     if (!title.trim()) return setError('Give the chart a title.');
-    if (!playlist) return setError('Pick a playlist, or name a new one.');
+    if (chosen === null && !playlist) return setError('Name the new playlist, or pick another option.');
     router.replace({
       pathname: '/tool/chord-charts-editor',
       params: { playlist, title: title.trim(), composer: composer.trim(), style: style.trim(), key: key.trim() },
@@ -111,6 +110,18 @@ function NewChordChartScreen() {
 
           <Field label="Playlist">
             <View className="overflow-hidden rounded-xl" style={{ backgroundColor: colors.surface }}>
+              <Pressable
+                onPress={() => setPicked('')}
+                android_ripple={{ color: colors['surface-hover'] }}
+                className="flex-row items-center gap-3 px-3"
+                style={{ minHeight: 52 }}
+              >
+                <FolderIcon color={chosen === '' ? colors.accent : colors.muted} size={20} />
+                <Text numberOfLines={1} className="font-inter-semibold flex-1 text-base font-semibold" style={{ color: colors.foreground }}>
+                  No playlist (All charts only)
+                </Text>
+                {chosen === '' ? <CheckIcon color={colors.accent} size={20} /> : null}
+              </Pressable>
               {playlists.map((name) => (
                 <Pressable
                   key={name}

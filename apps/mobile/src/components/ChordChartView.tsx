@@ -398,16 +398,17 @@ function BarCell({
           {GLYPH_REPEAT_TWO}
         </Text>
       ) : null}
-      {timeSignature ? <TimeSignatureGlyph timeSignature={timeSignature} /> : null}
+      {timeSignature ? <TimeSignatureGlyph timeSignature={timeSignature} offset={bar.startRepeat ? 12 : 7} /> : null}
       {content ?? <BarContent bar={bar} />}
     </View>
   );
 }
 
-function TimeSignatureGlyph({ timeSignature }: { timeSignature: { top: number; bottom: number } }) {
+/** `offset` keeps it clear of the opening barline (and repeat dots, when there are any). */
+function TimeSignatureGlyph({ timeSignature, offset }: { timeSignature: { top: number; bottom: number }; offset: number }) {
   const { colors } = useAppTheme();
   return (
-    <View style={{ alignItems: 'center', marginRight: 2 }}>
+    <View style={{ alignItems: 'center', marginLeft: offset, marginRight: 2 }}>
       <Text style={{ fontFamily: 'PetalumaScript', fontSize: TIME_SIG_SIZE, lineHeight: TIME_SIG_SIZE * 0.9, color: colors.foreground }}>
         {timeSignature.top}
       </Text>

@@ -25,7 +25,7 @@ export function ChartPickerModal({
   onClose: () => void;
 }) {
   const { colors } = useAppTheme();
-  const { playlists, totalSongs } = useChordChartBrowser();
+  const { allCharts, totalSongs } = useChordChartBrowser();
   const [query, setQuery] = useState(initialQuery);
   const [wasVisible, setWasVisible] = useState(visible);
   if (visible !== wasVisible) {
@@ -36,13 +36,11 @@ export function ChartPickerModal({
   const q = query.trim().toLowerCase();
   const rows = useMemo(() => {
     const out: { song: LibrarySongMeta; playlist: string }[] = [];
-    for (const p of playlists) {
-      for (const song of p.songs) {
-        if (!q || song.title.toLowerCase().includes(q) || song.composer.toLowerCase().includes(q)) out.push({ song, playlist: p.name });
-      }
+    for (const song of allCharts.songs) {
+      if (!q || song.title.toLowerCase().includes(q) || song.composer.toLowerCase().includes(q)) out.push({ song, playlist: song.playlistNames });
     }
     return out;
-  }, [playlists, q]);
+  }, [allCharts, q]);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>

@@ -16,7 +16,7 @@ import {
 } from '@/components/icons';
 import { InfoButton } from '@/components/InfoButton';
 import { StandardsPicker } from '@/components/StandardsPicker';
-import { useChordChartsLibrary, type LibraryPlaylist, type LibrarySongMeta } from '@/lib/useChordChartsLibrary';
+import { useChordChartsLibrary, type LibrarySongMeta } from '@/lib/useChordChartsLibrary';
 import { sheetEdge } from '@/components/sheetStyle';
 import { useAppTheme } from '@/theme/ThemeProvider';
 
@@ -269,7 +269,7 @@ function TuneEditorModal({
   onClose: () => void;
 }) {
   const { colors } = useAppTheme();
-  const { playlists: chartPlaylists } = useChordChartsLibrary(null);
+  const { allSongs: allCharts } = useChordChartsLibrary(null);
   const [name, setName] = useState(initial.name);
   const [timeSignature, setTimeSignature] = useState(initial.timeSignature);
   const [temposText, setTemposText] = useState(temposToText(initial.tempos));
@@ -280,12 +280,8 @@ function TuneEditorModal({
 
   const linkedSong = useMemo(() => {
     if (!chordChartId) return null;
-    for (const p of chartPlaylists) {
-      const found = p.songs.find((s) => s.id === chordChartId);
-      if (found) return found;
-    }
-    return null;
-  }, [chordChartId, chartPlaylists]);
+    return allCharts.find((s) => s.id === chordChartId) ?? null;
+  }, [chordChartId, allCharts]);
 
   function save() {
     const trimmedName = name.trim();
@@ -410,7 +406,7 @@ function TuneEditorModal({
 
           {showChartPicker ? (
             <ChordChartPickerModal
-              playlists={chartPlaylists}
+              songs={allCharts}
               onPick={(song) => {
                 setChordChartId(song.id);
                 setShowChartPicker(false);
@@ -457,11 +453,11 @@ function TuneEditorModal({
  * a confusing dead-end link in that case.
  */
 function ChordChartPickerModal({
-  playlists,
+  songs,
   onPick,
   onClose,
 }: {
-  playlists: LibraryPlaylist[];
+  songs: LibrarySongMeta[];
   onPick: (song: LibrarySongMeta) => void;
   onClose: () => void;
 }) {
@@ -471,14 +467,12 @@ function ChordChartPickerModal({
 
   const rows = useMemo(() => {
     const result: { playlistName: string; song: LibrarySongMeta }[] = [];
-    for (const p of playlists) {
-      for (const song of p.songs) {
-        if (trimmedQuery && !`${song.title} ${song.composer}`.toLowerCase().includes(trimmedQuery)) continue;
-        result.push({ playlistName: p.name, song });
-      }
+    for (const song of songs) {
+      if (trimmedQuery && !`${song.title} ${song.composer}`.toLowerCase().includes(trimmedQuery)) continue;
+      result.push({ playlistName: song.playlistNames, song });
     }
     return result;
-  }, [playlists, trimmedQuery]);
+  }, [songs, trimmedQuery]);
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
@@ -511,7 +505,7 @@ function ChordChartPickerModal({
         {rows.length === 0 ? (
           <View className="flex-1 items-center justify-center p-8">
             <Text className="text-center text-sm font-inter" style={{ color: colors.muted }}>
-              {playlists.length === 0
+              {songs.length === 0
                 ? "You don't have any chord charts yet — add some from the Chord Charts tool first."
                 : `No charts match "${trimmedQuery}".`}
             </Text>

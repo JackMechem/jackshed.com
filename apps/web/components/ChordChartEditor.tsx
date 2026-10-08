@@ -165,6 +165,8 @@ function toRealBar(eb: EditableBar): Bar {
     `importSongs` "Import a playlist" itself calls, in a playlist named after the chart's own
     title) or exported as a `sheddex://` chart link (`lib/chartString.ts`) to share or re-import
     elsewhere. */
+const NO_PLAYLIST = "\u0000none";
+
 export default function ChordChartEditor({
   initial,
   playlists = [],
@@ -174,10 +176,12 @@ export default function ChordChartEditor({
 }: {
   /** Edit this existing chart (saved back in place) instead of building a new one. */
   initial?: IRealSong;
-  /** Existing playlist names — a new chart must go in one (or a new one named here). */
+  /** Existing playlist names — a new chart can go in one, a new one named here, or none (All
+      charts only). */
   playlists?: string[];
   defaultPlaylist?: string;
-  onSave: (song: IRealSong, playlistName: string) => Promise<unknown>;
+  /** `playlistName` null = no playlist. */
+  onSave: (song: IRealSong, playlistName: string | null) => Promise<unknown>;
   onClose: () => void;
 }) {
   const editing = !!initial;
@@ -190,8 +194,8 @@ export default function ChordChartEditor({
   const [bars, setBars] = useState<EditableBar[]>(() =>
     initial && initial.bars.length > 0 ? initial.bars.map(fromRealBar) : Array.from({ length: STARTING_BARS }, blankBar),
   );
-  // "" = a new playlist, named in `newPlaylist`.
-  const [playlist, setPlaylist] = useState(defaultPlaylist ?? playlists[0] ?? "");
+  // "" = a new playlist, named in `newPlaylist`; NO_PLAYLIST = All charts only.
+  const [playlist, setPlaylist] = useState(defaultPlaylist ?? NO_PLAYLIST);
   const [newPlaylist, setNewPlaylist] = useState("");
 
   // Which bar is currently "open" for typing — see the same field's own comment in the previous
@@ -287,9 +291,9 @@ export default function ChordChartEditor({
       setError("Give this chord chart a title.");
       return;
     }
-    const playlistName = editing ? "" : playlist || newPlaylist.trim();
-    if (!editing && !playlistName) {
-      setError("Pick a playlist for this chart, or name a new one.");
+    const playlistName = editing || playlist === NO_PLAYLIST ? null : playlist || newPlaylist.trim();
+    if (!editing && playlist === "" && !playlistName) {
+      setError("Name the new playlist, or pick another option.");
       return;
     }
     setError(null);
@@ -364,6 +368,7 @@ export default function ChordChartEditor({
                 onChange={(e) => setPlaylist(e.target.value)}
                 className="rounded-lg bg-background px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
+                <option value={NO_PLAYLIST}>No playlist (All charts only)</option>
                 {playlists.map((name) => (
                   <option key={name} value={name}>
                     {name}

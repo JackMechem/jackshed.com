@@ -126,7 +126,7 @@ function PostScreenContent() {
     <View className="flex-1" style={{ backgroundColor: colors.background }}>
       <Stack.Screen options={{ title: post.title }} />
       <SafeAreaView className="flex-1" edges={['bottom']}>
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 16 + TAB_BAR_CONTENT_HEIGHT, gap: 16 }}>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 + TAB_BAR_CONTENT_HEIGHT, gap: 16 }}>
             <View className="flex-row items-start justify-between gap-3">
               <View className="min-w-0 flex-1 gap-1.5">
                 <Text className="text-xl font-bold font-inter-bold" style={{ color: colors.foreground }}>

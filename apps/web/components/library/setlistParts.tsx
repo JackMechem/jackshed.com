@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { TUNE_LIST_LABEL, useTuneLists, type TuneListId } from "@/components/library/useTuneActions";
 import { tuneSummary } from "@/components/library/shared";
-import { CheckIcon, SearchIcon, SetlistIcon } from "@/components/tools";
+import { CheckIcon, PlusIcon, SearchIcon, SetlistIcon } from "@/components/tools";
 import { KEY_NAMES } from "@/lib/iRealPro";
-import type { Tune } from "@/lib/types";
+import { DEFAULT_TIME_SIGNATURE, makeId, type Tune } from "@/lib/types";
 import type { Setlist, SetlistOverride } from "@/lib/useSetlists";
 import { displayKey, isMinorKey, setlistKey } from "@jam-practice/core/setlistKeys";
 import { sortByText } from "@jam-practice/core/sortText";
+import { nameId, searchStandards, standardToTune, type Standard } from "@/lib/standards";
 
 /** Pieces of the setlist pages (`SetlistsPage`, `SetlistPage`), the web side of the mobile app's
     `app/library/setlist*.tsx` and `components/library/*`. */
@@ -79,23 +80,124 @@ function useEscape(onClose: () => void) {
   }, [onClose]);
 }
 
-/** Pick several of your tunes at once (from both lists) — adding tunes to a setlist or a post.
-    Tunes already in it (`exclude`) aren't offered again. */
+type PickerRow = { key: string; tune: Tune; list: TuneListId } | { key: string; standard: Standard } | { key: string; newName: string };
+
+/**
+ * Pick several tunes at once — adding tunes to a setlist (or a Community post). Two sections: your
+ * tunes (Tunes I Know and Tunes to Learn), then the jazz standards you don't have in either list
+ * yet (search matches composer and key too). A picked standard is added to Tunes I Know on Add, so
+ * the setlist can point at it — same as the app and as "Save as my setlist". The top row creates a
+ * tune of your own — "Create “…”" for what's typed when nothing has that name (an empty search's
+ * "Create a new tune" just focuses the box) — listed ticked under "New tunes" and made in Tunes I
+ * Know on Add. Tunes already in it
+ * (`exclude`) aren't offered again.
+ */
 export function TunePickerModal({ exclude, onAdd, onClose }: { exclude: string[]; onAdd: (tuneIds: string[]) => void; onClose: () => void }) {
   const lists = useTuneLists();
+  const known = lists.tunes.tunes;
+  const learn = lists.learn.tunes;
+  const addToKnown = lists.tunes.setTunes;
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
+  const [newNames, setNewNames] = useState<string[]>([]);
+  const searchRef = useRef<HTMLInputElement>(null);
   useEscape(onClose);
 
-  const rows = useMemo(() => {
+  const { mine, standards, fresh, canCreate } = useMemo(() => {
     const skip = new Set(exclude);
-    const all: { tune: Tune; list: TuneListId }[] = [];
-    for (const list of ["tunes", "learn"] as TuneListId[]) for (const tune of lists[list].tunes) if (!skip.has(tune.id)) all.push({ tune, list });
+    const all: PickerRow[] = [];
+    const have = new Set<string>();
+    for (const [list, tunes] of [["tunes", known], ["learn", learn]] as const)
+      for (const tune of tunes) {
+        have.add(nameId(tune.name));
+        if (!skip.has(tune.id)) all.push({ key: tune.id, tune, list });
+      }
     const q = query.trim().toLowerCase();
-    return sortByText(q ? all.filter((r) => r.tune.name.toLowerCase().includes(q)) : all, (r) => r.tune.name);
-  }, [lists, exclude, query]);
+    const mineRows = sortByText(
+      q ? all.filter((r) => "tune" in r && r.tune.name.toLowerCase().includes(q)) : all,
+      (r) => ("tune" in r ? r.tune.name : ""),
+    );
+    const standardRows: PickerRow[] = searchStandards(query)
+      .filter((st) => !have.has(nameId(st.name)))
+      .map((standard) => ({ key: `s:${standard.name}`, standard }));
+    const typed = query.trim();
+    const taken =
+      !!typed &&
+      (have.has(nameId(typed)) || standardRows.some((r) => "standard" in r && nameId(r.standard.name) === nameId(typed)) || newNames.some((n) => nameId(n) === nameId(typed)));
+    const newRows: PickerRow[] = newNames.map((newName) => ({ key: `new:${newName}`, newName }));
+    return { mine: mineRows, standards: standardRows, fresh: newRows, canCreate: !taken };
+  }, [known, learn, exclude, query, newNames]);
 
   const toggle = (id: string) => setPicked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  function createTune() {
+    const name = query.trim();
+    if (!name) {
+      searchRef.current?.focus();
+      return;
+    }
+    if (!newNames.some((n) => nameId(n) === nameId(name))) setNewNames((prev) => [...prev, name]);
+    setPicked((prev) => (prev.includes(`new:${name}`) ? prev : [...prev, `new:${name}`]));
+    setQuery("");
+    searchRef.current?.focus();
+  }
+
+  function add() {
+    const byKey = new Map([...fresh, ...mine, ...standards].map((r) => [r.key, r]));
+    const ids: string[] = [];
+    const created: Tune[] = [];
+    for (const key of picked) {
+      const row = byKey.get(key);
+      if (!row) continue;
+      if ("tune" in row) ids.push(row.tune.id);
+      else if ("newName" in row) {
+        const tune: Tune = { id: makeId(), name: row.newName, tempos: [], keys: [], timeSignature: DEFAULT_TIME_SIGNATURE, notes: "" };
+        created.push(tune);
+        ids.push(tune.id);
+      } else {
+        const tune = standardToTune(row.standard);
+        created.push(tune);
+        ids.push(tune.id);
+      }
+    }
+    if (created.length) addToKnown((prev) => [...prev, ...created]);
+    onAdd(ids);
+    onClose();
+  }
+
+  const renderRow = (row: PickerRow) => {
+    const on = picked.includes(row.key);
+    const title = "tune" in row ? row.tune.name : "newName" in row ? row.newName : row.standard.name;
+    const subtitle =
+      "tune" in row
+        ? [TUNE_LIST_LABEL[row.list], tuneSummary(row.tune)].filter(Boolean).join(" · ")
+        : "newName" in row
+          ? "New tune · added to Tunes I Know"
+          : [row.standard.composer, row.standard.key, `${row.standard.bpm} BPM`, row.standard.timeSignature].filter(Boolean).join(" · ");
+    return (
+      <li key={row.key}>
+        <button
+          type="button"
+          onClick={() => {
+            if ("newName" in row) {
+              setNewNames((prev) => prev.filter((n) => n !== row.newName));
+              setPicked((prev) => prev.filter((k) => k !== row.key));
+            } else toggle(row.key);
+          }}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-background">
+          <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${on ? "bg-accent text-accent-foreground" : "border-2 border-muted"}`}>
+            {on && <CheckIcon className="h-3.5 w-3.5" />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold">{title}</span>
+            <span className="block truncate text-xs text-muted">{subtitle}</span>
+          </span>
+        </button>
+      </li>
+    );
+  };
+
+  const header = (label: string) => <li className="px-3 pb-1 pt-3 text-base font-bold first:pt-0">{label}</li>;
 
   return (
     <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/40 p-4 pt-[8vh]" onClick={onClose}>
@@ -108,10 +210,7 @@ export function TunePickerModal({ exclude, onAdd, onClose }: { exclude: string[]
           <button
             type="button"
             disabled={picked.length === 0}
-            onClick={() => {
-              onAdd(picked);
-              onClose();
-            }}
+            onClick={add}
             className="rounded-full bg-accent px-4 py-1.5 text-sm font-bold text-accent-foreground hover:bg-accent-hover disabled:opacity-40"
           >
             {picked.length ? `Add ${picked.length}` : "Add"}
@@ -119,28 +218,33 @@ export function TunePickerModal({ exclude, onAdd, onClose }: { exclude: string[]
         </div>
         <label className="flex items-center gap-2 rounded-xl bg-background px-3 py-2">
           <SearchIcon className="h-4 w-4 text-muted" />
-          <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search your tunes…" className="min-w-0 flex-1 bg-transparent outline-none" />
+          <input ref={searchRef} autoFocus onKeyDown={(e) => e.key === "Enter" && canCreate && query.trim() && createTune()} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search your tunes and standards…" className="min-w-0 flex-1 bg-transparent outline-none" />
         </label>
         <ul className="flex flex-col gap-0.5 overflow-y-auto">
-          {rows.length === 0 ? (
-            <li className="p-3 text-sm text-muted">{query.trim() ? `No tunes match “${query}”.` : "Every one of your tunes is already in here."}</li>
+          {canCreate && (
+            <li>
+              <button type="button" onClick={createTune} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-background">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-background text-accent">
+                  <PlusIcon className="h-3.5 w-3.5" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-accent">{query.trim() ? `Create “${query.trim()}”` : "Create a new tune"}</span>
+                  <span className="block truncate text-xs text-muted">{query.trim() ? "A tune of your own, added to Tunes I Know" : "Type its name in the search box"}</span>
+                </span>
+              </button>
+            </li>
+          )}
+          {fresh.length > 0 && header("New tunes")}
+          {fresh.map(renderRow)}
+          {mine.length === 0 && standards.length === 0 ? (
+            !canCreate && <li className="p-3 text-sm text-muted">{query.trim() ? `No tunes match “${query}”.` : "Everything is already in here."}</li>
           ) : (
-            rows.slice(0, 300).map(({ tune, list }) => {
-              const on = picked.includes(tune.id);
-              return (
-                <li key={tune.id}>
-                  <button type="button" onClick={() => toggle(tune.id)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-background">
-                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${on ? "bg-accent text-accent-foreground" : "border-2 border-muted"}`}>
-                      {on && <CheckIcon className="h-3.5 w-3.5" />}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold">{tune.name}</span>
-                      <span className="block truncate text-xs text-muted">{[TUNE_LIST_LABEL[list], tuneSummary(tune)].filter(Boolean).join(" · ")}</span>
-                    </span>
-                  </button>
-                </li>
-              );
-            })
+            <>
+              {mine.length > 0 && header("Your tunes")}
+              {mine.map(renderRow)}
+              {standards.length > 0 && header("Jazz standards")}
+              {standards.map(renderRow)}
+            </>
           )}
         </ul>
       </div>

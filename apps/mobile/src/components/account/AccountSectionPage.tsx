@@ -3,7 +3,7 @@ import { Stack } from 'expo-router';
 import type { ReactNode } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 
-import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
+import { useTabBarSpace } from '@/components/FloatingTabBar';
 import { InfoButton } from '@/components/InfoButton';
 import { ScreenSpinner } from '@/components/ScreenLoader';
 import { useAppTheme } from '@/theme/ThemeProvider';
@@ -13,6 +13,7 @@ import { useAppTheme } from '@/theme/ThemeProvider';
     the section's content in a scrolling page. Guards against being reached signed out (e.g. via
     back-navigation right after signing out). */
 export function AccountSectionPage({ title, info, children }: { title: string; info?: string; children: ReactNode }) {
+  const bottomSpace = useTabBarSpace();
   const { colors } = useAppTheme();
   const { isLoading, isAuthenticated } = useConvexAuth();
   return (
@@ -34,7 +35,7 @@ export function AccountSectionPage({ title, info, children }: { title: string; i
       ) : (
         <ScrollView
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ padding: 16, paddingBottom: TAB_BAR_CONTENT_HEIGHT + 32, gap: 16 }}
+          contentContainerStyle={{ padding: 16, paddingBottom: bottomSpace, gap: 16 }}
         >
           {children}
         </ScrollView>

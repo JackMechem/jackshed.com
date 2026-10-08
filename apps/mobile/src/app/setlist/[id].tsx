@@ -4,7 +4,7 @@ import { Stack, useLocalSearchParams } from 'expo-router';
 import { ScrollView, Text, View } from 'react-native';
 
 import { PublicSetlist } from '@/components/community/PublicSetlist';
-import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
+import { useTabBarSpace } from '@/components/FloatingTabBar';
 import { SetlistIcon } from '@/components/icons';
 import { ScreenSpinner, withScreenLoader } from '@/components/ScreenLoader';
 import { useAppTheme } from '@/theme/ThemeProvider';
@@ -16,6 +16,7 @@ import { useAppTheme } from '@/theme/ThemeProvider';
  * Know (matched by name) and makes a setlist of them, in the same order.
  */
 function SharedSetlistScreen() {
+  const bottomSpace = useTabBarSpace();
   const { colors } = useAppTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const shared = useQuery(api.setlists.getShared, id ? { id } : 'skip');
@@ -35,7 +36,7 @@ function SharedSetlistScreen() {
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background }}>
       <Stack.Screen options={{ title: shared.title }} />
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: TAB_BAR_CONTENT_HEIGHT + 32 }}>
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: bottomSpace }}>
         <View className="gap-1">
           <View className="flex-row items-center gap-2">
             <SetlistIcon color={colors.accent} size={22} />

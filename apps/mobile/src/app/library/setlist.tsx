@@ -11,7 +11,7 @@ import { ScrollView } from 'react-native-gesture-handler';
 import { ActionSheet, type SheetAction } from '@/components/ActionSheet';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DraggableList } from '@/components/DraggableList';
-import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
+import { useTabBarSpace } from '@/components/FloatingTabBar';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -50,6 +50,7 @@ import { useAppTheme } from '@/theme/ThemeProvider';
 const ROW_H = 62;
 
 function SetlistScreen() {
+  const bottomSpace = useTabBarSpace();
   const { colors } = useAppTheme();
   const router = useRouter();
   const { isAuthenticated } = useConvexAuth();
@@ -57,12 +58,12 @@ function SetlistScreen() {
   const { setlists, ready, patch, remove } = useSetlists();
   const { lists, ready: tunesReady } = useTuneLists();
   const { share, unshare } = useShareSetlist();
-  const { playlists } = useChordChartsLibrary(null);
+  const { allSongs } = useChordChartsLibrary(null);
   const chartKeys = useMemo(() => {
     const m = new Map<string, string>();
-    for (const p of playlists) for (const song of p.songs) m.set(song.id, song.key);
+    for (const song of allSongs) m.set(song.id, song.key);
     return m;
-  }, [playlists]);
+  }, [allSongs]);
   const [settingsFor, setSettingsFor] = useState<Tune | null>(null);
   const setlist = setlists.find((s) => s.id === id);
   // Already posted this setlist? Then "Post to Community" becomes "View post".
@@ -226,7 +227,7 @@ function SetlistScreen() {
           ),
         }}
       />
-      <ScrollView scrollEnabled={!dragging} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: TAB_BAR_CONTENT_HEIGHT + 32 }}>
+      <ScrollView scrollEnabled={!dragging} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: bottomSpace }}>
         {setlist.description ? (
           <Text className="font-inter text-base" style={{ color: colors.foreground }}>
             {setlist.description}

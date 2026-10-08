@@ -52,14 +52,14 @@ export default function Home() {
   const recentCharts = useRecentCharts();
   const lists = useTuneLists();
   const { setlists } = useSetlists();
-  const { playlists, totalSongs } = useChordChartsLibrary(null);
+  const { allSongs, totalSongs } = useChordChartsLibrary(null);
 
   const q = query.trim();
   const chartMeta = useMemo(() => {
     const m = new Map<string, { title: string; key: string }>();
-    for (const p of playlists) for (const s of p.songs) m.set(s.id, { title: s.title, key: s.key });
+    for (const s of allSongs) m.set(s.id, { title: s.title, key: s.key });
     return m;
-  }, [playlists]);
+  }, [allSongs]);
 
   const tuneMatches = useMemo(() => {
     if (!q) return [];

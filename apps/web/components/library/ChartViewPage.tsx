@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ChordChart from "@/components/ChordChart";
 import LoadingSpinner from "@/components/LoadingSpinner";
-import { PageShell } from "@/components/library/shared";
+import { BackButton, PageShell } from "@/components/library/shared";
 import { useChartActions } from "@/components/library/useChartActions";
 import Select from "@/components/Select";
 import { DotsVerticalIcon, MaximizeIcon, MinimizeIcon } from "@/components/tools";
@@ -13,11 +13,11 @@ import { useRecentCharts } from "@/lib/recents";
 import { useChordChartsLibrary } from "@/lib/useChordChartsLibrary";
 
 /** One chord chart on its own page: title and details up top, a key selector (display-only
-    transpose), full-screen, and the chart ⋮ menu (edit / move / delete). Opening it puts it in
+    transpose), full-screen, and the chart ⋮ menu (edit / playlists / delete). Opening it puts it in
     "Recently opened". */
 export default function ChartViewPage({ id }: { id: string }) {
   const router = useRouter();
-  const { selectedSong: chart, selectedSongLoading, loading, playlists } = useChordChartsLibrary(id || null);
+  const { selectedSong: chart, selectedSongLoading, loading, allSongs } = useChordChartsLibrary(id || null);
   const { openSongMenu, element } = useChartActions({ onSongDeleted: () => router.back() });
   const [transposeKey, setTransposeKey] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
@@ -38,7 +38,7 @@ export default function ChartViewPage({ id }: { id: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [fullscreen]);
 
-  const owner = playlists.find((p) => p.songs.some((s) => s.id === id));
+  const meta = allSongs.find((s) => s.id === id);
   const shown = useMemo(() => {
     if (!chart || !transposeKey) return chart;
     const semis = (KEY_NAMES.indexOf(transposeKey) - keyPitchClass(chart.key) + 12) % 12;
@@ -66,12 +66,10 @@ export default function ChartViewPage({ id }: { id: string }) {
     <PageShell wide>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <button type="button" onClick={() => router.back()} className="mb-1 text-sm text-muted hover:text-foreground">
-            ← Back
-          </button>
+          <BackButton onClick={() => router.back()} className="mb-2" />
           <h1 className="truncate text-3xl font-extrabold tracking-tight">{chart.title}</h1>
           <p className="truncate text-sm text-muted">
-            {[chart.composer ? formatComposer(chart.composer) : null, chart.style || null, shown.key || null, `${chart.timeSignature.top}/${chart.timeSignature.bottom}`, owner?.name]
+            {[chart.composer ? formatComposer(chart.composer) : null, chart.style || null, shown.key || null, `${chart.timeSignature.top}/${chart.timeSignature.bottom}`, meta?.playlistNames || null]
               .filter(Boolean)
               .join(" · ")}
           </p>
@@ -86,10 +84,10 @@ export default function ChartViewPage({ id }: { id: string }) {
           <button type="button" onClick={() => setFullscreen(true)} aria-label="Full screen" title="Full screen" className="flex h-10 w-10 items-center justify-center rounded-full bg-surface text-muted hover:bg-surface-hover hover:text-foreground">
             <MaximizeIcon className="h-4 w-4" />
           </button>
-          {owner && (
+          {meta && (
             <button
               type="button"
-              onClick={(e) => openSongMenu(e, { id, title: chart.title }, owner.id)}
+              onClick={(e) => openSongMenu(e, meta, null)}
               aria-label="Chart options"
               className="flex h-10 w-10 items-center justify-center rounded-full bg-surface text-muted hover:bg-surface-hover hover:text-foreground"
             >

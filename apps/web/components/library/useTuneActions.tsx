@@ -37,7 +37,7 @@ export function useTuneActions() {
   const router = useRouter();
   const { isAuthenticated } = useConvexAuth();
   const lists = useTuneLists();
-  const { playlists } = useChordChartsLibrary(null);
+  const { allSongs } = useChordChartsLibrary(null);
   const recents = useRecentTunes();
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [editing, setEditing] = useState<{ list: TuneListId; tune: Tune } | null>(null);
@@ -101,7 +101,7 @@ export function useTuneActions() {
       )}
       {picking && (
         <ChartLinkPicker
-          playlists={playlists}
+          songs={allSongs}
           initialQuery={picking.tune.name}
           onPick={(songId) => {
             patch(picking.list, picking.tune.id, { chordChartId: songId });

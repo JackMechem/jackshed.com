@@ -6,10 +6,9 @@ import ContextMenu, { type MenuState } from "@/components/ContextMenu";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import PromptDialog from "@/components/PromptDialog";
 import { ChartRow, EmptyCard, FolderRow, PageHeader, PageShell, RecentCards, SearchBox, SectionHeader, StatCard, menuPosition } from "@/components/library/shared";
-import { useChartActions } from "@/components/library/useChartActions";
+import { ALL_CHARTS_ID, useChartActions } from "@/components/library/useChartActions";
 import { useTuneLists } from "@/components/library/useTuneActions";
 import { ChordChartIcon, LinkIcon, PlusIcon } from "@/components/tools";
-import { UNSORTED_PLAYLIST_ID } from "@/lib/chordChartsLibrary";
 import { formatComposer } from "@/lib/iRealPro";
 import { useRecentCharts } from "@/lib/recents";
 import { sortByText } from "@jam-practice/core/sortText";
@@ -35,7 +34,7 @@ function FolderGlyph({ className }: { className?: string }) {
  */
 export default function ChartsDashboard() {
   const router = useRouter();
-  const { playlists: raw, totalSongs, loading, createPlaylist } = useChordChartsLibrary(null);
+  const { playlists: raw, allSongs, totalSongs, loading, createPlaylist } = useChordChartsLibrary(null);
   const { openSongMenu, openPlaylistMenu, element } = useChartActions();
   const recent = useRecentCharts();
   const lists = useTuneLists();
@@ -43,15 +42,13 @@ export default function ChartsDashboard() {
   const [addMenu, setAddMenu] = useState<MenuState | null>(null);
   const [naming, setNaming] = useState(false);
 
-  const playlists = useMemo(() => {
-    const real = sortByText(raw.filter((p) => p.id !== UNSORTED_PLAYLIST_ID), (p) => p.name);
-    return [...real, ...raw.filter((p) => p.id === UNSORTED_PLAYLIST_ID)];
-  }, [raw]);
+  const playlists = useMemo(() => sortByText(raw, (p) => p.name), [raw]);
+  // Every chart once ("All charts"), with its playlists' names for subtitles.
   const index = useMemo(() => {
-    const m = new Map<string, { song: LibrarySongMeta; playlistId: string; playlistName: string }>();
-    for (const p of playlists) for (const s of p.songs) m.set(s.id, { song: s, playlistId: p.id, playlistName: p.name });
+    const m = new Map<string, { song: LibrarySongMeta; playlistName: string }>();
+    for (const s of allSongs) m.set(s.id, { song: s, playlistName: s.playlistNames });
     return m;
-  }, [playlists]);
+  }, [allSongs]);
 
   const q = query.trim().toLowerCase();
   const hits = useMemo(() => {
@@ -110,7 +107,7 @@ export default function ChartsDashboard() {
                 song={h.song}
                 subtitle={[h.song.composer ? formatComposer(h.song.composer) : null, h.playlistName].filter(Boolean).join(" · ")}
                 href={chartHref(h.song.id)}
-                onMenu={(e) => openSongMenu(e, h.song, h.playlistId)}
+                onMenu={(e) => openSongMenu(e, h.song, null)}
               />
             ))
           )}
@@ -119,7 +116,7 @@ export default function ChartsDashboard() {
         <>
           <div className="flex gap-3">
             <StatCard icon={ChordChartIcon} count={totalSongs} label="Charts" />
-            <StatCard icon={FolderGlyph} count={playlists.filter((p) => p.id !== UNSORTED_PLAYLIST_ID).length} label="Playlists" />
+            <StatCard icon={FolderGlyph} count={playlists.length} label="Playlists" />
             <StatCard icon={LinkIcon} count={linked} label="Linked to tunes" />
           </div>
 
@@ -136,16 +133,17 @@ export default function ChartsDashboard() {
             </section>
           )}
 
-          {playlists.length > 0 && (
+          {(totalSongs > 0 || playlists.length > 0) && (
             <section className="flex flex-col gap-2">
               <SectionHeader title="Playlists" />
+              <FolderRow name="All charts" count={totalSongs} href={playlistHref(ALL_CHARTS_ID)} />
               {playlists.map((p) => (
                 <FolderRow
                   key={p.id}
                   name={p.name}
                   count={p.songs.length}
                   href={playlistHref(p.id)}
-                  onMenu={p.id === UNSORTED_PLAYLIST_ID ? undefined : (e) => openPlaylistMenu(e, { id: p.id, name: p.name, count: p.songs.length })}
+                  onMenu={(e) => openPlaylistMenu(e, { id: p.id, name: p.name, count: p.songs.length })}
                 />
               ))}
             </section>

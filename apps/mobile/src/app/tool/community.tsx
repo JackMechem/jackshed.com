@@ -10,7 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { SearchField } from '@/components/ChordChartList';
 import { PostListItem } from '@/components/community/CommunityTunes';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
+import { useTabBarSpace } from '@/components/FloatingTabBar';
 import { ActionSheet } from '@/components/ActionSheet';
 import { FollowersIcon, HeartIcon, MusicNoteIcon, PlusIcon, PostIcon, SetlistIcon, type IconProps } from '@/components/icons';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
@@ -27,6 +27,7 @@ import { useAppTheme } from '@/theme/ThemeProvider';
  * public profile.
  */
 function CommunityScreen() {
+  const bottomSpace = useTabBarSpace();
   const { colors } = useAppTheme();
   const router = useRouter();
   const { isLoading, isAuthenticated } = useConvexAuth();
@@ -84,7 +85,7 @@ function CommunityScreen() {
         <ScrollView
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          contentContainerStyle={{ padding: 16, paddingTop: 8, paddingBottom: TAB_BAR_CONTENT_HEIGHT + 32, gap: 22 }}
+          contentContainerStyle={{ padding: 16, paddingTop: 8, paddingBottom: bottomSpace, gap: 22 }}
         >
           {trimmed ? (
             <>

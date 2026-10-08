@@ -11,6 +11,7 @@ import { withScreenLoader } from '@/components/ScreenLoader';
 import { RECORDING_MIME, deleteLocalTake, formatRecordedAt, recordingsApi, uploadRecordingFile } from '@/lib/recordings';
 import { useKeyboardHeight } from '@/lib/useKeyboardHeight';
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { useTabBarSpace } from '@/components/FloatingTabBar';
 
 /**
  * Where a finished take lands: listen back, name it, add notes, link it to a tune (pre-filled when
@@ -18,6 +19,7 @@ import { useAppTheme } from '@/theme/ThemeProvider';
  * first — the take only exists on this phone until it's saved.
  */
 function SaveRecordingScreen() {
+  const bottomSpace = useTabBarSpace();
   const { colors } = useAppTheme();
   const router = useRouter();
   const params = useLocalSearchParams<{ uri: string; duration?: string; tuneId?: string }>();
@@ -109,7 +111,7 @@ function SaveRecordingScreen() {
           ),
         }}
       />
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 18, paddingBottom: keyboard + 40 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 18, paddingBottom: keyboard ? keyboard + 40 : bottomSpace }}>
         <View className="gap-3 rounded-3xl p-4" style={{ backgroundColor: colors.surface }}>
           <View className="flex-row items-center gap-3">
             <PlayButton playing={player.activeKey === 'take' && player.playing} onPress={() => player.toggle('take', params.uri)} size={48} />

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ChordChartIcon, DotsVerticalIcon, SearchIcon } from "@/components/tools";
+import { ChevronLeftIcon, ChordChartIcon, DotsVerticalIcon, PlusIcon, SearchIcon } from "@/components/tools";
 import { formatComposer } from "@/lib/iRealPro";
 import type { Tune } from "@/lib/types";
 import type { LibrarySongMeta } from "@/lib/useChordChartsLibrary";
@@ -20,14 +20,33 @@ export function PageShell({ children, wide = false }: { children: ReactNode; wid
   );
 }
 
+/** The "back" control above a page title (and in the setlist chart reader's header): a chevron +
+    label pill. Pass `href` to make it a link instead of a button. */
+export function BackButton({ onClick, href, label = "Back", className = "" }: { onClick?: () => void; href?: string; label?: string; className?: string }) {
+  const cls = `-ml-2 inline-flex items-center gap-0.5 self-start rounded-full py-1 pl-1 pr-3 text-sm font-semibold text-muted transition-colors hover:bg-surface hover:text-foreground ${className}`;
+  const inner = (
+    <>
+      <ChevronLeftIcon className="h-4 w-4" />
+      {label}
+    </>
+  );
+  return href ? (
+    <Link href={href} className={cls}>
+      {inner}
+    </Link>
+  ) : (
+    <button type="button" onClick={onClick} className={cls}>
+      {inner}
+    </button>
+  );
+}
+
 export function PageHeader({ title, subtitle, back, actions }: { title: string; subtitle?: string; back?: () => void; actions?: ReactNode }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
         {back && (
-          <button type="button" onClick={back} className="mb-1 text-sm text-muted hover:text-foreground">
-            ← Back
-          </button>
+          <BackButton onClick={back} className="mb-2" />
         )}
         <h1 className="truncate text-3xl font-extrabold tracking-tight">{title}</h1>
         {subtitle && <p className="truncate text-sm text-muted">{subtitle}</p>}
@@ -72,11 +91,34 @@ export function StatCard({ icon: Icon, count, label, href }: { icon: React.Compo
   );
 }
 
-export function SectionHeader({ title, detail, href }: { title: string; detail?: string; href?: string }) {
+export function SectionHeader({
+  title,
+  detail,
+  href,
+  onAdd,
+  addLabel,
+}: {
+  title: string;
+  detail?: string;
+  href?: string;
+  /** Shows a small + next to the title — adds to this section. */
+  onAdd?: (e: React.MouseEvent) => void;
+  addLabel?: string;
+}) {
   return (
     <div className="flex items-end justify-between gap-2 px-1">
-      <div className="flex items-baseline gap-2">
+      <div className="flex items-center gap-2">
         <h2 className="text-lg font-bold">{title}</h2>
+        {onAdd && (
+          <button
+            type="button"
+            onClick={onAdd}
+            aria-label={addLabel ?? `Add to ${title}`}
+            className="flex h-6 w-6 items-center justify-center rounded-full bg-surface text-accent hover:bg-surface-hover"
+          >
+            <PlusIcon className="h-3.5 w-3.5" />
+          </button>
+        )}
         {detail && <span className="text-xs text-muted">{detail}</span>}
       </div>
       {href && (

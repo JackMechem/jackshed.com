@@ -116,9 +116,11 @@ function ChordChartEditorScreen() {
   const params = useLocalSearchParams<{ songId?: string; playlist?: string; title?: string; composer?: string; style?: string; key?: string }>();
   const songId = params.songId ?? null;
   const { importSongs, updateSong, selectedSong, playlists } = useChordChartsLibrary(songId);
+  // Shown in the details line: the chart's playlists (editing), or the one it'll go in (new — none
+  // means All charts only).
   const playlist = songId
-    ? (playlists.find((p) => p.songs.some((s) => s.id === songId))?.name ?? '')
-    : params.playlist?.trim() || 'My charts';
+    ? playlists.filter((p) => p.songs.some((s) => s.id === songId)).map((p) => p.name).join(', ')
+    : params.playlist?.trim() || '';
 
   const [title, setTitle] = useState(params.title ?? '');
   const [composer, setComposer] = useState(params.composer ?? '');
@@ -227,7 +229,7 @@ function ChordChartEditorScreen() {
         router.back();
         return;
       }
-      const { added } = await importSongs([toSave], playlist);
+      const { added } = await importSongs([toSave], playlist || null);
       if (added === 0) {
         setError('A chart with this title, composer and key is already in your library — change one of them to save it.');
         setDetailsOpen(true);

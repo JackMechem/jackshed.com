@@ -52,6 +52,14 @@ const TABS = [
     changes again. */
 export const TAB_BAR_CONTENT_HEIGHT = 46;
 
+/** Bottom padding for a scrolling page that isn't inside a bottom-edged `SafeAreaView`: the tab bar,
+    the device's own bottom inset under it, and `extra` breathing room so the last item doesn't sit
+    right against the bar. */
+export function useTabBarSpace(extra = 32) {
+  const insets = useSafeAreaInsets();
+  return TAB_BAR_CONTENT_HEIGHT + insets.bottom + extra;
+}
+
 const HIDDEN_ON = ['/tool/chord-charts-editor', '/setlist-charts', '/tool/guess-the-chord'];
 
 export function FloatingTabBar() {

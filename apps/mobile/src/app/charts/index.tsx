@@ -1,12 +1,11 @@
-import { sortByText } from '@jam-practice/core/sortText';
 import { useRouter } from 'expo-router';
 import { useMemo, useState, type ComponentType } from 'react';
 import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { FolderRow, SearchField, SongRow, songSubtitle, useChordChartBrowser } from '@/components/ChordChartList';
+import { ALL_CHARTS_ID, FolderRow, SearchField, SongRow, songSubtitle, useChordChartBrowser } from '@/components/ChordChartList';
 import { ChordChartNewSheet } from '@/components/ChordChartNewSheet';
-import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
+import { useTabBarSpace } from '@/components/FloatingTabBar';
 import { ChordChartIcon, DownloadIcon, FolderIcon, LinkIcon, PlusIcon, type IconProps } from '@/components/icons';
 import { ScreenSpinner, withScreenLoader } from '@/components/ScreenLoader';
 import { useRecentCharts } from '@/lib/chordChartRecents';
@@ -14,7 +13,7 @@ import type { LibrarySongMeta } from '@/lib/useChordChartsLibrary';
 import { useTuneLists } from '@/lib/useTuneList';
 import { useAppTheme } from '@/theme/ThemeProvider';
 
-type Hit = { song: LibrarySongMeta; playlistId: string; playlistName: string };
+type Hit = { song: LibrarySongMeta; playlistName: string };
 
 /**
  * The Charts tab — everything about chord charts in one place, the way the Tunes tab is for tune
@@ -25,10 +24,11 @@ type Hit = { song: LibrarySongMeta; playlistId: string; playlistName: string };
  * chart ⋮ menu (edit, move to a playlist, delete).
  */
 function ChartsScreen() {
+  const bottomSpace = useTabBarSpace();
   const { colors } = useAppTheme();
   const router = useRouter();
   const charts = useChordChartBrowser();
-  const { playlists, songIndex, totalSongs, loading, createPlaylist, openSong, openMenu, openPlaylistMenu, menu } = charts;
+  const { playlists, allCharts, songIndex, totalSongs, loading, createPlaylist, openSong, openMenu, openPlaylistMenu, menu } = charts;
   const recent = useRecentCharts();
   const { lists } = useTuneLists();
 
@@ -40,13 +40,11 @@ function ChartsScreen() {
     if (!q) return null;
     const words = q.split(/\s+/);
     const out: Hit[] = [];
-    for (const p of playlists) {
-      for (const s of p.songs) {
-        if (words.every((w) => `${s.title} ${s.composer} ${s.style}`.toLowerCase().includes(w))) out.push({ song: s, playlistId: p.id, playlistName: p.name });
-      }
+    for (const s of allCharts.songs) {
+      if (words.every((w) => `${s.title} ${s.composer} ${s.style}`.toLowerCase().includes(w))) out.push(songIndex.get(s.id) ?? { song: s, playlistName: '' });
     }
-    return sortByText(out, (h) => h.song.title);
-  }, [q, playlists]);
+    return out;
+  }, [q, allCharts, songIndex]);
 
   // How many of your charts are linked to one of your tunes.
   const linkedCount = useMemo(() => {
@@ -55,7 +53,6 @@ function ChartsScreen() {
     return ids.size;
   }, [lists.tunes.tunes, lists.learn.tunes, songIndex]);
 
-  const realPlaylists = playlists.filter((p) => p.id !== 'unsorted');
   const recentCharts = recent.map((id) => songIndex.get(id)).filter((x) => x !== undefined);
 
   return (
@@ -86,13 +83,13 @@ function ChartsScreen() {
             keyExtractor={(h) => h.song.id}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
-            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: TAB_BAR_CONTENT_HEIGHT + 24 }}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: bottomSpace }}
             renderItem={({ item }) => (
               <SongRow
                 song={item.song}
                 subtitle={songSubtitle(item.song, item.playlistName)}
                 onSelect={() => openSong(item.song.id)}
-                onMenu={() => openMenu({ song: item.song, playlistId: item.playlistId })}
+                onMenu={() => openMenu({ song: item.song, playlistId: null })}
               />
             )}
             ListEmptyComponent={
@@ -102,10 +99,10 @@ function ChartsScreen() {
             }
           />
         ) : (
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingTop: 8, paddingBottom: TAB_BAR_CONTENT_HEIGHT + 32, gap: 22 }}>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingTop: 8, paddingBottom: bottomSpace, gap: 22 }}>
             <View className="flex-row gap-3">
               <StatCard Icon={ChordChartIcon} count={totalSongs} label="Charts" />
-              <StatCard Icon={FolderIcon} count={realPlaylists.length} label="Playlists" />
+              <StatCard Icon={FolderIcon} count={playlists.length} label="Playlists" />
               <StatCard Icon={LinkIcon} count={linkedCount} label="Linked to tunes" />
             </View>
 
@@ -133,7 +130,7 @@ function ChartsScreen() {
                     <Pressable
                       key={r.song.id}
                       onPress={() => openSong(r.song.id)}
-                      onLongPress={() => openMenu({ song: r.song, playlistId: r.playlistId })}
+                      onLongPress={() => openMenu({ song: r.song, playlistId: null })}
                       className="justify-between rounded-2xl p-3"
                       style={{ width: 150, height: 92, backgroundColor: colors.surface }}
                     >
@@ -152,18 +149,23 @@ function ChartsScreen() {
               </View>
             ) : null}
 
-            {playlists.length > 0 ? (
+            {totalSongs > 0 || playlists.length > 0 ? (
               <View className="gap-1">
                 <Text className="font-inter-bold px-1 pb-1 text-lg font-bold" style={{ color: colors.foreground }}>
                   Playlists
                 </Text>
+                <FolderRow
+                  name="All charts"
+                  count={totalSongs}
+                  onPress={() => router.push({ pathname: '/tool/chord-charts-playlist', params: { id: ALL_CHARTS_ID } })}
+                />
                 {playlists.map((p) => (
                   <FolderRow
                     key={p.id}
                     name={p.name}
                     count={p.songs.length}
                     onPress={() => router.push({ pathname: '/tool/chord-charts-playlist', params: { id: p.id } })}
-                    onMenu={p.id === 'unsorted' ? undefined : () => openPlaylistMenu({ id: p.id, name: p.name, count: p.songs.length })}
+                    onMenu={() => openPlaylistMenu({ id: p.id, name: p.name, count: p.songs.length })}
                   />
                 ))}
               </View>

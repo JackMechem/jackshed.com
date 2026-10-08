@@ -9,7 +9,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useChordChartBrowser } from '@/components/ChordChartList';
 import ChordChartView from '@/components/ChordChartView';
 import { Dropdown } from '@/components/Dropdown';
-import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
+import { useTabBarSpace } from '@/components/FloatingTabBar';
 import { ChordChartIcon, DotsVerticalIcon, LinkIcon, MicrophoneIcon, PencilIcon, PlusIcon } from '@/components/icons';
 import { InfoButton } from '@/components/InfoButton';
 import { ChartPickerModal } from '@/components/library/ChartPickerModal';
@@ -100,6 +100,7 @@ function Hub({
   openMenu: () => void;
   menu: React.ReactNode;
 }) {
+  const bottomSpace = useTabBarSpace();
   const { colors } = useAppTheme();
   const router = useRouter();
   const { selectedSong: chart, selectedSongLoading, loading: libraryLoading } = useChordChartsLibrary(tune.chordChartId ?? null);
@@ -124,19 +125,17 @@ function Hub({
   }
 
   // Charts whose title matches the tune's name — offered as a one-tap link when none is linked.
-  const { playlists: chartPlaylists } = useChordChartBrowser();
+  const { allCharts } = useChordChartBrowser();
   const matches = useMemo(() => {
     if (tune.chordChartId) return [];
     const want = titleKey(tune.name);
     if (!want) return [];
     const out: { id: string; title: string; detail: string }[] = [];
-    for (const p of chartPlaylists) {
-      for (const s of p.songs) {
-        if (titleKey(s.title) === want) out.push({ id: s.id, title: s.title, detail: [s.key, p.name].filter(Boolean).join(' · ') });
-      }
+    for (const s of allCharts.songs) {
+      if (titleKey(s.title) === want) out.push({ id: s.id, title: s.title, detail: [s.key, s.playlistNames].filter(Boolean).join(' · ') });
     }
     return out.slice(0, 3);
-  }, [tune.chordChartId, tune.name, chartPlaylists]);
+  }, [tune.chordChartId, tune.name, allCharts]);
 
   const shownChart = useMemo(() => {
     if (!chart || !previewKey) return chart;
@@ -179,7 +178,7 @@ function Hub({
           ),
         }}
       />
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 12, gap: 20, paddingBottom: TAB_BAR_CONTENT_HEIGHT + 40 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 12, gap: 20, paddingBottom: bottomSpace }}>
         {/* Chord chart */}
         <View className="gap-2">
           <View className="flex-row items-center justify-between px-1">

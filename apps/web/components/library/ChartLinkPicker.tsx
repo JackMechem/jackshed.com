@@ -6,12 +6,13 @@ import type { LibrarySongMeta } from "@/lib/useChordChartsLibrary";
 
 /** Search your chord charts and pick one to link — starts searched for the tune's own name. */
 export default function ChartLinkPicker({
-  playlists,
+  songs,
   initialQuery,
   onPick,
   onClose,
 }: {
-  playlists: { name: string; songs: LibrarySongMeta[] }[];
+  /** Every chart in the library (`useChordChartsLibrary`'s `allSongs`). */
+  songs: LibrarySongMeta[];
   initialQuery: string;
   onPick: (songId: string) => void;
   onClose: () => void;
@@ -25,10 +26,9 @@ export default function ChartLinkPicker({
   const q = query.trim().toLowerCase();
   const rows = useMemo(() => {
     const out: { song: LibrarySongMeta; playlist: string }[] = [];
-    for (const p of playlists)
-      for (const s of p.songs) if (!q || `${s.title} ${s.composer}`.toLowerCase().includes(q)) out.push({ song: s, playlist: p.name });
+    for (const s of songs) if (!q || `${s.title} ${s.composer}`.toLowerCase().includes(q)) out.push({ song: s, playlist: s.playlistNames });
     return out;
-  }, [playlists, q]);
+  }, [songs, q]);
 
   return (
     <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/40 p-4 pt-[10vh]" onClick={onClose}>
