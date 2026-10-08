@@ -2,29 +2,29 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --background: #f4f4f6;
-  --surface: #ffffff;
-  --surface-hover: #ececef;
-  --foreground: #111114;
-  --muted: #6b6b76;
-  --accent: #6366f1;
-  --accent-hover: #4f52d6;
+  --background: #e8ecf1;
+  --surface: #f4f6f9;
+  --surface-hover: #dde3ea;
+  --foreground: #1e2833;
+  --muted: #5c6878;
+  --accent: #3870b2;
+  --accent-hover: #2d5e98;
   --accent-foreground: #ffffff;
-  --overlay: rgba(17, 17, 20, 0.55);
-  --danger: #e0455a;
+  --overlay: rgba(30, 40, 51, 0.55);
+  --danger: #c8475a;
 }
 
 .dark {
-  --background: #0a0a0d;
-  --surface: #18181f;
-  --surface-hover: #232330;
-  --foreground: #f2f2f5;
-  --muted: #9a9aa6;
-  --accent: #818cf8;
-  --accent-hover: #a5aefb;
-  --accent-foreground: #0a0a0d;
+  --background: #151c25;
+  --surface: #1d2631;
+  --surface-hover: #28333f;
+  --foreground: #d9e0e8;
+  --muted: #8d9aaa;
+  --accent: #72a3dc;
+  --accent-hover: #94bbe6;
+  --accent-foreground: #111821;
   --overlay: rgba(0, 0, 0, 0.65);
-  --danger: #f28797;
+  --danger: #e8848f;
 }
 
 @theme inline {

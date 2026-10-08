@@ -5,6 +5,7 @@ import {
   THEME_FIELDS,
   ThemeColorKey,
   ThemeColors,
+  ALL_PRESETS,
   getPreset,
   isDarkColors,
   isValidHex,
@@ -129,4 +130,9 @@ export function subscribeTheme(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-export const THEME_INIT_SCRIPT = `(function(){try{var d=document.documentElement;var m=document.querySelector('meta[name="theme-color"]');var r=localStorage.getItem('${RESOLVED_KEY}');if(r){var o=JSON.parse(r);for(var k in o.colors){d.style.setProperty('--'+k,k==='overlay'?'color-mix(in srgb, '+o.colors[k]+' ${OVERLAY_OPACITY * 100}%, transparent)':o.colors[k]);}if(o.font)d.style.setProperty('--app-font',o.font);d.classList.toggle('dark',o.dark);d.style.colorScheme=o.dark?'dark':'light';if(m)m.setAttribute('content',o.colors.background);return;}var s=localStorage.getItem('${STORAGE_KEY}');var t=(s==='light'||s==='dark')?s:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');if(t==='dark'){d.classList.add('dark');if(m)m.setAttribute('content','#0a0a0d');}}catch(e){}})();`;
+/** Every preset's current colors (and whether it's dark), for the init script: a saved theme that's
+    a preset is painted from these, not from the resolved-colors cache, so changing a preset's
+    colors (e.g. the default Light/Dark) reaches returning visitors on their next page load. */
+const PRESET_COLORS_JSON = JSON.stringify(Object.fromEntries(ALL_PRESETS.map((p) => [p.id, [p.colors, isDarkColors(p.colors)]])));
+
+export const THEME_INIT_SCRIPT = `(function(){try{var d=document.documentElement;var m=document.querySelector('meta[name="theme-color"]');var r=localStorage.getItem('${RESOLVED_KEY}');if(r){var o=JSON.parse(r);var P=${PRESET_COLORS_JSON};try{var st=JSON.parse(localStorage.getItem('${STORAGE_KEY}')||'null');if(st&&st.id&&P[st.id]){o.colors=P[st.id][0];o.dark=P[st.id][1];}}catch(e){}for(var k in o.colors){d.style.setProperty('--'+k,k==='overlay'?'color-mix(in srgb, '+o.colors[k]+' ${OVERLAY_OPACITY * 100}%, transparent)':o.colors[k]);}if(o.font)d.style.setProperty('--app-font',o.font);d.classList.toggle('dark',o.dark);d.style.colorScheme=o.dark?'dark':'light';if(m)m.setAttribute('content',o.colors.background);return;}var s=localStorage.getItem('${STORAGE_KEY}');var t=(s==='light'||s==='dark')?s:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');if(t==='dark'){d.classList.add('dark');if(m)m.setAttribute('content','#151c25');}}catch(e){}})();`;
