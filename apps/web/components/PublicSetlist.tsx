@@ -99,6 +99,17 @@ export default function PublicSetlist({
                 </span>
                 {t.linkedChart && <ChordChartIcon className="h-4 w-4 shrink-0 text-accent" />}
               </Link>
+              {/* The owner's recordings of this tune — playable by anyone the setlist is shared with. */}
+              {t.recordings && t.recordings.length > 0 && (
+                <ul className="flex flex-col gap-2 px-3 pb-3 pl-12">
+                  {t.recordings.map((r) => (
+                    <li key={r.id} className="flex flex-col gap-1 rounded-lg bg-background p-2">
+                      <span className="truncate text-sm font-semibold">{r.name}</span>
+                      {r.url && <audio controls preload="none" src={r.url} className="h-9 w-full" />}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </li>
           );
         })}

@@ -1,6 +1,6 @@
 import type { QueryCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
-import { resolvePublicTunes, type PublicTune } from "@jam-practice/core/profileTunes";
+import { resolvePublicTunes, type PublicRecording, type PublicTune } from "@jam-practice/core/profileTunes";
 import { resolveLinkedChart } from "./chordCharts";
 
 /** The synced-settings keys a setlist is built from — the same keys the apps write. */
@@ -102,5 +102,28 @@ export async function liveSetlist(
         };
       }),
   );
-  return { title: setlist.name, description: setlist.description ?? "", tunes };
+  if (charts !== "full") return { title: setlist.name, description: setlist.description ?? "", tunes };
+  // Viewing a shared setlist: whoever it's shared with can also play the owner's recordings of
+  // each tune (name + audio — never a recording's notes).
+  const withRecordings = await Promise.all(
+    tunes.map(async (tune) => {
+      const rows = await ctx.db
+        .query("recordings")
+        .withIndex("by_user_tune", (q) => q.eq("userId", ownerId).eq("tuneId", tune.id))
+        .order("desc")
+        .collect();
+      if (rows.length === 0) return tune;
+      const recordings: PublicRecording[] = await Promise.all(
+        rows.map(async (r) => ({
+          id: r._id,
+          name: r.name,
+          durationSec: r.durationSec,
+          createdAt: r.createdAt,
+          url: await ctx.storage.getUrl(r.storageId),
+        })),
+      );
+      return { ...tune, recordings };
+    }),
+  );
+  return { title: setlist.name, description: setlist.description ?? "", tunes: withRecordings };
 }

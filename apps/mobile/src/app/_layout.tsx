@@ -105,6 +105,10 @@ function RootNavigator() {
           name="tool/random-metric-modulation"
           options={{ title: 'Polyrhythm Metric Modulation Metronome' }}
         />
+        <Stack.Screen name="tool/recorder" options={{ title: 'Recorder' }} />
+        <Stack.Screen name="recordings/index" options={{ title: 'My recordings' }} />
+        <Stack.Screen name="recordings/save" options={{ title: 'Save recording' }} />
+        <Stack.Screen name="recordings/[id]" options={{ title: '' }} />
         <Stack.Screen name="tool/random-sticking-warmup" options={{ title: 'Random Sticking Warmup' }} />
         <Stack.Screen name="tool/scale-trainer" options={{ title: 'Scale Trainer' }} />
         <Stack.Screen name="tool/tempo-trainer" options={{ title: 'Tempo Trainer' }} />

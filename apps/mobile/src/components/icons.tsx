@@ -101,6 +101,8 @@ export const ShrinkHeightIcon = mci('arrow-collapse-vertical');
 export const Rewind5Icon = mci('rewind-5');
 export const Forward5Icon = mci('fast-forward-5');
 export const FileMusicIcon = mci('file-music-outline');
+export const MicrophoneIcon = mci('microphone');
+export const UnlinkIcon = mci('link-variant-off');
 
 export function StarIcon({ color, size = 18, filled }: IconProps & { filled?: boolean }) {
   return <MaterialCommunityIcons name={filled ? 'star' : 'star-outline'} size={size} color={color} />;

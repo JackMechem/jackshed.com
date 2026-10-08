@@ -1,5 +1,7 @@
+import { useConvexAuth } from '@convex-dev/auth/react';
 import { KEY_NAMES, keyPitchClass, transposeSong } from '@jam-practice/core/iRealPro';
 import { makeId, type Tune } from '@jam-practice/core/types';
+import { useMutation, useQuery } from 'convex/react';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
@@ -8,13 +10,15 @@ import { useChordChartBrowser } from '@/components/ChordChartList';
 import ChordChartView from '@/components/ChordChartView';
 import { Dropdown } from '@/components/Dropdown';
 import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
-import { ChordChartIcon, DotsVerticalIcon, LinkIcon, PencilIcon, PlusIcon } from '@/components/icons';
+import { ChordChartIcon, DotsVerticalIcon, LinkIcon, MicrophoneIcon, PencilIcon, PlusIcon } from '@/components/icons';
 import { InfoButton } from '@/components/InfoButton';
 import { ChartPickerModal } from '@/components/library/ChartPickerModal';
 import { useTuneMenu } from '@/components/library/useTuneMenu';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
+import { RecordingRow, RecordingSelectModal, useRecordingPlayer } from '@/components/recordings/RecordingParts';
 import { ScreenSpinner, withScreenLoader } from '@/components/ScreenLoader';
 import { recordRecentTune } from '@/lib/chordChartRecents';
+import { recordingsApi } from '@/lib/recordings';
 import { useChordChartsLibrary } from '@/lib/useChordChartsLibrary';
 import { TUNE_LIST_LABEL, useTuneLists, type TuneListId } from '@/lib/useTuneList';
 import { useAppTheme } from '@/theme/ThemeProvider';
@@ -293,6 +297,8 @@ function Hub({
           </View>
         </View>
 
+        <TuneRecordings tuneId={tune.id} />
+
         {/* Notes — a preview; writing happens on its own page so the keyboard never covers it */}
         <View className="gap-2">
           <Text className="font-inter-bold px-1 text-lg font-bold" style={{ color: colors.foreground }}>
@@ -324,6 +330,76 @@ function Hub({
         onPick={(song) => {
           patch({ chordChartId: song.id });
           setPicking(false);
+        }}
+      />
+    </View>
+  );
+}
+
+/** The tune's recordings: play them right here, record a new take for it (the Recorder opens
+    already linked to this tune, metronome at its tempo), or link one you already have. */
+function TuneRecordings({ tuneId }: { tuneId: string }) {
+  const { colors } = useAppTheme();
+  const router = useRouter();
+  const { isAuthenticated } = useConvexAuth();
+  const recordings = useQuery(recordingsApi.listForTune, isAuthenticated ? { tuneId } : 'skip');
+  const [linking, setLinking] = useState(false);
+  const all = useQuery(recordingsApi.list, isAuthenticated && linking ? {} : 'skip');
+  const update = useMutation(recordingsApi.update);
+  const player = useRecordingPlayer();
+
+  return (
+    <View className="gap-2">
+      <View className="flex-row items-center px-1">
+        <Text className="font-inter-bold text-lg font-bold" style={{ color: colors.foreground }}>
+          Recordings
+        </Text>
+        {recordings && recordings.length > 0 ? (
+          <Text className="font-inter ml-auto text-sm tabular-nums" style={{ color: colors.muted }}>
+            {recordings.length}
+          </Text>
+        ) : null}
+      </View>
+      {!isAuthenticated ? (
+        <View className="rounded-2xl p-4" style={{ backgroundColor: colors.surface }}>
+          <Text className="font-inter text-sm" style={{ color: colors.muted }}>
+            Sign in to record takes of this tune — recordings are saved to your account.
+          </Text>
+        </View>
+      ) : (
+        <>
+          {recordings === undefined ? (
+            <View className="items-center py-6">
+              <LoadingSpinner />
+            </View>
+          ) : (
+            recordings.map((rec) => (
+              <RecordingRow
+                key={rec._id}
+                recording={rec}
+                player={player}
+                onOpen={() => router.push({ pathname: '/recordings/[id]', params: { id: rec._id } })}
+              />
+            ))
+          )}
+          <View className="flex-row gap-2 rounded-2xl p-2" style={{ backgroundColor: colors.surface }}>
+            <HubButton
+              label="Record a take"
+              icon={<MicrophoneIcon color={colors.foreground} size={16} />}
+              onPress={() => router.push({ pathname: '/tool/recorder', params: { tuneId } })}
+            />
+            <HubButton label="Link existing" icon={<LinkIcon color={colors.foreground} size={16} />} onPress={() => setLinking(true)} />
+          </View>
+        </>
+      )}
+      <RecordingSelectModal
+        visible={linking}
+        recordings={all}
+        excludeTuneId={tuneId}
+        onClose={() => setLinking(false)}
+        onPick={(rec) => {
+          setLinking(false);
+          void update({ id: rec._id, tuneId });
         }}
       />
     </View>

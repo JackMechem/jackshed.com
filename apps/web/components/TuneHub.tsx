@@ -10,6 +10,7 @@ import LoadingSpinner from "@/components/LoadingSpinner";
 import Select from "@/components/Select";
 import TuneEditorModal from "@/components/TuneEditorModal";
 import ChartLinkPicker from "@/components/library/ChartLinkPicker";
+import { TuneRecordings } from "@/components/recordings/RecordingParts";
 import { ChordChartIcon, LinkIcon, PencilIcon, TrashIcon } from "@/components/tools";
 import { KEY_NAMES, keyPitchClass, transposeSong } from "@/lib/iRealPro";
 import { makeId, type Tune } from "@/lib/types";
@@ -306,6 +307,8 @@ function Hub({
         </div>
         <p className="text-xs text-muted">Jam Practice picks from the keys you mark here.</p>
       </section>
+
+      <TuneRecordings tuneId={tune.id} />
 
       {/* Notes */}
       <section className="flex flex-col gap-3">

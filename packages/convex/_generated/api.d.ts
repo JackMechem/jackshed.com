@@ -20,6 +20,7 @@ import type * as lib_resend from "../lib/resend.js";
 import type * as lib_setlists from "../lib/setlists.js";
 import type * as practiceSessions from "../practiceSessions.js";
 import type * as profiles from "../profiles.js";
+import type * as recordings from "../recordings.js";
 import type * as setlists from "../setlists.js";
 import type * as syncedSettings from "../syncedSettings.js";
 import type * as users from "../users.js";
@@ -43,6 +44,7 @@ declare const fullApi: ApiFromModules<{
   "lib/setlists": typeof lib_setlists;
   practiceSessions: typeof practiceSessions;
   profiles: typeof profiles;
+  recordings: typeof recordings;
   setlists: typeof setlists;
   syncedSettings: typeof syncedSettings;
   users: typeof users;

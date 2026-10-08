@@ -239,6 +239,16 @@ export const performDelete = internalMutation({
       .collect();
     for (const row of shared) await ctx.db.delete(row._id);
 
+    // Recordings and their audio files.
+    const recordings = await ctx.db
+      .query("recordings")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    for (const row of recordings) {
+      await ctx.storage.delete(row.storageId);
+      await ctx.db.delete(row._id);
+    }
+
     // Same reasoning: a Community post is public-facing content, not private synced tool data, so
     // it shouldn't outlive the account that posted it — and neither should its own likes (other
     // people's likes *on* this post, cascade-deleted here the same way `communityTunes.ts`'s own

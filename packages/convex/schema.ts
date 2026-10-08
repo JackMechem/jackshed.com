@@ -253,4 +253,23 @@ export default defineSchema({
     songId: v.id("chordChartSongs"),
     bars: v.any(),
   }).index("by_song", ["songId"]),
+
+  /** Audio recordings (the Recorder tool): the file lives in Convex file storage, this row holds
+      what's shown about it. `tuneId` links it to one of the owner's tunes — tunes live inside the
+      owner's `syncedSettings` blob (`"tunes"` / `"jam-practice-tunes-to-learn"`), so it's a plain
+      string id, not a document id; a recording whose tune has since been deleted just shows as
+      unlinked. Private to the owner. */
+  recordings: defineTable({
+    userId: v.id("users"),
+    storageId: v.id("_storage"),
+    name: v.string(),
+    notes: v.string(),
+    durationSec: v.number(),
+    mimeType: v.string(),
+    tuneId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_tune", ["userId", "tuneId"]),
 });

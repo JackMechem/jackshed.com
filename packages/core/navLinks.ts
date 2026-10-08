@@ -109,9 +109,8 @@ export const NAV_LINKS_DATA: NavLinkInfo[] = [
   {
     href: "/recorder",
     label: "Recorder",
-    description: "Record yourself, play it back with loops and markers, and export the audio.",
+    description: "Record a take with an optional metronome, save it to your account and link it to a tune.",
     category: "Audio",
-    desktopOnly: true,
   },
   {
     href: "/random-sticking-warmup",

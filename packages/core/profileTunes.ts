@@ -37,6 +37,18 @@ export type PublicTune = {
       the setlist changed them from the tune's/chart's own. */
   setKey?: string;
   setTempo?: number;
+  /** In a shared setlist (link or Community post) only: the owner's recordings of this tune, so
+      anyone the setlist is shared with can play them. Name and audio only — a recording's notes
+      stay private, like a tune's. */
+  recordings?: PublicRecording[];
+};
+
+export type PublicRecording = {
+  id: string;
+  name: string;
+  durationSec: number;
+  createdAt: number;
+  url: string | null;
 };
 
 /** Strips a tune down to the same shape a public profile (or a Community tune post — see

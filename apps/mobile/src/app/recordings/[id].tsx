@@ -1,0 +1,229 @@
+import type { Id } from '@jam-practice/convex/_generated/dataModel';
+import { useMutation, useQuery } from 'convex/react';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { ChevronRightIcon, LinkIcon, TrashIcon, UnlinkIcon } from '@/components/icons';
+import { PlayButton, SeekBar, TuneSelectModal, useRecordingPlayer, useTuneIndex } from '@/components/recordings/RecordingParts';
+import { ScreenSpinner, withScreenLoader } from '@/components/ScreenLoader';
+import { formatDuration, formatRecordedAt, recordingsApi } from '@/lib/recordings';
+import { useKeyboardHeight } from '@/lib/useKeyboardHeight';
+import { useAppTheme } from '@/theme/ThemeProvider';
+
+/** One saved recording: play it, rename it, keep notes on it, link it to a tune (or change or
+    unlink it), or delete it. Edited name/notes show a Save button in the header; they also save
+    when you leave the page, so nothing typed is lost. */
+function RecordingScreen() {
+  const { colors } = useAppTheme();
+  const router = useRouter();
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const recording = useQuery(recordingsApi.get, id ? { id: id as Id<'recordings'> } : 'skip');
+  const update = useMutation(recordingsApi.update);
+  const remove = useMutation(recordingsApi.remove);
+  const { byId } = useTuneIndex();
+  const player = useRecordingPlayer();
+  const keyboard = useKeyboardHeight();
+
+  const [name, setName] = useState('');
+  const [notes, setNotes] = useState('');
+  const seeded = useRef(false);
+  const [picking, setPicking] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Whatever's typed but not yet saved is saved on the way out.
+  const pending = useRef<{ id: Id<'recordings'>; name: string; notes: string; savedName: string; savedNotes: string } | null>(null);
+  useEffect(() => {
+    if (recording && seeded.current) {
+      pending.current = { id: recording._id, name, notes, savedName: recording.name, savedNotes: recording.notes };
+    }
+  });
+  useEffect(
+    () => () => {
+      const p = pending.current;
+      if (!p) return;
+      const trimmed = p.name.trim();
+      const patch = {
+        ...(trimmed && trimmed !== p.savedName ? { name: trimmed } : {}),
+        ...(p.notes !== p.savedNotes ? { notes: p.notes } : {}),
+      };
+      if (Object.keys(patch).length) void update({ id: p.id, ...patch });
+    },
+    [update],
+  );
+
+  // Seed the fields once from the server; after that the fields own the text.
+  useEffect(() => {
+    if (recording && !seeded.current) {
+      seeded.current = true;
+      setName(recording.name);
+      setNotes(recording.notes);
+    }
+  }, [recording]);
+
+  if (recording === undefined) return <ScreenSpinner />;
+  if (recording === null) {
+    return (
+      <View className="flex-1 items-center justify-center px-10" style={{ backgroundColor: colors.background }}>
+        <Text className="font-inter text-center text-sm" style={{ color: colors.muted }}>
+          This recording doesn&apos;t exist anymore.
+        </Text>
+      </View>
+    );
+  }
+
+  const rec = recording;
+  const linked = rec.tuneId ? byId.get(rec.tuneId) : undefined;
+  const active = player.activeKey === rec._id;
+  const label = 'font-inter-bold text-sm font-bold';
+
+  function saveName() {
+    const trimmed = name.trim();
+    if (!trimmed) setName(rec.name);
+    else if (trimmed !== rec.name) void update({ id: rec._id, name: trimmed });
+  }
+
+  function saveNotes() {
+    if (notes !== rec.notes) void update({ id: rec._id, notes });
+  }
+
+  const dirty = (name.trim() !== '' && name.trim() !== rec.name) || notes !== rec.notes;
+  function saveAll() {
+    saveName();
+    saveNotes();
+  }
+
+  return (
+    <View className="flex-1" style={{ backgroundColor: colors.background }}>
+      <Stack.Screen
+        options={{
+          title: rec.name,
+          headerRight: () =>
+            dirty ? (
+              <Pressable onPress={saveAll} className="rounded-full px-5 py-2" style={{ backgroundColor: colors.accent }}>
+                <Text className="font-inter-bold text-sm font-bold" style={{ color: colors['accent-foreground'] }}>
+                  Save
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable onPress={() => setConfirmDelete(true)} accessibilityLabel="Delete recording" className="h-10 w-10 items-center justify-center">
+                <TrashIcon color={colors.danger} size={22} />
+              </Pressable>
+            ),
+        }}
+      />
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 18, paddingBottom: keyboard + 120 }}>
+        <View className="gap-3 rounded-3xl p-4" style={{ backgroundColor: colors.surface }}>
+          <View className="flex-row items-center gap-3">
+            <PlayButton playing={active && player.playing} onPress={() => player.toggle(rec._id, rec.url)} size={52} />
+            <View className="flex-1">
+              <Text className="font-inter text-sm" style={{ color: colors.muted }}>
+                {formatRecordedAt(rec.createdAt)} · {formatDuration(rec.durationSec)}
+              </Text>
+            </View>
+          </View>
+          <SeekBar
+            currentTime={active ? player.currentTime : 0}
+            duration={(active && player.duration) || rec.durationSec}
+            onSeek={(s) => (active ? player.seek(s) : undefined)}
+          />
+        </View>
+
+        <View className="gap-1.5">
+          <Text className={label} style={{ color: colors.muted }}>
+            NAME
+          </Text>
+          <TextInput
+            value={name}
+            onChangeText={setName}
+            onBlur={saveName}
+            onSubmitEditing={saveName}
+            className="font-inter rounded-2xl px-4 py-3 text-base"
+            style={{ backgroundColor: colors.surface, color: colors.foreground }}
+          />
+        </View>
+
+        <View className="gap-1.5">
+          <Text className={label} style={{ color: colors.muted }}>
+            TUNE
+          </Text>
+          {linked ? (
+            <View className="flex-row items-center gap-3 rounded-2xl px-4 py-3" style={{ backgroundColor: colors.surface }}>
+              <LinkIcon color={colors.accent} size={18} />
+              <Pressable
+                className="flex-1 flex-row items-center gap-1"
+                onPress={() => router.push({ pathname: '/library/tune', params: { id: linked.tune.id, list: linked.list } })}
+              >
+                <Text numberOfLines={1} className="font-inter-semibold flex-shrink text-base font-semibold" style={{ color: colors.foreground }}>
+                  {linked.tune.name}
+                </Text>
+                <ChevronRightIcon color={colors.muted} size={18} />
+              </Pressable>
+              <Pressable onPress={() => setPicking(true)} hitSlop={8}>
+                <Text className="font-inter-semibold text-sm font-semibold" style={{ color: colors.accent }}>
+                  Change
+                </Text>
+              </Pressable>
+              <Pressable onPress={() => void update({ id: rec._id, tuneId: null })} hitSlop={8} accessibilityLabel="Unlink tune">
+                <UnlinkIcon color={colors.muted} size={18} />
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable
+              onPress={() => setPicking(true)}
+              className="flex-row items-center gap-3 rounded-2xl px-4 py-3"
+              style={{ backgroundColor: colors.surface }}
+            >
+              <LinkIcon color={colors.muted} size={18} />
+              <Text className="font-inter flex-1 text-base" style={{ color: colors.muted }}>
+                {rec.tuneId ? 'Its tune was deleted — tap to link another' : 'Not linked — tap to link a tune'}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+
+        <View className="gap-1.5">
+          <Text className={label} style={{ color: colors.muted }}>
+            NOTES
+          </Text>
+          <TextInput
+            value={notes}
+            onChangeText={setNotes}
+            onBlur={saveNotes}
+            multiline
+            placeholder="How did it go? What to work on…"
+            placeholderTextColor={colors.muted}
+            textAlignVertical="top"
+            className="font-inter rounded-2xl px-4 py-3 text-base"
+            style={{ backgroundColor: colors.surface, color: colors.foreground, minHeight: 160 }}
+          />
+        </View>
+      </ScrollView>
+
+      <TuneSelectModal
+        visible={picking}
+        selectedId={rec.tuneId}
+        onClose={() => setPicking(false)}
+        onPick={(tuneId) => {
+          setPicking(false);
+          void update({ id: rec._id, tuneId });
+        }}
+      />
+      <ConfirmDialog
+        visible={confirmDelete}
+        title="Delete this recording?"
+        message="The audio is deleted from your account for good."
+        confirmLabel="Delete"
+        onConfirm={() => {
+          setConfirmDelete(false);
+          void remove({ id: rec._id });
+          router.back();
+        }}
+        onCancel={() => setConfirmDelete(false)}
+      />
+    </View>
+  );
+}
+
+export default withScreenLoader(RecordingScreen);
