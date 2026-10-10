@@ -9,6 +9,7 @@ import SwitchRow from "@/components/SwitchRow";
 import AdvancedSlider from "@/components/AdvancedSlider";
 import { SteppedField, SoundOptions, TempoHero } from "@/components/MeterFields";
 import { ListIcon, RepeatIcon, SpeakerIcon } from "@/components/tools";
+import { soundSummary } from "@/components/metronome/MetronomeOptions";
 import ToolLayout from "@/components/ToolLayout";
 import KeyHint from "@/components/KeyHint";
 import Hint from "@/components/Hint";
@@ -184,7 +185,7 @@ export default function StickControl() {
       topAligned
       options={
         <OptionsCard id="stick-control">
-          <OptionSection title="Pattern" icon={ListIcon}>
+          <OptionSection title="Pattern" icon={ListIcon} summary={ROLL_TYPES.find((r) => r.value === rollType)?.label}>
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium text-muted">Roll type</span>
               <Select
@@ -308,7 +309,7 @@ export default function StickControl() {
             </Hint>
           </OptionSection>
 
-          <OptionSection title="Sound" icon={SpeakerIcon}>
+          <OptionSection title="Sound" icon={SpeakerIcon} summary={soundSummary(soundId, volume)}>
             <SoundOptions
               soundId={soundId}
               setSoundId={(v) => updateSettings({ soundId: v })}

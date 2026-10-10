@@ -753,7 +753,7 @@ export default function GuessTheInterval() {
       options={
         <>
           <PanelsToggle ids={PANEL_IDS} />
-          <CollapsiblePanel id="guess-intervals" title="Intervals" icon={IntervalIcon}>
+          <CollapsiblePanel id="guess-intervals" title="Intervals" icon={IntervalIcon} summary={`${pool.length} of ${INTERVALS.length}`}>
             <div className="flex items-center justify-between text-xs">
               <span className="font-medium text-muted">
                 {pool.length} of {INTERVALS.length} selected
@@ -815,7 +815,7 @@ export default function GuessTheInterval() {
             />
           </CollapsiblePanel>
 
-          <CollapsiblePanel id="guess-range" title="Range" icon={NoteIcon}>
+          <CollapsiblePanel id="guess-range" title="Range" icon={NoteIcon} summary={rangeInput}>
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium text-muted">Instrument</span>
               <Select

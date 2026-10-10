@@ -4,8 +4,8 @@ import { useState } from "react";
 import Hint from "@/components/Hint";
 import NumberField from "@/components/NumberField";
 import Select from "@/components/Select";
+import { OptionGroup, SoundPicker, SubdivisionPicker, TimeSignatureControl } from "@/components/metronome/MetronomeOptions";
 import type { BeatLevel } from "@/lib/clickEngine";
-import { CLICK_SOUNDS } from "@/lib/clickEngine";
 import { MAX_BEATS } from "@/lib/meters";
 import {
   MAX_BPM,
@@ -13,12 +13,9 @@ import {
   NOTE_VALUES,
   NOTE_VALUE_NAMES,
   SLIDER_STEPS,
-  SUBDIVISIONS,
   bpmFromSlider,
   convertTempo,
-  groupsFromAccents,
   nearestNoteValue,
-  parseGroups,
   sliderFromBpm,
   splitTenths,
 } from "@/lib/meterControls";
@@ -37,11 +34,6 @@ const CIRCLE_BUTTON_SM =
   "flex h-7 w-7 items-center justify-center rounded-full bg-background text-sm font-semibold leading-none text-foreground hover:bg-surface-hover disabled:opacity-40";
 const CIRCLE_INPUT_SM =
   "h-10 w-10 rounded-full bg-background text-center text-sm font-semibold tabular-nums outline-none focus:ring-2 focus:ring-accent";
-
-export const SOUND_OPTIONS = CLICK_SOUNDS.map((c) => ({
-  value: c.id,
-  label: c.label,
-}));
 
 export function StepButton({
   label,
@@ -285,44 +277,6 @@ export function BeatUnitField({
       )}
       {hint && <Hint>{hint}</Hint>}
     </div>
-  );
-}
-
-export function GroupsField({
-  value,
-  onApply,
-}: {
-  value: string;
-  onApply: (groups: number[]) => void;
-}) {
-  const [draft, setDraft] = useState<string | null>(null);
-  const shown = draft ?? value;
-  const valid = draft === null || parseGroups(draft) !== null;
-
-  function commit() {
-    const groups = draft === null ? null : parseGroups(draft);
-    if (groups) onApply(groups);
-    setDraft(null);
-  }
-
-  return (
-    <input
-      type="text"
-      value={shown}
-      placeholder="e.g. 3+2+2"
-      aria-label="Accent grouping"
-      aria-invalid={!valid}
-      spellCheck={false}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-        else if (e.key === "Escape") setDraft(null);
-      }}
-      className={`w-full rounded-lg bg-background px-3 py-2 tabular-nums outline-none focus:ring-2 focus:ring-accent ${
-        valid ? "" : "text-danger"
-      }`}
-    />
   );
 }
 
@@ -591,144 +545,49 @@ export function TempoHero({
   );
 }
 
-/** The beats/unit steppers + accent grouping + subdivision picker, as one group. Used to also
-    lead with a row of common-signature preset buttons; removed per a direct follow-up request
-    ("get rid of the presets") — the steppers below are the only way to set the meter now. */
+/** A meter: the time signature (drawn as one, with a "7 eighth notes per bar" readout) and the
+    subdivision tiles — the Metronome's controls (`components/metronome/MetronomeOptions.tsx`),
+    shared by every metronome-style tool. Accents are set by tapping beats in each tool's beat
+    strip, so there's no grouping field here any more (`onApplyGroups` is accepted but unused). */
 export function MeterOptions({
   beatsPerBar,
   beatUnit,
-  accents,
   subdivision,
   onChangeBeats,
   onSetBeatUnit,
   onSetSubdivision,
-  onApplyGroups,
 }: {
   beatsPerBar: number;
   beatUnit: number;
-  accents: BeatLevel[];
+  accents?: BeatLevel[];
   subdivision: number;
   onChangeBeats: (n: number) => void;
   onSetBeatUnit: (unit: number) => void;
   onSetSubdivision: (n: number) => void;
-  onApplyGroups: (groups: number[]) => void;
+  onApplyGroups?: (groups: number[]) => void;
 }) {
-  const groupsText = groupsFromAccents(accents).join("+");
-
   return (
     <>
-      <div className="flex flex-col items-start gap-1">
-        <span className="text-sm font-medium text-muted">Time signature</span>
-        <SteppedField
-          label="Beats per bar"
-          value={beatsPerBar}
-          min={1}
-          max={MAX_BEATS}
-          layout="row"
-          size="sm"
-          minusOnRight
-          onChange={onChangeBeats}
-          hint="How many beats make up one bar."
+      <OptionGroup title="Time signature">
+        <TimeSignatureControl
+          beatsPerBar={beatsPerBar}
+          beatUnit={beatUnit}
+          onChangeBeats={(n) => onChangeBeats(Math.min(MAX_BEATS, Math.max(1, n)))}
+          onSetBeatUnit={onSetBeatUnit}
         />
-        <BeatUnitField
-          value={beatUnit}
-          layout="row"
-          size="sm"
-          minusOnRight
-          onChange={onSetBeatUnit}
-          hint="Which note value counts as one beat, e.g. 4 for quarter notes, 8 for eighths."
-        />
-      </div>
-
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-muted">Accent grouping</span>
-        <GroupsField
-          key={groupsText}
-          value={groupsText}
-          onApply={onApplyGroups}
-        />
-      </label>
-      <Hint>
-        How the bar is split into accented groups, e.g. 3+2+2 for a bar that feels like three
-        uneven groups. Must add up to the number of beats per bar.
-      </Hint>
-
-      <div className="flex flex-col gap-2 text-sm">
-        <span id="subdivision-label" className="font-medium text-muted">
-          Subdivision
-        </span>
-        <div
-          role="radiogroup"
-          aria-labelledby="subdivision-label"
-          className="flex flex-wrap gap-2"
-        >
-          {SUBDIVISIONS.map(({ value, label }) => {
-            const selected = subdivision === value;
-            return (
-              <button
-                key={value}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                aria-label={label}
-                title={label}
-                onClick={() => onSetSubdivision(value)}
-                className={`flex h-11 items-center justify-center rounded-lg px-3 transition-colors ${
-                  selected
-                    ? "bg-accent text-accent-foreground"
-                    : "bg-background text-foreground hover:bg-surface-hover"
-                }`}
-              >
-                <SubdivisionIcon count={value} />
-              </button>
-            );
-          })}
-        </div>
-        <Hint>Splits each beat into extra clicks, e.g. straight eighths or triplets.</Hint>
-      </div>
+      </OptionGroup>
+      <SubdivisionPicker value={subdivision} onChange={onSetSubdivision} />
     </>
   );
 }
 
-/** Tone + volume, the metronome click's sound options. */
-export function SoundOptions({
-  soundId,
-  setSoundId,
-  volume,
-  setVolume,
-}: {
+/** Click sound cards (each plays when picked) and volume — the Metronome's `SoundPicker`, shared by
+    every metronome-style tool. */
+export function SoundOptions(props: {
   soundId: string;
   setSoundId: (id: string) => void;
   volume: number;
   setVolume: (volume: number) => void;
 }) {
-  return (
-    <>
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-muted">Tone</span>
-        <Select value={soundId} onChange={setSoundId} options={SOUND_OPTIONS} />
-      </label>
-      <Hint>Which click sound the metronome plays.</Hint>
-
-      <label className="flex flex-col gap-2 text-sm">
-        <span className="flex items-center justify-between font-medium text-muted">
-          Volume
-          <span className="tabular-nums text-foreground">
-            {Math.round(volume * 100)}%
-          </span>
-        </span>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.05}
-          value={volume}
-          onChange={(e) => setVolume(Number(e.target.value))}
-          style={{ "--progress": `${volume * 100}%` } as React.CSSProperties}
-          className="slider h-6 w-full cursor-pointer"
-        />
-      </label>
-      <Hint>How loud the click plays.</Hint>
-    </>
-  );
+  return <SoundPicker {...props} />;
 }

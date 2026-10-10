@@ -97,7 +97,9 @@ export default function TunesPanel({
     <>
       <CollapsiblePanel
         id="jam-tunes"
-        title={`Tunes I Know${tunes.length ? ` (${tunes.length})` : ""}`}
+        title="Tunes I Know"
+        summary={`${tunes.length} tune${tunes.length === 1 ? "" : "s"}`}
+        wide
         icon={ListIcon}
         action={
           <>

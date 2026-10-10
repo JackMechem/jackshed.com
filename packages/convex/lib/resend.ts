@@ -2,7 +2,7 @@
 // rather than their Node SDK — Convex actions can already `fetch()` external APIs directly, so
 // this avoids adding a dependency just to POST one JSON body with a bearer token.
 
-/** Sends a plain-text email via Resend. Throws if the API key isn't set (a clear signal during
+/** Sends an email via Resend (plain text, plus an optional HTML version). Throws if the API key isn't set (a clear signal during
     development that `npx convex env set AUTH_RESEND_KEY ...` hasn't been done yet — see
     PROJECT.md) or if Resend itself rejects the request. Both env vars are read here, at call
     time, rather than once at module load — so a `convex env set` takes effect on the very next
@@ -11,10 +11,12 @@ export async function sendEmail({
   to,
   subject,
   text,
+  html,
 }: {
   to: string;
   subject: string;
   text: string;
+  html?: string;
 }) {
   const apiKey = process.env.AUTH_RESEND_KEY;
   if (!apiKey) {
@@ -29,7 +31,7 @@ export async function sendEmail({
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ from, to: [to], subject, text }),
+    body: JSON.stringify({ from, to: [to], subject, text, ...(html ? { html } : {}) }),
   });
   if (!response.ok) {
     const body = await response.text().catch(() => "");

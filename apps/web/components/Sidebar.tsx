@@ -8,10 +8,12 @@ import { OPEN_PALETTE_EVENT } from "@/components/CommandPalette";
 import Flyout, { FlyoutItem } from "@/components/Flyout";
 import PracticeTimerWidget from "@/components/PracticeTimerWidget";
 import ThemeModal from "@/components/ThemeModal";
-import Logo from "@/components/Logo";
+import AnimatedLogo from "@/components/AnimatedLogo";
+import { DASHBOARD_PATH, LANDING_PATH } from "@/lib/landing";
 import {
   CATEGORY_ICONS,
   NAV_LINKS,
+  HomeIcon,
   SearchIcon,
   StarIcon,
   filterLinks,
@@ -334,7 +336,7 @@ function NavItems({
     : [];
   const searching = query.trim().length > 0;
 
-  function renderLink({ href, label, icon: Icon, desktopOnly }: NavLink) {
+  function renderLink({ href, label, icon: Icon, desktopOnly }: NavLink, options?: { noStar?: boolean }) {
     const active = effectivePathname === href;
     // On phones, tools that need a bigger screen are shown greyed out and can't be opened.
     if (large && desktopOnly) {
@@ -355,7 +357,9 @@ function NavItems({
     // Room reserved on the right for the star, so it never overlaps the icon/label — reserved
     // whenever it *can* show (signed in, not collapsed), not just while actually hovered, so nothing
     // shifts around when it fades in.
-    const showsStar = isAuthenticated && !collapsed;
+    // `options` is an object, not a bare boolean, because `items.map(renderLink)` passes the index
+    // as the second argument.
+    const showsStar = isAuthenticated && !collapsed && !options?.noStar;
     const link = (
       <Link
         href={href}
@@ -422,8 +426,12 @@ function NavItems({
       {groups.length === 0 && communityItems.length === 0 && (
         <p className={`px-3 text-muted ${large ? "text-base" : "text-sm"}`}>No tools found</p>
       )}
-      {communityItems.length > 0 && (
-        <div className="flex flex-col gap-1 pb-2">{communityItems.map(renderLink)}</div>
+      {(!searching || communityItems.length > 0) && (
+        <div className="flex flex-col gap-1 pb-2">
+          {/* The dashboard (the app's home); the logo above goes to the landing page. */}
+          {!searching && renderLink({ href: DASHBOARD_PATH, label: "Dashboard", icon: HomeIcon } as NavLink, { noStar: true })}
+          {communityItems.map((l) => renderLink(l))}
+        </div>
       )}
       {favoriteItems.length > 0 && (
         <CategoryBlock
@@ -550,12 +558,12 @@ export default function Sidebar() {
         <div className="fixed inset-0 z-40 flex flex-col bg-surface px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-[calc(env(safe-area-inset-top)+0.75rem)] lg:hidden">
           <div className="mb-6 flex items-center justify-between gap-1">
             <Link
-              href="/"
+              href={LANDING_PATH}
               onClick={() => setMobileOpen(false)}
-              aria-label="sheddex home"
+              aria-label="About sheddex"
               className="min-w-0 rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              <Logo height={24} />
+              <AnimatedLogo height={24} />
             </Link>
             <div className="flex shrink-0 items-center gap-1">
               <Flyout icon={DotsIcon} label="Menu options" align="end">
@@ -617,11 +625,11 @@ export default function Sidebar() {
         >
           {!collapsed && (
             <Link
-              href="/"
-              aria-label="sheddex home"
+              href={LANDING_PATH}
+              aria-label="About sheddex"
               className="min-w-0 flex-1 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              <Logo height={22} />
+              <AnimatedLogo height={22} />
             </Link>
           )}
           <Flyout

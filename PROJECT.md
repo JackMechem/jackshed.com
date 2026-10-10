@@ -1742,6 +1742,163 @@ can go in no playlist. Verified: `tsc`/`eslint` (app, web, core, convex), `next 
 and on web signed out in nix Chromium (All charts, add to a 2nd playlist, delete a playlist keeping
 its charts). **Not verified:** anything signed in (the new Convex functions) and the app on a phone.
 
+### Web: a marketing landing page for signed-out visitors (2026-10-10)
+
+Signed-out visitors to `/` are redirected (server-side, `apps/web/proxy.ts`) to `/welcome`, a
+standalone landing page (`components/landing/Landing.tsx` + `previews.tsx`) with no app chrome:
+`components/AppChrome.tsx` (in `app/layout.tsx`) skips the sidebar, palette, timer badge, tool dock
+and `AppShell` on that one path. CTAs: **Sign up / Log in** (the app's own `AuthForm`, now exported
+from `AccountMenu.tsx` with `onSuccess`/`initialFlow`/`googleRedirectTo`, in a modal; success, and
+Google's redirect, go to `/`) and **Try it without an account**, which sets the `sheddex-guest`
+cookie (`lib/landing.ts`) so `/` opens the app from then on. `AppChrome` also sets that cookie on any
+app page, so someone who arrives straight at a tool isn't bounced to the landing page by the
+Dashboard link. `/welcome` is open to signed-in users too: the sidebar logo (desktop and mobile)
+links there, and signed in its nav shows Account / Dashboard and its CTAs become "Go to your
+dashboard" (auth read on the server via `isAuthenticatedNextjs()` so there's no flash). The
+sidebar's first item is now **Dashboard** (`/`, no favorite star).
+
+**Home (`/`) is now a dashboard** (`components/Home.tsx`): date + greeting and a search box, then a
+12-column card grid: "Pick up where you left off" (most recent tool big with Resume, then recent
+tools/tunes/charts), Tune of the day (from Tunes I Know, picked by date), Favorites / Get started
+tiles, Your library counts, Setlists, Practice sessions (or the running session's widget), Ear
+training weak spots (read-only from Guess the Interval / Guess the Chord's synced `intervalStats` /
+`chordStats`), and a compact All tools launcher. Search swaps the grid for tool + tune results.
+
+Visuals: the hero cards and the "Try the real tools" tabs are the app's real components running
+live (beat strip, tuner dial, the chord chart renderer with a sample 12-bar blues, VexFlow sticking
+notation, a playable interval quiz on the piano samples, and a theme switcher using real presets);
+the interface frame, setlist, phone and split-view images are real screenshots in
+`public/landing/v2/*-{light,dark}.png` (the folder is `Landing.tsx`'s `SHOTS`; when retaking them,
+move them to a new folder and bump it, because Next caches optimized images by URL and an in-place
+replacement keeps showing the old picture), swapped by the `.dark` class. They were taken with the nix
+chromium + playwright-core setup against the dev server with seeded demo localStorage (tunes,
+setlists, charts, recents); retake them if the UI changes noticeably. Verified: `tsc`, `eslint`,
+`next build`; in the browser at 1440 (light/dark) and 390 wide, no console errors, no horizontal
+overflow; the redirect (307 to `/welcome`, 200 with the guest cookie), each feature tab, the quiz,
+the sign-up modal, and the guest button landing in the app with the sidebar. Not verified: an actual
+sign-up/sign-in completing from the modal (needs a real account).
+
+**Routing changed the same day: the landing page is `/`, the app's dashboard is `/dashboard`.**
+`app/page.tsx` is the landing page for everyone (signed in, it shows Account / Dashboard and "Go to
+your dashboard"); `app/dashboard/page.tsx` renders `Home`. Paths live in `lib/landing.ts`
+(`LANDING_PATH`, `DASHBOARD_PATH`, `SIGN_IN_PATH = "/?auth=login"`). The guest cookie and the
+proxy redirect described above are gone (`proxy.ts` is back to plain `convexAuthNextjsMiddleware()`).
+`/welcome` permanently redirects to `/` (`next.config.ts`). The app's "Sign in" links (Community,
+New post, public profiles) go to `/?auth=login`, which opens the landing page's sign-in modal;
+`?auth=signup` opens sign-up. Sign-in success and Google's redirect go to `/dashboard`; signing out
+or deleting the account goes to `/`. The tiling registry key for the dashboard is `/dashboard` (a
+saved tiled layout with an old `/` pane shows "not available"; close that pane). Verified in the
+browser: `/`, `/welcome` redirect, `?auth=login`, "Try it without an account", sidebar Dashboard and
+logo links, Community's Sign in href.
+
+### Forgot password (2026-10-10, web)
+
+`Password({ verify: ResendOTP, reset: ResendPasswordReset })` in `packages/convex/auth.ts`.
+`ResendPasswordReset.ts` emails (HTML button + plain-text fallback; `lib/resend.ts`'s `sendEmail`
+gained an optional `html`) a one-time link with a 64-hex-char token, valid 1 hour:
+`${SITE_URL}/reset-password?email=&token=`. The param is `token`, not `code`, because Convex Auth's
+Next.js middleware treats any `?code=` as an OAuth callback. `SITE_URL` is `http://localhost:3000`
+on dev and `https://sheddex.com` on prod. The page (`app/reset-password`, `components/
+ResetPassword.tsx`, standalone with no sidebar via `AppChrome`): without a token it asks for the
+email and calls `signIn("password", { email, flow: "reset" })`, always showing the same "check your
+email" message (no revealing which emails have accounts; Google-only accounts have nothing to
+reset); with a token it takes the new password twice and calls `flow: "reset-verification"`, which
+sets it, signs out other sessions and signs in here; a used/expired/bad token shows "send a new
+link". The sign-in form (`AuthForm`) has a "Forgot your password?" link (prefills the email).
+Deployed to dev; prod gets it on the next Vercel build. Verified in the browser: request flow,
+password-mismatch error, and a bogus token. **Not verified:** a real email arriving and its link
+resetting a real account. The mobile app has no "forgot password" link yet (the web page works for
+mobile accounts too, same backend).
+
+### Page transitions with the logo's drum hit (2026-10-10, web)
+
+Every route change (non-tiling mode): the new page slides in from the right (`AppShell`'s
+`AnimatedPage`, 480ms ease-out) and the sidebar logo's sticks swing apart and strike back into the
+x with the off-beat dashes popping out (`lib/stickStrike.ts`). (A big version of the sticks striking
+in the middle of the content area was tried first and removed on request.) `AnimatedLogo` drives the sidebar one. `Logo.tsx`'s sticks are now
+grouped (`data-stick="a"|"b"`, `data-ticks`, pivoting on the crossing) so any logo can be struck;
+nothing visual changed at rest. Web Animations in a layout effect (no re-renders, no un-animated
+frame); skipped on first load and under `prefers-reduced-motion`. The page wrapper is transformed
+only while animating, so a page's `position: fixed` elements are offset for that half-second only.
+Checked frame by frame in the browser (Metronome to Tuner); in dev a slow first compile shows
+`app/loading.tsx` during the slide instead of the page.
+
+### Metronome options redesigned to explain themselves (2026-10-10, web)
+
+`components/metronome/MetronomeOptions.tsx` (Metronome only for now; Polyrhythm and Structure
+sections still use `MeterFields.tsx`'s `MeterOptions`/`SoundOptions`). The "Meter & subdivision"
+panel is now **Rhythm**: a "One meter / Changing meters" segmented control (was the "Use a
+structure" switch; Changing meters shows the unchanged `StructureEditor`), a `TimeSignatureControl`
+drawn as a stacked time signature with arrows beside each number and a readout ("7 eighth notes per
+bar"), and `SubdivisionPicker` (picture +
+short name tiles). Accents are set only by tapping beats in the main beat strip (an "Accents"
+group-splitter was tried here and dropped as redundant; the typed grouping field is gone too). **Sound**: click-sound cards that play a preview (accent then normal click) when
+picked, and a volume slider with speaker icons that previews on release. No description text;
+`CollapsiblePanel` gained `hints={false}` to hide its "?" button where there's nothing to reveal
+(Rhythm shows it only in Changing meters mode). Verified in the browser: 4/4 to 7/8 with arrows, triplets, mode switch, sound pick,
+light/dark, 390px wide; no errors. Not heard: the sound previews (no audio here).
+
+**Then (same day) the Metronome's options column was replaced by setting chips.** `options={null}`
+(`ToolLayout` now hides its "Options" show-button and column when a tool passes no options), and a
+row of chips under the beat strip (`components/metronome/SettingsBar.tsx`: `SettingsBar`,
+`SettingChip`) shows each setting's current value. Above the chips, a One meter / Changing meters
+switch decides which chips there are: one meter shows **Time** ("4/4") and **Subdivision**
+("8ths"); changing meters shows the form itself on the page, in a card under the switch (`StructureEditor
+show="form"`: the play-order chips, drag to reorder, × to remove, "+ A / + B" to add), and a
+**Sections** chip ("3 sections", or "Add sections") whose popover is just the section list with
+"New section" (`show="sections" modern`). With `modern`, each section card uses the same controls
+as One meter: a name field, `StepperPill` for bars ("‹ 2 › bars"), `TimeSignatureControl`,
+`SubdivisionPicker`, the section's beat strip for accents, and Remove; the collapsed card reads
+"2 bars of 11/8" next to a badge with the section's name. `StructureEditor` defaults to `show="all"`, so Tempo Trainer and
+Recorder are unchanged. **Sound**
+("Classic click · 80%") is always there. The chips sit below Start. A chip opens a popover (a bottom sheet with
+a dim backdrop on phones; Escape, the ×, or a click outside closes it; one open at a time). The
+popover is portaled to `<body>` and `position: fixed`: always just above its chip, kept on screen, and capped to the available height, with
+only its body scrolling (header pinned), so a long editor never makes the page scroll (checked: the
+page's scroll height is unchanged with a long section list open), holding the same controls
+as before (`MetronomeOptions.tsx`). No collapsing, no hiding. The
+Rhythm/Sound `CollapsiblePanel`s and `PanelsToggle` are no longer used by the Metronome. Verified in
+the browser (each chip's popover, desktop and 390px, Changing meters editing inside the popover); no
+errors.
+
+### Every tool's options are setting chips now (2026-10-10, web)
+
+The Metronome's chip pattern, applied site-wide through the shared components rather than tool by
+tool. `ToolLayout` renders a tool's `options` as a centred row of chips under the main display
+(`OptionChips`: `ChipsModeContext` + `SettingsBar`); the hideable options column and its
+"Options" show-button are gone (`sidePanel`s such as History/Struggles/Modulations keep their own
+column). Under that context, `CollapsiblePanel` and `OptionSection` render as a `SettingChip`
+(`components/SettingsBar.tsx`, moved out of `components/metronome/`) whose popover holds the
+panel's children; the popover header carries the panel's "?" descriptions toggle (`HintsButton`)
+and, for panels with a `toggle`, a **split chip**: a switch with the label and value that turns the
+whole section on/off straight from the chip, plus a separate sliders button that opens the popover;
+dimmed while off (value "Off"). The popover then has no switch of its own; opened while off it says
+"<Title> is off." with a "Turn on" button. Exception: Note / Scale / Interval Trainer's listen mode is a **Timed | Listen**
+selector above the chips (`ToolLayout`'s new `optionsMode` slot, a `Segmented`, disabled while
+running), like the Metronome's One meter / Changing meters; with `asMode` the panel (now titled
+"Listen") only appears as a plain chip while listening. Tempo Trainer now matches the Metronome exactly: a One meter / Changing
+meters selector plus the form card in `optionsMode`, Time + Subdivision chips (one meter) or a
+Sections chip (`StructureEditor show="sections" modern`), then Mute cycle ("4 on · 4 off") and
+Sound.
+`OptionsCard` renders just its sections (sharing one hints setting); `PanelsToggle` renders nothing.
+New props on both: `summary` (the chip's value) and `wide`. Summaries added for the obvious ones:
+meters ("4/4"), sounds ("Woodblock · 80%", `soundSummary`), pools ("12 of 33"), ranges ("E1-G4"),
+Tuner instrument / "A = 440 Hz", Slow Downer speed / markers, count-off/count-in, roll type, Jam
+Practice's tune count, Practice Timer sound. The popover ignores clicks/Escape inside portaled
+menus (`[role=listbox|menu]`, e.g. `Select` options), so dropdowns inside popovers work.
+`MeterFields`' `MeterOptions` and `SoundOptions` now render the Metronome's controls
+(`TimeSignatureControl` + `SubdivisionPicker`; `SoundPicker`), so Polyrhythm, Tempo Trainer, the
+Recorder and the classic section cards match; the typed accent-grouping field (`GroupsField`) is
+deleted (accents come from tapping each tool's beat strip). Verified: every tool page in the
+browser at 1440 and 390 wide (chips, a popover each, no errors), `tsc`, `eslint`, `next build`.
+The Recorder's metronome got the same treatment, but its chips live inside the Metronome card
+(shown while the metronome is on) rather than under the page, since the recordings list sits below
+it: One meter / Changing meters, the form card, Time / Subdivision or Sections, Count-in, Sound
+(`SettingsBar fit` wraps within the card). Checked in the browser by temporarily bypassing the
+signed-in gate (reverted). The Recorder page is now `layout="stacked"` (vertically centred) with a grid: on desktop
+the Metronome card on the left and the recorder (timer, record button, auto gain) above recent
+recordings on the right; on phones recorder, then metronome, then recordings.
+
 ## Tools (sidebar order)
 
 - **Jam Practice** (`components/JamPractice.tsx`) — random tune/tempo/key picker with a

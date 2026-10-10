@@ -1,5 +1,8 @@
 "use client";
 
+import { createContext, useContext } from "react";
+import { HintsButton } from "@/components/CollapsiblePanel";
+import { SettingChip, useChipsMode } from "@/components/SettingsBar";
 import { HelpIcon, SlidersIcon } from "@/components/tools";
 import { HintsContext } from "@/lib/hints";
 import { usePersistedSettings } from "@/lib/usePersistedSettings";
@@ -17,6 +20,13 @@ export function OptionsCard({ id, children }: { id: string; children: React.Reac
     DEFAULTS,
   );
   const bodyId = `options-card-${id}`;
+  // As chips, the card itself disappears: each section is its own chip, sharing the card's
+  // "show descriptions" setting.
+  if (useChipsMode()) {
+    return (
+      <CardHints.Provider value={{ showHints, toggle: () => update({ showHints: !showHints }) }}>{children}</CardHints.Provider>
+    );
+  }
 
   return (
     <div className="w-full rounded-2xl bg-surface text-left">
@@ -77,15 +87,31 @@ export function OptionsCard({ id, children }: { id: string; children: React.Reac
   );
 }
 
+const CardHints = createContext<{ showHints: boolean; toggle: () => void }>({ showHints: false, toggle: () => {} });
+
 export function OptionSection({
   title,
   icon: Icon,
+  summary,
+  wide,
   children,
 }: {
   title: string;
   icon: React.ComponentType<{ className?: string }>;
+  /** As a chip: the setting's current value. */
+  summary?: React.ReactNode;
+  wide?: boolean;
   children: React.ReactNode;
 }) {
+  const chips = useChipsMode();
+  const hints = useContext(CardHints);
+  if (chips) {
+    return (
+      <SettingChip icon={Icon} label={title} value={summary} wide={wide} headerExtra={<HintsButton on={hints.showHints} onToggle={hints.toggle} />}>
+        <HintsContext.Provider value={hints.showHints}>{children}</HintsContext.Provider>
+      </SettingChip>
+    );
+  }
   return (
     <section className="flex min-w-0 flex-col gap-4">
       <h2 className="flex items-center gap-2 text-sm font-semibold text-muted">

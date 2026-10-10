@@ -203,7 +203,7 @@ export default function Tuner() {
         <>
           <PanelsToggle ids={PANEL_IDS} />
 
-          <CollapsiblePanel id="tuner-instrument" title="Instrument" icon={TunerIcon}>
+          <CollapsiblePanel id="tuner-instrument" title="Instrument" icon={TunerIcon} summary={instrument.label}>
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium text-muted">Instrument</span>
               <Select
@@ -268,7 +268,7 @@ export default function Tuner() {
             <Hint>How quiet a signal can be before it&apos;s ignored as silence — raise it in a noisy room.</Hint>
           </CollapsiblePanel>
 
-          <CollapsiblePanel id="tuner-tone" title="Reference & tone" icon={SlidersIcon}>
+          <CollapsiblePanel id="tuner-tone" title="Reference & tone" icon={SlidersIcon} summary={`A = ${refA} Hz`}>
             <label className="flex flex-col gap-2 text-sm">
               <span className="flex items-center justify-between font-medium text-muted">
                 Reference pitch (A4)

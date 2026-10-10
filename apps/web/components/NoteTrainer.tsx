@@ -5,6 +5,7 @@ import { CUSTOM_INSTRUMENT_ID, INSTRUMENTS } from "@/lib/instruments";
 import SwitchRow from "@/components/SwitchRow";
 import Hint from "@/components/Hint";
 import InputTest from "@/components/InputTest";
+import { Segmented } from "@/components/metronome/MetronomeOptions";
 import ToolLayout from "@/components/ToolLayout";
 import KeyHint from "@/components/KeyHint";
 import PanelsToggle from "@/components/PanelsToggle";
@@ -956,10 +957,23 @@ export default function NoteTrainer() {
           </>
         )
       }
+      optionsMode={
+        <Segmented
+          onPage
+          label="Mode"
+          value={listenMode ? "listen" : "timed"}
+          onChange={(v) => setListenMode(v === "listen")}
+          disabled={running}
+          options={[
+            { value: "timed", label: "Timed" },
+            { value: "listen", label: "Listen" },
+          ]}
+        />
+      }
       options={
         <>
           <PanelsToggle ids={PANEL_IDS} />
-          <CollapsiblePanel id="notes" title="Notes" icon={NoteIcon}>
+          <CollapsiblePanel id="notes" title="Notes" icon={NoteIcon} summary={rangeInput}>
             <SwitchRow
               label="Ignore octave"
               checked={ignoreOctave}
@@ -1056,8 +1070,9 @@ export default function NoteTrainer() {
 
           <CollapsiblePanel
             id="note-listen"
-            title="Listen mode"
+            title="Listen"
             icon={MicIcon}
+            asMode
             toggle={{
               checked: listenMode,
               onChange: setListenMode,

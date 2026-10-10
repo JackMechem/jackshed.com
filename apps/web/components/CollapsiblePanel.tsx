@@ -1,5 +1,6 @@
 "use client";
 
+import { SettingChip, useChipsMode } from "@/components/SettingsBar";
 import { HelpIcon } from "@/components/tools";
 import { HintsContext } from "@/lib/hints";
 import { PANEL_DEFAULTS, panelKey } from "@/lib/panels";
@@ -12,6 +13,10 @@ export default function CollapsiblePanel({
   icon: Icon,
   action,
   toggle,
+  hints = true,
+  summary,
+  wide,
+  asMode,
   children,
 }: {
   id: string;
@@ -24,12 +29,77 @@ export default function CollapsiblePanel({
    * nothing to expand, so the chevron is hidden and the body stays collapsed.
    */
   toggle?: { checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean };
+  /** Show the "?" button that reveals option descriptions. Off for panels whose controls explain
+      themselves (nothing to reveal). */
+  hints?: boolean;
+  /** As a chip (`ToolLayout`'s chips mode): the setting's current value, shown under the title. */
+  summary?: React.ReactNode;
+  /** As a chip: a wider popover, for big editors. */
+  wide?: boolean;
+  /** As a chip, with a `toggle`: the on/off switch lives elsewhere (a mode selector above the chips,
+      `ToolLayout`'s `optionsMode`), so the chip only appears while it's on, as a plain chip. */
+  asMode?: boolean;
   children: React.ReactNode;
 }) {
   const [{ open: storedOpen, showHints }, update] = usePersistedSettings(
     panelKey(id),
     PANEL_DEFAULTS,
   );
+  const chips = useChipsMode();
+  if (chips && asMode && toggle) {
+    if (!toggle.checked) return null;
+    return (
+      <SettingChip
+        icon={Icon}
+        label={title}
+        value={summary}
+        wide={wide}
+        headerExtra={
+          <>
+            {action}
+            {hints && <HintsButton on={showHints} onToggle={() => update({ showHints: !showHints })} />}
+          </>
+        }
+      >
+        <HintsContext.Provider value={showHints}>{children}</HintsContext.Provider>
+      </SettingChip>
+    );
+  }
+  if (chips) {
+    return (
+      <SettingChip
+        icon={Icon}
+        label={title}
+        value={toggle ? (toggle.checked ? (summary ?? "On") : "Off") : summary}
+        wide={wide}
+        toggle={toggle}
+        headerExtra={
+          <>
+            {action}
+            {hints && <HintsButton on={showHints} onToggle={() => update({ showHints: !showHints })} />}
+          </>
+        }
+      >
+        <HintsContext.Provider value={showHints}>
+          {!toggle || toggle.checked ? (
+            children
+          ) : (
+            <div className="flex flex-col items-start gap-3">
+              <p className="text-sm text-muted">{title} is off.</p>
+              <button
+                type="button"
+                onClick={() => toggle.onChange(true)}
+                disabled={toggle.disabled}
+                className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground hover:bg-accent-hover disabled:opacity-50"
+              >
+                Turn on
+              </button>
+            </div>
+          )}
+        </HintsContext.Provider>
+      </SettingChip>
+    );
+  }
   const canExpand = !toggle || toggle.checked;
   const open = canExpand && storedOpen;
   const bodyId = `panel-${id}`;
@@ -47,7 +117,7 @@ export default function CollapsiblePanel({
           <Icon className="h-4 w-4 shrink-0" />
           {title}
         </button>
-        <button
+        {hints && <button
           type="button"
           aria-pressed={showHints}
           aria-label={showHints ? "Hide option descriptions" : "Show option descriptions"}
@@ -60,7 +130,7 @@ export default function CollapsiblePanel({
           }`}
         >
           <HelpIcon className="h-4 w-4" />
-        </button>
+        </button>}
         {toggle && (
           <button
             type="button"
@@ -122,5 +192,23 @@ export default function CollapsiblePanel({
         </div>
       </div>
     </section>
+  );
+}
+
+/** The "?" button that shows/hides option descriptions (`Hint`s) inside a panel or popover. */
+export function HintsButton({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      aria-label={on ? "Hide option descriptions" : "Show option descriptions"}
+      title={on ? "Hide option descriptions" : "Show option descriptions"}
+      onClick={onToggle}
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-accent ${
+        on ? "bg-accent text-accent-foreground" : "text-muted hover:bg-background hover:text-foreground"
+      }`}
+    >
+      <HelpIcon className="h-4 w-4" />
+    </button>
   );
 }

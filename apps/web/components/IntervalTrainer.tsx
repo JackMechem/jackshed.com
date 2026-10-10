@@ -5,6 +5,7 @@ import { CUSTOM_INSTRUMENT_ID, INSTRUMENTS } from "@/lib/instruments";
 import SwitchRow from "@/components/SwitchRow";
 import Hint from "@/components/Hint";
 import InputTest from "@/components/InputTest";
+import { Segmented } from "@/components/metronome/MetronomeOptions";
 import ToolLayout from "@/components/ToolLayout";
 import KeyHint from "@/components/KeyHint";
 import PanelsToggle from "@/components/PanelsToggle";
@@ -1079,10 +1080,23 @@ export default function IntervalTrainer() {
           </>
         )
       }
+      optionsMode={
+        <Segmented
+          onPage
+          label="Mode"
+          value={listenMode ? "listen" : "timed"}
+          onChange={(v) => setListenMode(v === "listen")}
+          disabled={running}
+          options={[
+            { value: "timed", label: "Timed" },
+            { value: "listen", label: "Listen" },
+          ]}
+        />
+      }
       options={
         <>
           <PanelsToggle ids={PANEL_IDS} />
-          <CollapsiblePanel id="interval-set" title="Intervals" icon={IntervalIcon}>
+          <CollapsiblePanel id="interval-set" title="Intervals" icon={IntervalIcon} summary={`${pool.length} of ${INTERVALS.length}`}>
             <div className="flex items-center justify-between text-xs">
               <span className="font-medium text-muted">
                 {pool.length} of {INTERVALS.length} selected
@@ -1141,7 +1155,7 @@ export default function IntervalTrainer() {
             />
           </CollapsiblePanel>
 
-          <CollapsiblePanel id="interval-range" title="Range" icon={NoteIcon}>
+          <CollapsiblePanel id="interval-range" title="Range" icon={NoteIcon} summary={rangeInput}>
             <SwitchRow
               label="Ignore octave"
               checked={ignoreOctave}
@@ -1213,8 +1227,9 @@ export default function IntervalTrainer() {
 
           <CollapsiblePanel
             id="interval-listen"
-            title="Listen mode"
+            title="Listen"
             icon={MicIcon}
+            asMode
             toggle={{
               checked: listenMode,
               onChange: setListenMode,

@@ -2,6 +2,7 @@ import { Password } from "@convex-dev/auth/providers/Password";
 import { convexAuth } from "@convex-dev/auth/server";
 import Google from "@auth/core/providers/google";
 import { ResendOTP } from "./ResendOTP";
+import { ResendPasswordReset } from "./ResendPasswordReset";
 
 // Google only actually works once AUTH_GOOGLE_ID/AUTH_GOOGLE_SECRET are set on the deployment
 // (`npx convex env set ...`) and the matching OAuth Client ID's redirect URI is configured in
@@ -11,6 +12,9 @@ import { ResendOTP } from "./ResendOTP";
 // `verify: ResendOTP` requires confirming a 6-digit code emailed to the address before a
 // password sign-up (or any not-yet-verified account's next sign-in) actually completes — same
 // prerequisite as Google: needs AUTH_RESEND_KEY set before it can actually send anything.
+//
+// `reset: ResendPasswordReset` is "forgot password": it emails a one-time link to the web app's
+// `/reset-password` page (see that file).
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
-  providers: [Password({ verify: ResendOTP }), Google],
+  providers: [Password({ verify: ResendOTP, reset: ResendPasswordReset }), Google],
 });

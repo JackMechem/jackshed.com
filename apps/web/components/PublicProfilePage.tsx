@@ -10,6 +10,7 @@ import FollowButton from "@/components/FollowButton";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import PublicTuneList from "@/components/PublicTuneList";
 import UserAvatar from "@/components/UserAvatar";
+import { SIGN_IN_PATH } from "@/lib/landing";
 
 /** A public profile page (`app/u/[username]/page.tsx`) — reachable by anyone, signed in or not;
     this is the shareable link. `getPublicByUsername` returns `null` for both "no such username"
@@ -83,7 +84,7 @@ export default function PublicProfilePage({ username }: { username: string }) {
         )}
         {!isOwnProfile && !viewer && (
           <p className="text-xs text-muted">
-            <Link href="/" className="text-accent hover:underline">
+            <Link href={SIGN_IN_PATH} className="text-accent hover:underline">
               Sign in
             </Link>{" "}
             to follow {profile.username}.
@@ -139,7 +140,7 @@ export default function PublicProfilePage({ username }: { username: string }) {
         )
       ) : (
         <p className="text-center text-xs text-muted">
-          <Link href="/" className="text-accent hover:underline">
+          <Link href={SIGN_IN_PATH} className="text-accent hover:underline">
             Sign in
           </Link>{" "}
           to see {profile.username}&apos;s Community posts.

@@ -2,25 +2,27 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import BeatIndicator from "@/components/BeatIndicator";
-import PanelsToggle from "@/components/PanelsToggle";
-import CollapsiblePanel from "@/components/CollapsiblePanel";
 import {
-  MeterOptions,
-  SoundOptions,
   TempoHero,
   TempoNoteConversionHint,
   TempoNoteValuePicker,
 } from "@/components/MeterFields";
 import StructureEditor from "@/components/StructureEditor";
-import SwitchRow from "@/components/SwitchRow";
-import { MeterIcon, SpeakerIcon } from "@/components/tools";
+import {
+  SUB_LABELS,
+  Segmented,
+  SoundPicker,
+  SubdivisionPicker,
+  TimeSignatureControl,
+} from "@/components/metronome/MetronomeOptions";
+import { SettingChip, SettingsBar } from "@/components/SettingsBar";
+import { MeterIcon, NoteIcon, SpeakerIcon } from "@/components/tools";
 import ToolLayout from "@/components/ToolLayout";
 import KeyHint from "@/components/KeyHint";
-import { BeatLevel, DEFAULT_CLICK_SOUND_ID } from "@/lib/clickEngine";
+import { BeatLevel, CLICK_SOUNDS, DEFAULT_CLICK_SOUND_ID } from "@/lib/clickEngine";
 import { MAX_BEATS } from "@/lib/meters";
 import {
   NEXT_LEVEL,
-  accentsFromGroups,
   clampBpm,
   defaultAccents,
   defaultSubAccents,
@@ -48,7 +50,6 @@ import { useSpaceToggle } from "@/lib/useSpaceToggle";
 
 const DEFAULT_BPM = 100;
 
-const PANEL_IDS = ["meter", "metronome-sound"];
 const SETTINGS_KEY = "jam-practice-metronome";
 const DEFAULT_SETTINGS = {
   bpm: DEFAULT_BPM,
@@ -200,63 +201,7 @@ export default function Metronome() {
   return (
     <ToolLayout
       title="Metronome"
-      options={
-        <>
-          <PanelsToggle ids={PANEL_IDS} />
-
-          <CollapsiblePanel
-            id="meter"
-            title="Meter & subdivision"
-            icon={MeterIcon}
-          >
-            <SwitchRow
-              label="Use a structure"
-              checked={useStructure}
-              onChange={setUseStructure}
-              hint="Chain bars of different time signatures in a fixed, looping sequence — e.g. 2 bars of 11/8, then a bar of 12/8, then a bar of 15/8 — instead of one meter for the whole run."
-            />
-            {useStructure ? (
-              <StructureEditor
-                structure={structure}
-                onChange={setStructure}
-                running={running}
-                activeFormIndex={running ? engineState.formIndex : null}
-                playingBeat={currentBeat}
-                playingSub={currentSub}
-              />
-            ) : (
-              <MeterOptions
-                beatsPerBar={beatsPerBar}
-                beatUnit={beatUnit}
-                accents={accents}
-                subdivision={subdivision}
-                onChangeBeats={changeBeats}
-                onSetBeatUnit={setBeatUnit}
-                onSetSubdivision={setSubdivision}
-                onApplyGroups={(groups) =>
-                  updateSettings({
-                    beatsPerBar: groups.reduce((a, b) => a + b, 0),
-                    accents: accentsFromGroups(groups),
-                  })
-                }
-              />
-            )}
-          </CollapsiblePanel>
-
-          <CollapsiblePanel
-            id="metronome-sound"
-            title="Sound"
-            icon={SpeakerIcon}
-          >
-            <SoundOptions
-              soundId={soundId}
-              setSoundId={setSoundId}
-              volume={volume}
-              setVolume={setVolume}
-            />
-          </CollapsiblePanel>
-        </>
-      }
+      options={null}
     >
       <div className="flex w-full flex-col items-center gap-4">
         <TempoHero
@@ -276,7 +221,7 @@ export default function Metronome() {
         )}
         {useStructure && !activeSection ? (
           <p className="rounded-xl bg-surface px-4 py-3 text-center text-sm text-muted">
-            Add sections and arrange a form below to see beats here.
+            Open Sections to add sections and arrange a form.
           </p>
         ) : (
           <BeatIndicator
@@ -290,6 +235,7 @@ export default function Metronome() {
           />
         )}
       </div>
+
 
       <button
         type="button"
@@ -307,6 +253,79 @@ export default function Metronome() {
       <KeyHint>
         Press <KeyHint.Key>Space</KeyHint.Key> to start or stop
       </KeyHint>
+
+      {/* Settings live below Start: the meter mode (it decides which chips there are), then
+          chips that each open their own popover. */}
+      <div className="flex flex-col items-center gap-3">
+        <div>
+          <Segmented
+            onPage
+            label="Meter"
+            value={useStructure ? "structure" : "single"}
+            onChange={(v) => setUseStructure(v === "structure")}
+            options={[
+              { value: "single", label: "One meter" },
+              { value: "structure", label: "Changing meters" },
+            ]}
+          />
+        </div>
+        {useStructure && (
+          <div className="w-[min(30rem,calc(100vw-2rem))] rounded-3xl bg-surface p-4 text-left">
+            <StructureEditor
+              show="form"
+              structure={structure}
+              onChange={setStructure}
+              running={running}
+              activeFormIndex={running ? engineState.formIndex : null}
+              playingBeat={currentBeat}
+              playingSub={currentSub}
+            />
+          </div>
+        )}
+        <SettingsBar>
+          {useStructure ? (
+            <SettingChip
+              icon={MeterIcon}
+              label="Sections"
+              title="Sections"
+              wide
+              value={structure.sections.length ? `${structure.sections.length} section${structure.sections.length === 1 ? "" : "s"}` : "Add sections"}
+            >
+              <StructureEditor
+                show="sections"
+                modern
+                structure={structure}
+                onChange={setStructure}
+                running={running}
+                activeFormIndex={running ? engineState.formIndex : null}
+                playingBeat={currentBeat}
+                playingSub={currentSub}
+              />
+            </SettingChip>
+          ) : (
+            <>
+              <SettingChip icon={MeterIcon} label="Time" title="Time signature" value={`${beatsPerBar}/${beatUnit}`}>
+                <TimeSignatureControl
+                  beatsPerBar={beatsPerBar}
+                  beatUnit={beatUnit}
+                  onChangeBeats={(n) => changeBeats(Math.min(MAX_BEATS, Math.max(1, n)))}
+                  onSetBeatUnit={setBeatUnit}
+                />
+              </SettingChip>
+              <SettingChip icon={NoteIcon} label="Subdivision" value={SUB_LABELS[subdivision] ?? subdivision}>
+                <SubdivisionPicker value={subdivision} onChange={setSubdivision} showTitle={false} />
+              </SettingChip>
+            </>
+          )}
+          <SettingChip
+            icon={SpeakerIcon}
+            label="Sound"
+            value={`${CLICK_SOUNDS.find((c) => c.id === soundId)?.label ?? "Click"} · ${Math.round(volume * 100)}%`}
+          >
+            <SoundPicker soundId={soundId} setSoundId={setSoundId} volume={volume} setVolume={setVolume} />
+          </SettingChip>
+        </SettingsBar>
+      </div>
     </ToolLayout>
   );
 }

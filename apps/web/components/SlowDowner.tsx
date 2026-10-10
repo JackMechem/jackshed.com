@@ -397,7 +397,7 @@ export default function SlowDowner() {
       layout="stacked"
       options={
         <OptionsCard id="slow-downer">
-          <OptionSection title="Speed" icon={StopwatchIcon}>
+          <OptionSection title="Speed" icon={StopwatchIcon} summary={`${speed}%`}>
             <label className="flex flex-col gap-2 text-sm">
               <span className="flex items-center justify-between font-medium text-muted">
                 Playback speed
@@ -457,7 +457,7 @@ export default function SlowDowner() {
             <Hint>Playback volume for this file.</Hint>
           </OptionSection>
 
-          <OptionSection title="Markers" icon={FlagIcon}>
+          <OptionSection title="Markers" icon={FlagIcon} summary={markers.length ? `${markers.length}` : "None"}>
             {markers.length === 0 ? (
               <p className="text-sm text-muted">
                 No markers yet. Right-click the waveform to add one at that spot.

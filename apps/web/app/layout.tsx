@@ -3,7 +3,7 @@ import Script from "next/script";
 import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 import { FONT_VARIABLE_CLASSES } from "@/app/fonts";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
-import AppShell from "@/components/AppShell";
+import AppChrome from "@/components/AppChrome";
 import BackgroundToolDock from "@/components/BackgroundToolDock";
 import CommandPalette from "@/components/CommandPalette";
 import ConvexClientProvider from "@/components/ConvexClientProvider";
@@ -53,13 +53,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             real, unavoidable cost of adding Convex Auth here. */}
         <ConvexAuthNextjsServerProvider>
           <ConvexClientProvider>
-            <Sidebar />
-            <CommandPalette />
-            <PracticeTimerWidget mobile />
             <PracticeTimerAlert />
             <UsernamePrompt />
-            <BackgroundToolDock />
-            <AppShell>{children}</AppShell>
+            <AppChrome
+              chrome={
+                <>
+                  <Sidebar />
+                  <CommandPalette />
+                  <PracticeTimerWidget mobile />
+                  <BackgroundToolDock />
+                </>
+              }
+            >
+              {children}
+            </AppChrome>
           </ConvexClientProvider>
         </ConvexAuthNextjsServerProvider>
       </body>

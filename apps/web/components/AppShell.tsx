@@ -1,6 +1,9 @@
 "use client";
 
+import { usePathname } from "next/navigation";
+import { useLayoutEffect, useRef } from "react";
 import TilingLayout from "@/components/TilingLayout";
+import { prefersReducedMotion } from "@/lib/stickStrike";
 import { useIsDesktop } from "@/lib/useIsDesktop";
 import { useRecordToolVisits } from "@/lib/toolRecents";
 import { useTilingState } from "@/lib/useTilingLayout";
@@ -23,17 +26,47 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const isDesktop = useIsDesktop();
   useRecordToolVisits();
 
-  if (!enabled || !isDesktop) {
-    return (
-      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-background lg:my-2 lg:ml-2 lg:mr-2 lg:rounded-3xl">
-        {children}
-      </div>
-    );
-  }
+  if (!enabled || !isDesktop) return <AnimatedPage>{children}</AnimatedPage>;
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background lg:my-2 lg:ml-2 lg:mr-2 lg:rounded-3xl">
       <TilingLayout />
+    </div>
+  );
+}
+
+const EASE_OUT = "cubic-bezier(0.16, 1, 0.3, 1)";
+
+/** The page transition: on every route change the new page slides in from the right, while the
+    sidebar logo's sticks strike (`AnimatedLogo`). Runs in a layout effect, so the new page never
+    shows un-animated for a frame; Web Animations only (no re-renders, nothing left behind);
+    skipped under reduced motion and on the first load. */
+function AnimatedPage({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const pageRef = useRef<HTMLDivElement>(null);
+  const first = useRef(true);
+
+  useLayoutEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    const page = pageRef.current;
+    if (!page || prefersReducedMotion()) return;
+    page.scrollTop = 0;
+    const slide = page.animate(
+      [
+        { opacity: 0, transform: "translateX(36px) scale(0.985)" },
+        { opacity: 1, transform: "none" },
+      ],
+      { duration: 480, easing: EASE_OUT },
+    );
+    return () => slide.cancel();
+  }, [pathname]);
+
+  return (
+    <div ref={pageRef} className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-background lg:my-2 lg:ml-2 lg:mr-2 lg:rounded-3xl">
+      {children}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { CUSTOM_INSTRUMENT_ID, INSTRUMENTS } from "@/lib/instruments";
 import SwitchRow from "@/components/SwitchRow";
 import Hint from "@/components/Hint";
 import InputTest from "@/components/InputTest";
+import { Segmented } from "@/components/metronome/MetronomeOptions";
 import ToolLayout from "@/components/ToolLayout";
 import KeyHint from "@/components/KeyHint";
 import PanelsToggle from "@/components/PanelsToggle";
@@ -1048,10 +1049,23 @@ export default function ScaleTrainer() {
           </>
         )
       }
+      optionsMode={
+        <Segmented
+          onPage
+          label="Mode"
+          value={listenMode ? "listen" : "timed"}
+          onChange={(v) => setListenMode(v === "listen")}
+          disabled={running}
+          options={[
+            { value: "timed", label: "Timed" },
+            { value: "listen", label: "Listen" },
+          ]}
+        />
+      }
       options={
         <>
           <PanelsToggle ids={PANEL_IDS} />
-          <CollapsiblePanel id="scale-modes" title="Scales" icon={ScaleIcon}>
+          <CollapsiblePanel id="scale-modes" title="Scales" icon={ScaleIcon} summary={`${pool.length} of ${SCALE_MODES.length}`}>
             <div className="flex items-center justify-between text-xs">
               <span className="font-medium text-muted">
                 {pool.length} of {SCALE_MODES.length} selected
@@ -1112,7 +1126,7 @@ export default function ScaleTrainer() {
             ))}
           </CollapsiblePanel>
 
-          <CollapsiblePanel id="scale-range" title="Range" icon={NoteIcon}>
+          <CollapsiblePanel id="scale-range" title="Range" icon={NoteIcon} summary={rangeInput}>
             <SwitchRow
               label="Ignore octave"
               checked={ignoreOctave}
@@ -1184,8 +1198,9 @@ export default function ScaleTrainer() {
 
           <CollapsiblePanel
             id="scale-listen"
-            title="Listen mode"
+            title="Listen"
             icon={MicIcon}
+            asMode
             toggle={{
               checked: listenMode,
               onChange: setListenMode,

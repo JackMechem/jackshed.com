@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import BeatIndicator from "@/components/BeatIndicator";
 import Hint from "@/components/Hint";
 import { MeterOptions, SteppedField } from "@/components/MeterFields";
+import { OptionGroup, StepperPill, SubdivisionPicker, TimeSignatureControl } from "@/components/metronome/MetronomeOptions";
 import { PlusIcon } from "@/components/tools";
 import { MAX_BEATS } from "@/lib/meters";
 import { accentsFromGroups, defaultAccents, defaultSubAccents } from "@/lib/meterControls";
@@ -67,9 +68,13 @@ function SectionCard({
   isPlaying,
   playingBeat,
   playingSub,
+  modern,
 }: {
   structure: Structure;
   sectionId: string;
+  /** The Metronome's newer controls (drawn time signature, picture tiles) instead of the classic
+      steppers and grouping field. */
+  modern?: boolean;
   expanded: boolean;
   onToggle: () => void;
   onChangeStructure: (structure: Structure) => void;
@@ -86,6 +91,73 @@ function SectionCard({
 
   function patch(fields: Partial<StructureSection>) {
     onChangeStructure(updateSection(structure, sectionId, fields));
+  }
+
+  const beats = (
+    <div className={`flex flex-col items-center gap-2 rounded-xl p-3 ${modern ? "bg-background" : "bg-surface"}`}>
+      <BeatIndicator
+        accents={accents}
+        currentBeat={isPlaying ? playingBeat : null}
+        currentSub={playingSub}
+        onCycle={(i) => onChangeStructure(cycleSectionAccent(structure, sectionId, i))}
+        subdivision={section.subdivision}
+        subAccents={subAccents}
+        onCycleSub={(beatIndex, subIndex) =>
+          onChangeStructure(cycleSectionSubAccent(structure, sectionId, beatIndex, subIndex))
+        }
+        size="sm"
+      />
+    </div>
+  );
+
+  if (modern) {
+    return (
+      <div className={`rounded-2xl ring-1 ${expanded ? "ring-foreground/15" : "ring-foreground/[0.08]"}`}>
+        <button type="button" onClick={onToggle} aria-expanded={expanded} className="flex w-full items-center gap-3 px-4 py-3 text-left">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-sm font-bold text-accent">
+            {(section.name || "?").slice(0, 2)}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-semibold">{section.name || "Untitled"}</span>
+            <span className="block text-xs text-muted">
+              {section.bars} bar{section.bars === 1 ? "" : "s"} of {section.beatsPerBar}/{section.beatUnit}
+            </span>
+          </span>
+          <ChevronIcon open={expanded} />
+        </button>
+        {expanded && (
+          <div className="flex flex-col gap-5 px-4 pb-4 pt-1">
+            <input
+              type="text"
+              value={section.name}
+              onChange={(e) => patch({ name: e.target.value })}
+              placeholder="Section name"
+              aria-label="Section name"
+              className="rounded-xl bg-background px-3 py-2.5 font-semibold outline-none focus:ring-2 focus:ring-accent"
+            />
+            <OptionGroup title="Length">
+              <StepperPill label="Bars" unit={["bar", "bars"]} value={section.bars} min={1} max={MAX_BEATS} onChange={(bars) => patch({ bars })} />
+            </OptionGroup>
+            <OptionGroup title="Time signature">
+              <TimeSignatureControl
+                beatsPerBar={section.beatsPerBar}
+                beatUnit={section.beatUnit}
+                onChangeBeats={(n) => {
+                  const beats = Math.min(MAX_BEATS, Math.max(1, n));
+                  patch({ beatsPerBar: beats, accents: defaultAccents(beats, accents) });
+                }}
+                onSetBeatUnit={(unit) => patch({ beatUnit: unit })}
+              />
+            </OptionGroup>
+            <SubdivisionPicker value={section.subdivision} onChange={(n) => patch({ subdivision: n })} />
+            <OptionGroup title="Accents">{beats}</OptionGroup>
+            <button type="button" onClick={onRemove} className="self-start text-sm font-medium text-danger hover:underline">
+              Remove section
+            </button>
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -147,20 +219,7 @@ function SectionCard({
             }
           />
 
-          <div className="flex flex-col items-center gap-2 rounded-xl bg-surface p-3">
-            <BeatIndicator
-              accents={accents}
-              currentBeat={isPlaying ? playingBeat : null}
-              currentSub={playingSub}
-              onCycle={(i) => onChangeStructure(cycleSectionAccent(structure, sectionId, i))}
-              subdivision={section.subdivision}
-              subAccents={subAccents}
-              onCycleSub={(beatIndex, subIndex) =>
-                onChangeStructure(cycleSectionSubAccent(structure, sectionId, beatIndex, subIndex))
-              }
-              size="sm"
-            />
-          </div>
+          {beats}
 
           <button
             type="button"
@@ -188,9 +247,16 @@ export default function StructureEditor({
   activeFormIndex,
   playingBeat,
   playingSub,
+  show = "all",
+  modern = false,
 }: {
   structure: Structure;
   onChange: (structure: Structure) => void;
+  /** Just the form (the play order, with its "add to form" buttons), just the list of sections,
+      or both. The Metronome shows the form on the page and the sections in a popover. */
+  show?: "all" | "form" | "sections";
+  /** Use the Metronome's newer controls in each section card (see `SectionCard`). */
+  modern?: boolean;
   /** Whether the engine is actually running right now — gates whether `activeFormIndex` drives
       any live highlighting at all (it's left at its last value after stopping, same as
       `currentBeat` elsewhere, so this prop is what actually turns the highlight off). */
@@ -270,8 +336,13 @@ export default function StructureEditor({
     setDragOffset({ x: 0, y: 0 });
   }
 
+  const showForm = show !== "sections";
+  const showSections = show !== "form";
+
   return (
     <div className="flex flex-col gap-4">
+      {showForm && (
+      <>
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium text-muted">Form</span>
         <span className="text-xs text-muted">
@@ -283,7 +354,11 @@ export default function StructureEditor({
       <div className="flex min-h-12 flex-wrap items-center gap-1.5 rounded-xl bg-background p-2">
         {structure.form.length === 0 ? (
           <p className="px-2 py-1.5 text-sm text-muted">
-            Add a section below, then add it to the form.
+            {structure.sections.length === 0
+              ? show === "form"
+                ? "Create sections with the Sections button, then add them here."
+                : "Add a section below, then add it to the form."
+              : "Add sections to the form to set the order they play in."}
           </p>
         ) : (
           structure.form.map((sectionId, i) => {
@@ -341,14 +416,19 @@ export default function StructureEditor({
         </div>
       )}
 
-      <Hint>
-        Build a few named sections below (each its own bar count and time signature), then use the
-        buttons above to arrange them into the order they should actually play in — the same
-        section can be added more than once, e.g. A, A, B, C.
-      </Hint>
+      {show === "all" && (
+        <Hint>
+          Build a few named sections below (each its own bar count and time signature), then use the
+          buttons above to arrange them into the order they should actually play in — the same
+          section can be added more than once, e.g. A, A, B, C.
+        </Hint>
+      )}
+      </>
+      )}
 
+      {showSections && (
       <div className="flex flex-col gap-2">
-        <span className="text-sm font-medium text-muted">Sections</span>
+        {show === "all" && <span className="text-sm font-medium text-muted">Sections</span>}
         {structure.sections.map((section) => (
           <SectionCard
             key={section.id}
@@ -364,6 +444,7 @@ export default function StructureEditor({
             isPlaying={activeSectionId === section.id}
             playingBeat={playingBeat}
             playingSub={playingSub}
+            modern={modern}
           />
         ))}
         <button
@@ -374,6 +455,7 @@ export default function StructureEditor({
           <PlusIcon className="h-4 w-4" /> New section
         </button>
       </div>
+      )}
     </div>
   );
 }

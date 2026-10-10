@@ -215,6 +215,7 @@ export default function PracticeTimer() {
               id="practice-timer-editor"
               title={draft.id === null ? "New session" : "Edit session"}
               icon={PencilIcon}
+              wide
             >
               <label className="flex flex-col gap-1 text-left text-sm">
                 <span className="font-medium text-muted">Name</span>
@@ -459,7 +460,7 @@ export default function PracticeTimer() {
             </CollapsiblePanel>
           )}
 
-          <CollapsiblePanel id="practice-timer-sound" title="Sound" icon={SpeakerIcon}>
+          <CollapsiblePanel id="practice-timer-sound" title="Sound" icon={SpeakerIcon} summary={soundEnabled ? (alarmMode ? "Alarm" : "Chime") : "Off"}>
             <SwitchRow
               label="Sound feedback"
               checked={soundEnabled}

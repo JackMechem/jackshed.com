@@ -15,6 +15,7 @@ import LoadingSpinner from "@/components/LoadingSpinner";
 import UserAvatar from "@/components/UserAvatar";
 import { HeartIcon, NoteIcon, PlusIcon, UsersIcon } from "@/components/tools";
 import { useSetlists } from "@/lib/useSetlists";
+import { SIGN_IN_PATH } from "@/lib/landing";
 
 /**
  * The Community page, laid out like the Tunes and Chord Charts dashboards (and the mobile app's
@@ -55,7 +56,7 @@ export default function Community() {
 
   function openNewMenu(e: React.MouseEvent) {
     if (!isAuthenticated) {
-      router.push("/");
+      router.push(SIGN_IN_PATH);
       return;
     }
     const pos = menuPosition(e);
@@ -149,16 +150,16 @@ export default function Community() {
       ) : (
         <>
           <div className="flex gap-3">
-            <StatCard icon={HeartIcon} count={likedIds?.length ?? 0} label="Liked" href={isAuthenticated ? "/community/liked" : "/"} />
-            <StatCard icon={UsersIcon} count={following?.length ?? 0} label="Following" href={isAuthenticated ? "/community/following" : "/"} />
-            <StatCard icon={NoteIcon} count={mine?.length ?? 0} label="My posts" href={isAuthenticated ? "/community/posts" : "/"} />
+            <StatCard icon={HeartIcon} count={likedIds?.length ?? 0} label="Liked" href={isAuthenticated ? "/community/liked" : SIGN_IN_PATH} />
+            <StatCard icon={UsersIcon} count={following?.length ?? 0} label="Following" href={isAuthenticated ? "/community/following" : SIGN_IN_PATH} />
+            <StatCard icon={NoteIcon} count={mine?.length ?? 0} label="My posts" href={isAuthenticated ? "/community/posts" : SIGN_IN_PATH} />
           </div>
 
           <Section title="Latest posts">
             {!isAuthenticated ? (
               <div className="flex flex-col items-start gap-3 rounded-2xl bg-surface p-4">
                 <p className="text-sm text-muted">Sign in to see what sheddex users have posted — tunes, setlists, and the chord charts that come with them.</p>
-                <Link href="/" className="rounded-xl bg-accent px-4 py-2 text-sm font-bold text-accent-foreground hover:bg-accent-hover">
+                <Link href={SIGN_IN_PATH} className="rounded-xl bg-accent px-4 py-2 text-sm font-bold text-accent-foreground hover:bg-accent-hover">
                   Sign in
                 </Link>
               </div>
@@ -221,7 +222,7 @@ export function CommunitySubPage({ title, children }: { title: string; children:
         children
       ) : (
         <EmptyCard>
-          <Link href="/" className="text-accent hover:underline">
+          <Link href={SIGN_IN_PATH} className="text-accent hover:underline">
             Sign in
           </Link>{" "}
           to see this.

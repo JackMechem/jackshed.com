@@ -37,9 +37,22 @@ function buttonClass(collapsed?: boolean, large?: boolean) {
   } ${collapsed ? "justify-center" : ""}`;
 }
 
-function AuthForm({ onClose }: { onClose: () => void }) {
+/** The sign-in / sign-up form. `onClose` is Cancel (and success, unless `onSuccess` is given —
+    the landing page uses that to go into the app once signed in). */
+export function AuthForm({
+  onClose,
+  onSuccess = onClose,
+  initialFlow = "signIn",
+  googleRedirectTo,
+}: {
+  onClose: () => void;
+  onSuccess?: () => void;
+  initialFlow?: "signIn" | "signUp";
+  /** Where Google sends you back to after signing in (default: this page). */
+  googleRedirectTo?: string;
+}) {
   const { signIn } = useAuthActions();
-  const [flow, setFlow] = useState<"signIn" | "signUp">("signIn");
+  const [flow, setFlow] = useState<"signIn" | "signUp">(initialFlow);
   // "code" means Convex Auth's Password provider (configured with `verify: ResendOTP` in
   // convex/auth.ts) emailed a confirmation code instead of completing sign-in/sign-up directly —
   // covers both a fresh sign-up and any pre-existing account that's never verified its email.
@@ -58,7 +71,7 @@ function AuthForm({ onClose }: { onClose: () => void }) {
     try {
       const result = await signIn("password", { email, password, flow });
       if (result.signingIn) {
-        onClose();
+        onSuccess();
       } else {
         // Didn't throw, but no tokens came back either — a confirmation code was emailed
         // instead.
@@ -86,7 +99,7 @@ function AuthForm({ onClose }: { onClose: () => void }) {
     try {
       const result = await signIn("password", { email, code, flow: "email-verification" });
       if (result.signingIn) {
-        onClose();
+        onSuccess();
       } else {
         setError("That code didn't work — try again.");
       }
@@ -103,7 +116,7 @@ function AuthForm({ onClose }: { onClose: () => void }) {
     try {
       // Redirects the page on success, so this only ever resolves-without-navigating on a real
       // failure (e.g. Google sign-in isn't configured yet on this deployment).
-      await signIn("google");
+      await signIn("google", googleRedirectTo ? { redirectTo: googleRedirectTo } : undefined);
     } catch {
       setError("Couldn't start Google sign-in.");
       setGoogleSubmitting(false);
@@ -197,6 +210,16 @@ function AuthForm({ onClose }: { onClose: () => void }) {
         </label>
 
         {error && <p className="text-sm text-danger">{error}</p>}
+
+        {flow === "signIn" && (
+          <Link
+            href={`/reset-password${email ? `?${new URLSearchParams({ email })}` : ""}`}
+            onClick={onClose}
+            className="-mt-1 self-start text-sm font-medium text-muted hover:text-foreground"
+          >
+            Forgot your password?
+          </Link>
+        )}
 
         {flow === "signUp" && (
           <p className="text-xs text-muted">

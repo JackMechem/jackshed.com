@@ -1,11 +1,18 @@
 "use client";
 
+import { useChipsMode } from "@/components/SettingsBar";
 import { EyeOffIcon } from "@/components/tools";
 import { useToolLayout } from "@/components/ToolLayout";
 import { useOptionsHidden, usePanelsToggle } from "@/lib/panels";
 
 /** Header row of the options column: collapse/expand every panel, or hide the whole column. */
 export default function PanelsToggle({ ids }: { ids: string[] }) {
+  // Options shown as chips have nothing to collapse or hide.
+  if (useChipsMode()) return null;
+  return <PanelsToggleRow ids={ids} />;
+}
+
+function PanelsToggleRow({ ids }: { ids: string[] }) {
   const { anyOpen, setAll } = usePanelsToggle(ids);
   const [, setHidden] = useOptionsHidden();
   const stacked = useToolLayout() === "stacked";

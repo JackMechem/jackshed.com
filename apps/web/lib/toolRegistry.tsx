@@ -23,7 +23,7 @@ function PaneLoading() {
     pane whose href happens to match the current URL), instead of needing every pane to be a real,
     separately-routed page. */
 export const TOOL_COMPONENTS: Record<string, ComponentType> = {
-  "/": dynamic(() => import("@/components/Home"), { loading: PaneLoading }),
+  "/dashboard": dynamic(() => import("@/components/Home"), { loading: PaneLoading }),
   "/jam-practice": dynamic(() => import("@/components/JamPractice"), { loading: PaneLoading }),
   "/note-trainer": dynamic(() => import("@/components/NoteTrainer"), { loading: PaneLoading }),
   "/scale-trainer": dynamic(() => import("@/components/ScaleTrainer"), { loading: PaneLoading }),

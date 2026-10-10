@@ -5,7 +5,6 @@ import BeatIndicator from "@/components/BeatIndicator";
 import PanelsToggle from "@/components/PanelsToggle";
 import CollapsiblePanel from "@/components/CollapsiblePanel";
 import {
-  MeterOptions,
   SoundOptions,
   SteppedField,
   TempoHero,
@@ -13,15 +12,16 @@ import {
   TempoNoteValuePicker,
 } from "@/components/MeterFields";
 import StructureEditor from "@/components/StructureEditor";
-import SwitchRow from "@/components/SwitchRow";
-import { EyeOffIcon, MeterIcon, SpeakerIcon } from "@/components/tools";
+import { EyeOffIcon, MeterIcon, NoteIcon, SpeakerIcon } from "@/components/tools";
+import { soundSummary } from "@/components/metronome/MetronomeOptions";
+import { SUB_LABELS, Segmented, SubdivisionPicker, TimeSignatureControl } from "@/components/metronome/MetronomeOptions";
+import { SettingChip } from "@/components/SettingsBar";
 import ToolLayout from "@/components/ToolLayout";
 import KeyHint from "@/components/KeyHint";
 import { type BeatLevel, DEFAULT_CLICK_SOUND_ID } from "@/lib/clickEngine";
 import { MAX_BEATS } from "@/lib/meters";
 import {
   NEXT_LEVEL,
-  accentsFromGroups,
   clampBpm,
   defaultAccents,
   defaultSubAccents,
@@ -220,19 +220,22 @@ export default function TempoTrainer() {
   return (
     <ToolLayout
       title="Tempo Trainer"
-      options={
+      optionsMode={
         <>
-          <PanelsToggle ids={PANEL_IDS} />
-
-          <CollapsiblePanel id="tempo-trainer-meter" title="Meter & subdivision" icon={MeterIcon}>
-            <SwitchRow
-              label="Use a structure"
-              checked={useStructure}
-              onChange={setUseStructure}
-              hint="Chain bars of different time signatures in a fixed, looping sequence — e.g. 2 bars of 11/8, then a bar of 12/8, then a bar of 15/8 — instead of one meter for the whole run."
-            />
-            {useStructure ? (
+          <Segmented
+            onPage
+            label="Meter"
+            value={useStructure ? "structure" : "single"}
+            onChange={(v) => setUseStructure(v === "structure")}
+            options={[
+              { value: "single", label: "One meter" },
+              { value: "structure", label: "Changing meters" },
+            ]}
+          />
+          {useStructure && (
+            <div className="w-[min(30rem,calc(100vw-2rem))] rounded-3xl bg-surface p-4 text-left">
               <StructureEditor
+                show="form"
                 structure={structure}
                 onChange={setStructure}
                 running={running}
@@ -240,26 +243,49 @@ export default function TempoTrainer() {
                 playingBeat={silentNow ? null : currentBeat}
                 playingSub={currentSub}
               />
-            ) : (
-              <MeterOptions
-                beatsPerBar={beatsPerBar}
-                beatUnit={beatUnit}
-                accents={accents}
-                subdivision={subdivision}
-                onChangeBeats={changeBeats}
-                onSetBeatUnit={setBeatUnit}
-                onSetSubdivision={setSubdivision}
-                onApplyGroups={(groups) =>
-                  updateSettings({
-                    beatsPerBar: groups.reduce((a, b) => a + b, 0),
-                    accents: accentsFromGroups(groups),
-                  })
-                }
-              />
-            )}
-          </CollapsiblePanel>
+            </div>
+          )}
+        </>
+      }
+      options={
+        <>
+          <PanelsToggle ids={PANEL_IDS} />
 
-          <CollapsiblePanel id="tempo-trainer-cycle" title="Mute cycle" icon={EyeOffIcon}>
+          {useStructure ? (
+            <SettingChip
+              icon={MeterIcon}
+              label="Sections"
+              wide
+              value={structure.sections.length ? `${structure.sections.length} section${structure.sections.length === 1 ? "" : "s"}` : "Add sections"}
+            >
+              <StructureEditor
+                show="sections"
+                modern
+                structure={structure}
+                onChange={setStructure}
+                running={running}
+                activeFormIndex={running && !silentNow ? engineState.formIndex : null}
+                playingBeat={silentNow ? null : currentBeat}
+                playingSub={currentSub}
+              />
+            </SettingChip>
+          ) : (
+            <>
+              <SettingChip icon={MeterIcon} label="Time" title="Time signature" value={`${beatsPerBar}/${beatUnit}`}>
+                <TimeSignatureControl
+                  beatsPerBar={beatsPerBar}
+                  beatUnit={beatUnit}
+                  onChangeBeats={(n) => changeBeats(Math.min(MAX_BEATS, Math.max(1, n)))}
+                  onSetBeatUnit={setBeatUnit}
+                />
+              </SettingChip>
+              <SettingChip icon={NoteIcon} label="Subdivision" value={SUB_LABELS[subdivision] ?? subdivision}>
+                <SubdivisionPicker value={subdivision} onChange={setSubdivision} showTitle={false} />
+              </SettingChip>
+            </>
+          )}
+
+          <CollapsiblePanel id="tempo-trainer-cycle" title="Mute cycle" icon={EyeOffIcon} summary={`${onBars} on · ${offBars} off`}>
             <SteppedField
               label="Bars audible"
               value={onBars}
@@ -282,7 +308,7 @@ export default function TempoTrainer() {
             />
           </CollapsiblePanel>
 
-          <CollapsiblePanel id="tempo-trainer-sound" title="Sound" icon={SpeakerIcon}>
+          <CollapsiblePanel id="tempo-trainer-sound" title="Sound" icon={SpeakerIcon} summary={soundSummary(soundId, volume)}>
             <SoundOptions
               soundId={soundId}
               setSoundId={setSoundId}
@@ -320,7 +346,7 @@ export default function TempoTrainer() {
             )}
             {useStructure && !activeSection ? (
               <p className="rounded-xl bg-surface px-4 py-3 text-center text-sm text-muted">
-                Add sections and arrange a form below to see beats here.
+                Open Sections to add sections and arrange a form.
               </p>
             ) : (
               <BeatIndicator

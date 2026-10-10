@@ -2,7 +2,8 @@
 
 import { createContext, useContext } from "react";
 import { EyeIcon, EyeOffIcon, NAV_LINKS } from "@/components/tools";
-import { useOptionsHidden, useSidePanelHidden } from "@/lib/panels";
+import { ChipsModeContext, SettingsBar } from "@/components/SettingsBar";
+import { useSidePanelHidden } from "@/lib/panels";
 
 const LayoutContext = createContext<"split" | "stacked">("split");
 
@@ -38,14 +39,15 @@ function ShowPanelButton({
 }
 
 /**
- * Shared page shell for the tools. On narrow screens everything stacks in one column;
- * on wide screens the options sit on the left and the main display on the right, and can be
- * hidden. With `layout="stacked"` the tool uses the full width with its options in one card
- * below it (always visible).
+ * Shared page shell for the tools: the main display, with the tool's options as a row of setting
+ * chips underneath (each panel/section becomes a chip that opens a popover; see `OptionChips`).
+ * `layout="stacked"` gives the main display the full width (Slow Downer, Recorder, ...). An
+ * optional `sidePanel` (history, logs) still gets its own hideable column on wide screens.
  */
 export default function ToolLayout({
   title,
   options,
+  optionsMode,
   layout = "split",
   topAligned = false,
   titleExtra,
@@ -69,10 +71,12 @@ export default function ToolLayout({
   sidePanelLabel?: string;
   /** Small, unobtrusive text pinned to the bottom-right corner of the page (e.g. an idea credit). */
   credit?: React.ReactNode;
+  /** A mode selector shown above the option chips (e.g. Timed / Listen), for a choice that
+      decides which chips there are. */
+  optionsMode?: React.ReactNode;
   options: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const [hidden, setHidden] = useOptionsHidden();
   const [sidePanelHidden, setSidePanelHidden] = useSidePanelHidden();
   const stacked = layout === "stacked";
   const TitleIcon = NAV_LINKS.find((link) => link.label === title)?.icon;
@@ -104,7 +108,7 @@ export default function ToolLayout({
             >
               {children}
             </section>
-            <aside className="w-full">{options}</aside>
+            {options && <OptionChips mode={optionsMode}>{options}</OptionChips>}
           </main>
         ) : (
           <main
@@ -114,13 +118,6 @@ export default function ToolLayout({
           >
             <section className="flex w-full min-w-0 flex-col items-center gap-7 text-center xl:flex-1 xl:items-center xl:justify-center">
               <div className="relative flex w-full flex-col items-center gap-7 xl:max-w-[24rem]">
-                {hidden && (
-                  <ShowPanelButton
-                    label="Options"
-                    align="left"
-                    onClick={() => setHidden(false)}
-                  />
-                )}
                 {sidePanel && sidePanelHidden && (
                   <ShowPanelButton
                     label={sidePanelLabel ?? "Panel"}
@@ -129,13 +126,9 @@ export default function ToolLayout({
                   />
                 )}
                 {children}
+                {options && <OptionChips mode={optionsMode}>{options}</OptionChips>}
               </div>
             </section>
-            {!hidden && (
-              <aside className="flex w-full flex-col gap-3 xl:order-first xl:w-[24rem] xl:shrink-0">
-                {options}
-              </aside>
-            )}
             {sidePanel && !sidePanelHidden && (
               <aside className="flex w-full flex-col gap-2 xl:w-72 xl:shrink-0">
                 <button
@@ -154,5 +147,18 @@ export default function ToolLayout({
         )}
       </div>
     </LayoutContext.Provider>
+  );
+}
+
+/** A tool's options, as a row of setting chips under its main display (each `CollapsiblePanel` /
+    `OptionSection` becomes a chip that opens a popover). Replaces the old hideable options column. */
+function OptionChips({ children, mode }: { children: React.ReactNode; mode?: React.ReactNode }) {
+  return (
+    <ChipsModeContext.Provider value={true}>
+      <div className="flex w-full flex-col items-center gap-3 pt-2">
+        {mode}
+        <SettingsBar>{children}</SettingsBar>
+      </div>
+    </ChipsModeContext.Provider>
   );
 }

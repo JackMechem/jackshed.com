@@ -17,6 +17,10 @@ const nextConfig: NextConfig = {
   // inside this app by default, so an external workspace package needs to be opted in explicitly
   // or its imports fail to build.
   transpilePackages: ["@jam-practice/convex", "@jam-practice/core"],
+  // The landing page briefly lived at /welcome before moving to "/".
+  async redirects() {
+    return [{ source: "/welcome", destination: "/", permanent: true }];
+  },
 };
 
 export default nextConfig;

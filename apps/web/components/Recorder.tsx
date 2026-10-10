@@ -9,23 +9,23 @@ import BeatIndicator from "@/components/BeatIndicator";
 import CollapsiblePanel from "@/components/CollapsiblePanel";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import {
-  MeterOptions,
   SoundOptions,
   SteppedField,
   TempoHero,
   TempoNoteConversionHint,
   TempoNoteValuePicker,
 } from "@/components/MeterFields";
-import PanelsToggle from "@/components/PanelsToggle";
 import { RecordingCard, SaveTakeDialog } from "@/components/recordings/RecordingParts";
 import StructureEditor from "@/components/StructureEditor";
 import SwitchRow from "@/components/SwitchRow";
+import { soundSummary } from "@/components/metronome/MetronomeOptions";
+import { SUB_LABELS, Segmented, SubdivisionPicker, TimeSignatureControl } from "@/components/metronome/MetronomeOptions";
+import { ChipsModeContext, SettingChip, SettingsBar } from "@/components/SettingsBar";
 import ToolLayout from "@/components/ToolLayout";
-import { MeterIcon, MetronomeIcon, SpeakerIcon, StopIcon } from "@/components/tools";
+import { MeterIcon, MetronomeIcon, NoteIcon, SpeakerIcon, StopIcon } from "@/components/tools";
 import { type BeatLevel, DEFAULT_CLICK_SOUND_ID } from "@/lib/clickEngine";
 import {
   NEXT_LEVEL,
-  accentsFromGroups,
   clampBpm,
   defaultAccents,
   defaultSubAccents,
@@ -49,7 +49,6 @@ import { formatDuration, recordingsApi, useTuneIndex } from "@/lib/recordings";
 import { EMPTY_STRUCTURE, type Structure, cycleSectionAccent, cycleSectionSubAccent, sectionAt } from "@/lib/structure";
 import { useSyncedSettings } from "@/lib/useSyncedSettings";
 
-const PANEL_IDS = ["recorder-meter", "recorder-countin", "recorder-sound"];
 // The same key and shape as the app's Recorder, so settings follow you between the two. Everything
 // from `bpm` on is the Metronome tool's own settings shape.
 const SETTINGS_KEY = "jam-practice-recorder-take";
@@ -163,19 +162,25 @@ export default function Recorder({ tuneId }: { tuneId?: string }) {
   const status =
     rec.phase === "countin" ? "Count-in…" : rec.phase === "recording" ? "Recording" : rec.phase === "finishing" ? "Finishing the take…" : tune ? `For “${tune.name}”` : "Ready";
 
-  const options = (
+  // Like the Metronome: the meter mode (it decides which chips there are) and, for changing meters,
+  // the form itself, above the chips.
+  const optionsMode = (
     <>
-      <PanelsToggle ids={PANEL_IDS} />
-      <CollapsiblePanel id="recorder-meter" title="Meter & subdivision" icon={MeterIcon}>
-        <SwitchRow
-          label="Use a structure"
-          checked={useStructure}
-          onChange={(v) => updateSettings({ useStructure: v })}
-          disabled={busy}
-          hint="Chain bars of different time signatures in a fixed, looping sequence — e.g. 2 bars of 11/8, then a bar of 12/8 — instead of one meter for the whole take."
-        />
-        {useStructure ? (
+      <Segmented
+        onPage
+        label="Meter"
+        value={useStructure ? "structure" : "single"}
+        onChange={(v) => updateSettings({ useStructure: v === "structure" })}
+        disabled={busy}
+        options={[
+          { value: "single", label: "One meter" },
+          { value: "structure", label: "Changing meters" },
+        ]}
+      />
+      {useStructure && (
+        <div className="w-full rounded-3xl bg-surface p-4 text-left">
           <StructureEditor
+            show="form"
             structure={structure}
             onChange={(s) => updateSettings({ structure: s })}
             running={clicking}
@@ -183,20 +188,47 @@ export default function Recorder({ tuneId }: { tuneId?: string }) {
             playingBeat={click.currentBeat}
             playingSub={click.currentSub}
           />
-        ) : (
-          <MeterOptions
-            beatsPerBar={beatsPerBar}
-            beatUnit={beatUnit}
-            accents={accents}
-            subdivision={subdivision}
-            onChangeBeats={changeBeats}
-            onSetBeatUnit={(u) => updateSettings({ beatUnit: u })}
-            onSetSubdivision={(s) => updateSettings({ subdivision: s })}
-            onApplyGroups={(groups) => updateSettings({ beatsPerBar: groups.reduce((a, b) => a + b, 0), accents: accentsFromGroups(groups) })}
+        </div>
+      )}
+    </>
+  );
+
+  const options = (
+    <>
+      {useStructure ? (
+        <SettingChip
+          icon={MeterIcon}
+          label="Sections"
+          wide
+          value={structure.sections.length ? `${structure.sections.length} section${structure.sections.length === 1 ? "" : "s"}` : "Add sections"}
+        >
+          <StructureEditor
+            show="sections"
+            modern
+            structure={structure}
+            onChange={(s) => updateSettings({ structure: s })}
+            running={clicking}
+            activeFormIndex={clicking ? click.formIndex : null}
+            playingBeat={click.currentBeat}
+            playingSub={click.currentSub}
           />
-        )}
-      </CollapsiblePanel>
-      <CollapsiblePanel id="recorder-countin" title="Count-in" icon={MetronomeIcon}>
+        </SettingChip>
+      ) : (
+        <>
+          <SettingChip icon={MeterIcon} label="Time" title="Time signature" value={`${beatsPerBar}/${beatUnit}`}>
+            <TimeSignatureControl
+              beatsPerBar={beatsPerBar}
+              beatUnit={beatUnit}
+              onChangeBeats={(n) => changeBeats(Math.min(MAX_BEATS, Math.max(1, n)))}
+              onSetBeatUnit={(u) => updateSettings({ beatUnit: u })}
+            />
+          </SettingChip>
+          <SettingChip icon={NoteIcon} label="Subdivision" value={SUB_LABELS[subdivision] ?? subdivision}>
+            <SubdivisionPicker value={subdivision} onChange={(n) => updateSettings({ subdivision: n })} showTitle={false} />
+          </SettingChip>
+        </>
+      )}
+      <CollapsiblePanel id="recorder-countin" title="Count-in" icon={MetronomeIcon} summary={settings.countInBars ? `${settings.countInBars} bar${settings.countInBars === 1 ? "" : "s"}` : "Off"}>
         <SteppedField
           label="Count-in bars"
           value={settings.countInBars}
@@ -208,7 +240,7 @@ export default function Recorder({ tuneId }: { tuneId?: string }) {
           hint="With the metronome on, this many bars click before the recording starts, so you come in on the downbeat."
         />
       </CollapsiblePanel>
-      <CollapsiblePanel id="recorder-sound" title="Metronome sound" icon={SpeakerIcon}>
+      <CollapsiblePanel id="recorder-sound" title="Sound" icon={SpeakerIcon} summary={soundSummary(soundId, volume)}>
         <SoundOptions soundId={soundId} setSoundId={(id) => updateSettings({ soundId: id })} volume={volume} setVolume={(v) => updateSettings({ volume: v })} />
       </CollapsiblePanel>
     </>
@@ -235,8 +267,11 @@ export default function Recorder({ tuneId }: { tuneId?: string }) {
   }
 
   return (
-    <ToolLayout title="Recorder" options={options}>
-      <div className="flex w-full max-w-xl flex-col items-center gap-6">
+    <ToolLayout title="Recorder" options={null} layout="stacked">
+      {/* Desktop: the metronome on the left, the recorder and recent recordings on the right.
+          Phones: recorder, then metronome, then recordings. */}
+      <div className="grid w-full max-w-5xl items-start gap-8 lg:grid-cols-2 lg:grid-rows-[auto_1fr]">
+        <div className="flex w-full flex-col items-center gap-6 lg:col-start-2 lg:row-start-1">
         <div className="flex flex-col items-center gap-2">
           <p className={`text-sm font-semibold ${rec.phase === "recording" ? "text-danger" : "text-muted"}`}>{status}</p>
           <p className="text-6xl font-extrabold tabular-nums">{formatDuration(elapsed)}</p>
@@ -273,8 +308,8 @@ export default function Recorder({ tuneId }: { tuneId?: string }) {
             hint="On: the browser sets the recording level automatically, so quiet playing still comes out at a good volume. Off: the raw microphone — truer dynamics, but quieter."
           />
         </div>
-
-        <section className="flex w-full flex-col items-center gap-4 rounded-3xl border border-surface-hover p-4">
+        </div>
+        <section className="flex w-full flex-col items-center gap-4 rounded-3xl border border-surface-hover p-4 lg:col-start-1 lg:row-span-2 lg:row-start-1">
           <div className="flex w-full items-center gap-2">
             <MetronomeIcon className="h-5 w-5 text-muted" />
             <div className="flex-1">
@@ -293,7 +328,7 @@ export default function Recorder({ tuneId }: { tuneId?: string }) {
               />
               <TempoNoteConversionHint bpm={bpm} tempoNoteValue={tempoNoteValue} effectiveBeatUnit={activeSection?.beatUnit ?? beatUnit} />
               {useStructure && !activeSection ? (
-                <p className="rounded-xl bg-surface px-4 py-3 text-center text-sm text-muted">Add sections and arrange a form in the options to see beats here.</p>
+                <p className="rounded-xl bg-surface px-4 py-3 text-center text-sm text-muted">Open Sections to add sections and arrange a form.</p>
               ) : (
                 <BeatIndicator
                   accents={displayAccents}
@@ -306,11 +341,18 @@ export default function Recorder({ tuneId }: { tuneId?: string }) {
                 />
               )}
               <p className="text-xs text-muted">The click plays through your speakers, so the microphone picks it up unless you wear headphones.</p>
+              {/* The metronome's settings live here with it rather than under the page (below the
+                  recordings), in the same chips-and-popovers style as every tool's options. */}
+              <ChipsModeContext.Provider value={true}>
+                <div className="flex w-full flex-col items-center gap-3 pt-1">
+                  {optionsMode}
+                  <SettingsBar fit>{options}</SettingsBar>
+                </div>
+              </ChipsModeContext.Provider>
             </>
           )}
         </section>
-
-        <section className="flex w-full flex-col gap-2">
+        <section className="flex w-full flex-col gap-2 lg:col-start-2 lg:row-start-2">
           <div className="flex items-baseline justify-between">
             <h2 className="text-lg font-bold">Recent recordings</h2>
             <Link href="/recordings" className="text-sm font-medium text-accent hover:underline">

@@ -169,7 +169,7 @@ export default function JamPractice() {
             onPickFromStandardsChange={(checked) => updateSettings({ pickFromStandards: checked })}
           />
 
-          <CollapsiblePanel id="jam-countoff" title="Count-off" icon={StopwatchIcon}>
+          <CollapsiblePanel id="jam-countoff" title="Count-off" icon={StopwatchIcon} summary={`${countOffBars} bars`}>
             <label className="flex items-center justify-between gap-3 text-sm">
               <span className="font-medium text-muted">Count-off bars</span>
               <Select

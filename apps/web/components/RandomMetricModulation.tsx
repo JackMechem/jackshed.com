@@ -5,19 +5,18 @@ import BeatIndicator from "@/components/BeatIndicator";
 import PanelsToggle from "@/components/PanelsToggle";
 import CollapsiblePanel from "@/components/CollapsiblePanel";
 import Hint from "@/components/Hint";
-import Select from "@/components/Select";
 import SwitchRow from "@/components/SwitchRow";
 import {
   MeterOptions,
-  SOUND_OPTIONS,
   SoundOptions,
   SteppedField,
   TempoHero,
 } from "@/components/MeterFields";
 import { MeterIcon, ShuffleIcon, SpeakerIcon } from "@/components/tools";
+import { ClickSoundCards, OptionGroup, soundSummary } from "@/components/metronome/MetronomeOptions";
 import ToolLayout from "@/components/ToolLayout";
 import KeyHint from "@/components/KeyHint";
-import { BeatLevel, DEFAULT_CLICK_SOUND_ID } from "@/lib/clickEngine";
+import { BeatLevel, CLICK_SOUNDS, DEFAULT_CLICK_SOUND_ID } from "@/lib/clickEngine";
 import { MAX_BEATS } from "@/lib/meters";
 import {
   NEXT_LEVEL,
@@ -267,6 +266,7 @@ export default function RandomMetricModulation() {
             id="meter"
             title="Meter & subdivision"
             icon={MeterIcon}
+            summary={`${beatsPerBar}/${beatUnit}`}
           >
             <MeterOptions
               beatsPerBar={beatsPerBar}
@@ -376,21 +376,16 @@ export default function RandomMetricModulation() {
             id="reference"
             title="Previous tempo click"
             icon={SpeakerIcon}
+            summary={referenceMuted ? "Muted" : CLICK_SOUNDS.find((c) => c.id === referenceSoundId)?.label}
             toggle={{
               checked: playOriginalTempo,
               onChange: setPlayOriginalTempo,
               disabled: running,
             }}
           >
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="font-medium text-muted">Tone</span>
-              <Select
-                value={referenceSoundId}
-                onChange={setReferenceSoundId}
-                disabled={!playOriginalTempo}
-                options={SOUND_OPTIONS}
-              />
-            </label>
+            <OptionGroup title="Click">
+              <ClickSoundCards label="Previous tempo click sound" soundId={referenceSoundId} onChange={setReferenceSoundId} volume={volume} />
+            </OptionGroup>
             <Hint>
               A different click sound than the main one, so the two are easy to tell apart.
             </Hint>
@@ -408,6 +403,7 @@ export default function RandomMetricModulation() {
             id="metronome-sound"
             title="Sound"
             icon={SpeakerIcon}
+            summary={soundSummary(soundId, volume)}
           >
             <SoundOptions
               soundId={soundId}

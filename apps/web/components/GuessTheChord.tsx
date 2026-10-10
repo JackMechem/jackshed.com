@@ -823,7 +823,7 @@ export default function GuessTheChord() {
       options={
         <>
           <PanelsToggle ids={PANEL_IDS} />
-          <CollapsiblePanel id="chord-set" title="Chords" icon={ChordIcon}>
+          <CollapsiblePanel id="chord-set" title="Chords" icon={ChordIcon} summary={`${pool.length} of ${CHORD_QUALITIES.length}`}>
             <div className="flex items-center justify-between text-xs">
               <span className="font-medium text-muted">
                 {pool.length} of {CHORD_QUALITIES.length} selected
@@ -906,7 +906,7 @@ export default function GuessTheChord() {
             />
           </CollapsiblePanel>
 
-          <CollapsiblePanel id="chord-range" title="Register" icon={SlidersIcon}>
+          <CollapsiblePanel id="chord-range" title="Register" icon={SlidersIcon} summary={register.label}>
             <label className="flex flex-col gap-1 text-sm">
               <span className="font-medium text-muted">Register</span>
               <Select

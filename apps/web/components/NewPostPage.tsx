@@ -15,6 +15,7 @@ import { CloseIcon, PlusIcon } from "@/components/tools";
 import { toPublicTune } from "@/lib/profileTunes";
 import type { Tune } from "@/lib/types";
 import { useSetlists } from "@/lib/useSetlists";
+import { SIGN_IN_PATH } from "@/lib/landing";
 
 /**
  * Posting to Community, as a full page (reached from Community's + or a setlist's "Post to
@@ -98,7 +99,7 @@ export default function NewPostPage({ setlistId }: { setlistId?: string }) {
       ) : blocked ? (
         <div className="flex flex-col items-center gap-3 rounded-2xl bg-surface p-8 text-center">
           <p className="text-sm text-muted">{isAuthenticated ? "Make your profile public before posting to Community." : "Sign in to post to Community."}</p>
-          <Link href={isAuthenticated ? "/account" : "/"} className="rounded-xl bg-accent px-4 py-2 text-sm font-bold text-accent-foreground hover:bg-accent-hover">
+          <Link href={isAuthenticated ? "/account" : SIGN_IN_PATH} className="rounded-xl bg-accent px-4 py-2 text-sm font-bold text-accent-foreground hover:bg-accent-hover">
             {isAuthenticated ? "Edit public profile" : "Sign in"}
           </Link>
         </div>

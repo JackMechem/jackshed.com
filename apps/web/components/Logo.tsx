@@ -5,17 +5,51 @@ const TEXT_PATH =
 const VIEW_BOX = "108 67 274.5 49.5";
 const ASPECT = 274.5 / 49.5;
 
-const STROKES: [string, number][] = [
-  ["M346.58 82.74L355.78 94.24", 3.68],
-  ["M362.68 102.06L371.42 113.1", 3.68],
-  ["M371.42 82.74L346.58 113.1", 3.68],
+type Stroke = [d: string, width: number];
+type Dot = [cx: number, cy: number, rx: number, ry: number];
+
+// The x: two crossed sticks (the first drawn in two pieces, passing under the second), each with
+// a bead at its tip, and two short off-beat dashes either side.
+const STICK_A: { strokes: Stroke[]; dot: Dot } = {
+  strokes: [
+    ["M346.58 82.74L355.78 94.24", 3.68],
+    ["M362.68 102.06L371.42 113.1", 3.68],
+  ],
+  dot: [346.58, 82.74, 2.76, 3.45],
+};
+const STICK_B: { strokes: Stroke[]; dot: Dot } = {
+  strokes: [["M371.42 82.74L346.58 113.1", 3.68]],
+  dot: [371.42, 82.74, 2.76, 3.45],
+};
+const TICKS: Stroke[] = [
   ["M337.84 97H341.52", 2.76],
   ["M376.48 97H380.16", 2.76],
 ];
-const DOTS: [number, number, number, number][] = [
-  [346.58, 82.74, 2.76, 3.45],
-  [371.42, 82.74, 2.76, 3.45],
-];
+/** Where the sticks cross, in artboard units — the pivot for the strike animation. */
+export const STICK_PIVOT = "358.9px 97.9px";
+
+function Strokes({ strokes }: { strokes: Stroke[] }) {
+  return strokes.map(([d, width], i) => <path key={i} d={d} className="stroke-accent" strokeWidth={width} strokeLinecap="round" fill="none" />);
+}
+
+/** The crossed sticks, grouped so `lib/stickStrike.ts` can animate them (`data-stick="a"|"b"`,
+    `data-ticks`). Each group pivots on the crossing point. */
+function Sticks() {
+  const pivot = { transformBox: "view-box", transformOrigin: STICK_PIVOT } as const;
+  return (
+    <>
+      <g data-ticks="" style={pivot}>
+        <Strokes strokes={TICKS} />
+      </g>
+      {[STICK_A, STICK_B].map((stick, i) => (
+        <g key={i} data-stick={i ? "b" : "a"} style={pivot}>
+          <Strokes strokes={stick.strokes} />
+          <ellipse cx={stick.dot[0]} cy={stick.dot[1]} rx={stick.dot[2]} ry={stick.dot[3]} className="fill-accent" />
+        </g>
+      ))}
+    </>
+  );
+}
 
 /** The "sheddex" wordmark (Jack's "Syncopation" logo — the x is a pair of crossed sticks on the
     off-beat), the same drawing as the mobile app's `Logo.tsx`, with its background removed and
@@ -25,12 +59,7 @@ export default function Logo({ height = 32, className = "", title = "sheddex" }:
   return (
     <svg width={height * ASPECT} height={height} viewBox={VIEW_BOX} role="img" aria-label={title} className={className}>
       <path d={TEXT_PATH} className="fill-foreground" />
-      {STROKES.map(([d, width], i) => (
-        <path key={i} d={d} className="stroke-accent" strokeWidth={width} strokeLinecap="round" fill="none" />
-      ))}
-      {DOTS.map(([cx, cy, rx, ry], i) => (
-        <ellipse key={i} cx={cx} cy={cy} rx={rx} ry={ry} className="fill-accent" />
-      ))}
+      <Sticks />
     </svg>
   );
 }
