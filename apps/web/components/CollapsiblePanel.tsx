@@ -17,6 +17,8 @@ export default function CollapsiblePanel({
   summary,
   wide,
   asMode,
+  open: openProp,
+  onOpenChange,
   children,
 }: {
   id: string;
@@ -39,6 +41,9 @@ export default function CollapsiblePanel({
   /** As a chip, with a `toggle`: the on/off switch lives elsewhere (a mode selector above the chips,
       `ToolLayout`'s `optionsMode`), so the chip only appears while it's on, as a plain chip. */
   asMode?: boolean;
+  /** As a chip: control its popover from outside. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
 }) {
   const [{ open: storedOpen, showHints }, update] = usePersistedSettings(
@@ -73,6 +78,8 @@ export default function CollapsiblePanel({
         value={toggle ? (toggle.checked ? (summary ?? "On") : "Off") : summary}
         wide={wide}
         toggle={toggle}
+        open={openProp}
+        onOpenChange={onOpenChange}
         headerExtra={
           <>
             {action}

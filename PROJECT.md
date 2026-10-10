@@ -1884,7 +1884,14 @@ Sound.
 New props on both: `summary` (the chip's value) and `wide`. Summaries added for the obvious ones:
 meters ("4/4"), sounds ("Woodblock · 80%", `soundSummary`), pools ("12 of 33"), ranges ("E1-G4"),
 Tuner instrument / "A = 440 Hz", Slow Downer speed / markers, count-off/count-in, roll type, Jam
-Practice's tune count, Practice Timer sound. The popover ignores clicks/Escape inside portaled
+Practice's tune count, Practice Timer sound. Practice Timer has no separate "New session" button: the **New session** chip
+(always present) opens the session editor, and a saved session's pencil opens the same popover as
+"Edit session" (`SettingChip`/`CollapsiblePanel` gained controlled `open`/`onOpenChange`); closing
+the popover keeps an unsaved draft (chip value "Unsaved"), Save/Cancel end it. The Pomodoro editor is `components/PomodoroEditor.tsx`: Work / Break / Long break minute
+cards side by side, a Set number / Keep going switch with "Work cycles" and "Long break every N
+cycles" steppers, then exactly one optional name field per cycle (per cycle in a round when it keeps
+going; `normalizePomodoro` trims `workTitles` to the cycles that exist, so there can't be more names
+than cycles), and a preview strip of the run in order with its total time. Work cycles cap at 24. The popover ignores clicks/Escape inside portaled
 menus (`[role=listbox|menu]`, e.g. `Select` options), so dropdowns inside popovers work.
 `MeterFields`' `MeterOptions` and `SoundOptions` now render the Metronome's controls
 (`TimeSignatureControl` + `SubdivisionPicker`; `SoundPicker`), so Polyrhythm, Tempo Trainer, the

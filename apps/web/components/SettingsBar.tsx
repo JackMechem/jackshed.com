@@ -64,9 +64,14 @@ export function SettingChip({
   wide,
   headerExtra,
   toggle,
+  open: openProp,
+  onOpenChange,
   children,
 }: {
   icon: React.ComponentType<{ className?: string }>;
+  /** Control the popover from outside (e.g. an Edit button elsewhere opening it). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   /** A setting that can be switched on and off as a whole: the chip becomes a split chip, a
       switch (with the label and value) that toggles it straight away, and a separate settings
       button that opens the popover. Dimmed while off. */
@@ -83,7 +88,13 @@ export function SettingChip({
   wide?: boolean;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
+  const [openState, setOpenState] = useState(false);
+  const open = openProp ?? openState;
+  const setOpen = (next: boolean | ((open: boolean) => boolean)) => {
+    const value = typeof next === "function" ? next(open) : next;
+    if (onOpenChange) onOpenChange(value);
+    if (openProp === undefined) setOpenState(value);
+  };
   const [placement, setPlacement] = useState<Placement | null>(null);
   const chipRef = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);

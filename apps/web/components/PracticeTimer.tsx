@@ -9,6 +9,7 @@ import NumberField from "@/components/NumberField";
 import PanelsToggle from "@/components/PanelsToggle";
 import Select from "@/components/Select";
 import SwitchRow from "@/components/SwitchRow";
+import PomodoroEditor, { normalizePomodoro } from "@/components/PomodoroEditor";
 import ToolLayout from "@/components/ToolLayout";
 import PracticeTimerRing from "@/components/PracticeTimerRing";
 import {
@@ -94,6 +95,13 @@ export default function PracticeTimer() {
   );
   const { soundEnabled, toneId, alarmMode, fullScreenAlert } = settings;
   const [draft, setDraft] = useState<Draft | null>(null);
+  // The session editor is the "New session" chip's popover; an Edit button on a saved session
+  // opens it too. Closing it keeps an unsaved draft (Save / Cancel are what end it).
+  const [editorOpen, setEditorOpen] = useState(false);
+  function closeEditor() {
+    setDraft(null);
+    setEditorOpen(false);
+  }
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   function startSession(session: PracticeSession) {
@@ -138,46 +146,6 @@ export default function PracticeTimer() {
     });
   }
 
-  function updatePomodoro(patch: Partial<PomodoroConfig>) {
-    setDraft((prev) => (prev ? { ...prev, pomodoro: { ...prev.pomodoro, ...patch } } : prev));
-  }
-
-  function updateWorkTitle(index: number, title: string) {
-    setDraft((prev) => {
-      if (!prev) return prev;
-      const workTitles = prev.pomodoro.workTitles.map((t, i) => (i === index ? title : t));
-      return { ...prev, pomodoro: { ...prev.pomodoro, workTitles } };
-    });
-  }
-
-  function moveWorkTitle(index: number, dir: -1 | 1) {
-    setDraft((prev) => {
-      if (!prev) return prev;
-      const target = index + dir;
-      const titles = prev.pomodoro.workTitles;
-      if (target < 0 || target >= titles.length) return prev;
-      const workTitles = [...titles];
-      [workTitles[index], workTitles[target]] = [workTitles[target], workTitles[index]];
-      return { ...prev, pomodoro: { ...prev.pomodoro, workTitles } };
-    });
-  }
-
-  function removeWorkTitle(index: number) {
-    setDraft((prev) => {
-      if (!prev) return prev;
-      const workTitles = prev.pomodoro.workTitles.filter((_, i) => i !== index);
-      return { ...prev, pomodoro: { ...prev.pomodoro, workTitles } };
-    });
-  }
-
-  function addWorkTitle() {
-    setDraft((prev) =>
-      prev
-        ? { ...prev, pomodoro: { ...prev.pomodoro, workTitles: [...prev.pomodoro.workTitles, ""] } }
-        : prev,
-    );
-  }
-
   async function saveDraft() {
     if (!draft) return;
     const name = draft.name.trim() || "Untitled session";
@@ -185,16 +153,16 @@ export default function PracticeTimer() {
       const input: SessionInput =
         draft.type === "custom"
           ? { name, type: "custom", segments: draft.segments }
-          : { name, type: "pomodoro", pomodoro: draft.pomodoro };
+          : { name, type: "pomodoro", pomodoro: normalizePomodoro(draft.pomodoro) };
       await createSession(input);
     } else {
       const session: PracticeSession =
         draft.type === "custom"
           ? { id: draft.id, name, type: "custom", segments: draft.segments, updatedAt: 0 }
-          : { id: draft.id, name, type: "pomodoro", pomodoro: draft.pomodoro, updatedAt: 0 };
+          : { id: draft.id, name, type: "pomodoro", pomodoro: normalizePomodoro(draft.pomodoro), updatedAt: 0 };
       await updateSession(session);
     }
-    setDraft(null);
+    closeEditor();
   }
 
   async function confirmDelete() {
@@ -210,13 +178,20 @@ export default function PracticeTimer() {
         <>
           <PanelsToggle ids={PANEL_IDS} />
 
-          {draft && (
-            <CollapsiblePanel
+          <CollapsiblePanel
               id="practice-timer-editor"
-              title={draft.id === null ? "New session" : "Edit session"}
-              icon={PencilIcon}
+              title={draft?.id ? "Edit session" : "New session"}
+              icon={draft?.id ? PencilIcon : PlusIcon}
+              summary={draft && !editorOpen ? "Unsaved" : undefined}
               wide
+              open={editorOpen}
+              onOpenChange={(open) => {
+                if (open && !draft) setDraft(blankDraft());
+                setEditorOpen(open);
+              }}
             >
+              {draft && (
+              <>
               <label className="flex flex-col gap-1 text-left text-sm">
                 <span className="font-medium text-muted">Name</span>
                 <input
@@ -309,136 +284,7 @@ export default function PracticeTimer() {
                   </button>
                 </div>
               ) : (
-                <div className="flex flex-col gap-3">
-                  <label className="flex items-center justify-between gap-3 text-sm">
-                    <span className="font-medium text-muted">Work minutes</span>
-                    <NumberField
-                      value={draft.pomodoro.workMinutes}
-                      min={1}
-                      max={180}
-                      onChange={(workMinutes) => updatePomodoro({ workMinutes })}
-                      label="Work minutes"
-                      className="w-20 rounded-lg bg-background px-3 py-2 text-center tabular-nums outline-none focus:ring-2 focus:ring-accent"
-                    />
-                  </label>
-
-                  <div className="flex flex-col gap-1.5 border-t border-surface-hover pt-3">
-                    <span className="text-left text-sm font-medium text-muted">
-                      Cycle names (optional)
-                    </span>
-                    <Hint>
-                      Names each work cycle individually — e.g. &quot;Scales&quot;,
-                      &quot;Chords&quot;, &quot;Improv&quot; — used in that order and repeating if
-                      there are more cycles than names. Leave empty to just show &quot;Work&quot;
-                      every cycle. Breaks aren&rsquo;t individually nameable.
-                    </Hint>
-                    {draft.pomodoro.workTitles.map((title, i) => (
-                      <div key={i} className="flex items-center gap-1.5">
-                        <input
-                          type="text"
-                          value={title}
-                          onChange={(e) => updateWorkTitle(i, e.target.value)}
-                          placeholder={`Cycle ${i + 1}`}
-                          aria-label={`Work cycle ${i + 1} name`}
-                          className="min-w-0 flex-1 rounded-lg bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => moveWorkTitle(i, -1)}
-                          disabled={i === 0}
-                          aria-label="Move up"
-                          title="Move up"
-                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-background hover:text-foreground disabled:opacity-30"
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => moveWorkTitle(i, 1)}
-                          disabled={i === draft.pomodoro.workTitles.length - 1}
-                          aria-label="Move down"
-                          title="Move down"
-                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-background hover:text-foreground disabled:opacity-30"
-                        >
-                          ↓
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeWorkTitle(i)}
-                          aria-label="Remove cycle name"
-                          title="Remove"
-                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-background hover:text-danger"
-                        >
-                          <TrashIcon className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={addWorkTitle}
-                      className="flex items-center justify-center gap-1.5 rounded-lg bg-background px-3 py-2 text-sm font-medium text-muted transition-colors hover:text-foreground"
-                    >
-                      <PlusIcon className="h-4 w-4" /> Add cycle name
-                    </button>
-                  </div>
-
-                  <label className="flex items-center justify-between gap-3 border-t border-surface-hover pt-3 text-sm">
-                    <span className="font-medium text-muted">Short break minutes</span>
-                    <NumberField
-                      value={draft.pomodoro.shortBreakMinutes}
-                      min={1}
-                      max={60}
-                      onChange={(shortBreakMinutes) => updatePomodoro({ shortBreakMinutes })}
-                      label="Short break minutes"
-                      className="w-20 rounded-lg bg-background px-3 py-2 text-center tabular-nums outline-none focus:ring-2 focus:ring-accent"
-                    />
-                  </label>
-                  <label className="flex items-center justify-between gap-3 text-sm">
-                    <span className="font-medium text-muted">Long break minutes</span>
-                    <NumberField
-                      value={draft.pomodoro.longBreakMinutes}
-                      min={1}
-                      max={60}
-                      onChange={(longBreakMinutes) => updatePomodoro({ longBreakMinutes })}
-                      label="Long break minutes"
-                      className="w-20 rounded-lg bg-background px-3 py-2 text-center tabular-nums outline-none focus:ring-2 focus:ring-accent"
-                    />
-                  </label>
-                  <label className="flex items-center justify-between gap-3 text-sm">
-                    <span className="font-medium text-muted">Cycles before long break</span>
-                    <NumberField
-                      value={draft.pomodoro.cyclesBeforeLongBreak}
-                      min={1}
-                      max={12}
-                      onChange={(cyclesBeforeLongBreak) =>
-                        updatePomodoro({ cyclesBeforeLongBreak })
-                      }
-                      label="Cycles before long break"
-                      className="w-20 rounded-lg bg-background px-3 py-2 text-center tabular-nums outline-none focus:ring-2 focus:ring-accent"
-                    />
-                  </label>
-                  <SwitchRow
-                    label="Keep going indefinitely"
-                    checked={draft.pomodoro.totalCycles === null}
-                    onChange={(checked) =>
-                      updatePomodoro({ totalCycles: checked ? null : DEFAULT_POMODORO.totalCycles })
-                    }
-                    hint="Runs work/break cycles forever instead of stopping after a set number — stop it manually when you're done."
-                  />
-                  {draft.pomodoro.totalCycles !== null && (
-                    <label className="flex items-center justify-between gap-3 text-sm">
-                      <span className="font-medium text-muted">Total work cycles</span>
-                      <NumberField
-                        value={draft.pomodoro.totalCycles}
-                        min={1}
-                        max={99}
-                        onChange={(totalCycles) => updatePomodoro({ totalCycles })}
-                        label="Total work cycles"
-                        className="w-20 rounded-lg bg-background px-3 py-2 text-center tabular-nums outline-none focus:ring-2 focus:ring-accent"
-                      />
-                    </label>
-                  )}
-                </div>
+                <PomodoroEditor config={draft.pomodoro} onChange={(pomodoro) => updateDraft({ pomodoro })} />
               )}
 
               <div className="flex gap-2">
@@ -451,14 +297,15 @@ export default function PracticeTimer() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setDraft(null)}
+                  onClick={closeEditor}
                   className="flex-1 rounded-lg bg-background px-3 py-2 text-sm font-medium text-muted transition-colors hover:text-foreground"
                 >
                   Cancel
                 </button>
               </div>
+              </>
+              )}
             </CollapsiblePanel>
-          )}
 
           <CollapsiblePanel id="practice-timer-sound" title="Sound" icon={SpeakerIcon} summary={soundEnabled ? (alarmMode ? "Alarm" : "Chime") : "Off"}>
             <SwitchRow
@@ -570,11 +417,11 @@ export default function PracticeTimer() {
             <LoadingSpinner />
           ) : sessions.length === 0 ? (
             <p className="max-w-xs text-muted">
-              Create a session to get started — chain timers back to back, or run a Pomodoro.
+              Use New session below to chain timers back to back, or run a Pomodoro.
             </p>
           ) : (
             <>
-              <p className="text-muted">Pick a saved session to start it, or create a new one.</p>
+              <p className="text-muted">Pick a saved session to start it, or make a new one below.</p>
               <div className="flex w-full max-w-sm flex-col">
                 {sessions.map((session) => (
                   <div
@@ -598,7 +445,10 @@ export default function PracticeTimer() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setDraft(draftFromSession(session))}
+                      onClick={() => {
+                        setDraft(draftFromSession(session));
+                        setEditorOpen(true);
+                      }}
                       aria-label={`Edit ${session.name || "session"}`}
                       title="Edit"
                       className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-surface-hover hover:text-foreground"
@@ -619,13 +469,6 @@ export default function PracticeTimer() {
               </div>
             </>
           )}
-          <button
-            type="button"
-            onClick={() => setDraft(blankDraft())}
-            className="rounded-full bg-accent px-6 py-2.5 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-hover"
-          >
-            New session
-          </button>
         </div>
       )}
 
