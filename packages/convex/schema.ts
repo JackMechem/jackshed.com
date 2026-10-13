@@ -288,4 +288,29 @@ export default defineSchema({
   })
     .index("by_user", ["userId"])
     .index("by_user_tune", ["userId", "tuneId"]),
+
+  /** Bass Genius's bass players (the "Bass players" tab) — a name to file transcriptions under.
+      Later Bass Genius will learn each player's style from their transcriptions. */
+  bassPlayers: defineTable({
+    userId: v.id("users"),
+    name: v.string(),
+    description: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
+
+  /** One transcription per row (a whole tune can be a few hundred KB, so never all in one
+      document). `data` is `packages/core/bassTranscription.ts`'s `Transcription`; `title` and
+      `measureCount` are copied out so lists don't need it. */
+  bassTranscriptions: defineTable({
+    userId: v.id("users"),
+    playerId: v.id("bassPlayers"),
+    title: v.string(),
+    measureCount: v.number(),
+    data: v.any(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_player", ["playerId"]),
 });

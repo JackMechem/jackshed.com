@@ -52,6 +52,18 @@ export default function CreditsPage() {
         </p>
       </LegalSection>
 
+      <LegalSection title="Upright bass">
+        <p>
+          Bass Genius plays{" "}
+          <LegalLink href="https://github.com/sfzinstruments/karoryfer.meatbass">Meatbass</LegalLink>{" "}
+          by Karoryfer Samples — a 1958 Otto Rubner double bass, played pizzicato and mapped by D.
+          Smolken, recorded by Ludwik Zamenhof. It&apos;s released under{" "}
+          <LegalLink href="https://creativecommons.org/publicdomain/zero/1.0/">CC0</LegalLink>, so
+          no credit is required, but it&apos;s too good not to name. Unlike the piano and Rhodes,
+          these samples are served by sheddex itself (converted to mp3).
+        </p>
+      </LegalSection>
+
       <LegalSection title="Typeface">
         <p>
           Chord Charts sets chord symbols in{" "}

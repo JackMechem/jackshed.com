@@ -32,6 +32,7 @@ function fa5(name: ComponentProps<typeof FontAwesome5>['name']) {
 }
 
 export const MetronomeIcon = mci('metronome');
+export const BassIcon = mci('music-clef-bass');
 export const NoteIcon = mci('music-note');
 export const StopwatchIcon = mci('timer-outline');
 export const TunerIcon = mci('tune');
@@ -117,6 +118,7 @@ export function HeartIcon({ color, size = 18, filled }: IconProps & { filled?: b
 export const NAV_LINK_ICONS: Record<string, ComponentType<IconProps>> = {
   '/jam-practice': ShuffleIcon,
   '/note-trainer': NoteIcon,
+  '/bass-genius': BassIcon,
   '/scale-trainer': ScaleIcon,
   '/interval-trainer': IntervalIcon,
   '/guess-the-interval': EarIcon,

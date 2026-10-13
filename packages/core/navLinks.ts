@@ -36,6 +36,12 @@ export const NAV_LINKS_DATA: NavLinkInfo[] = [
     category: "Practice",
   },
   {
+    href: "/bass-genius",
+    label: "Bass Genius",
+    description: "Pick one of your chord charts and a jazz upright bass walks the changes with you.",
+    category: "Practice",
+  },
+  {
     href: "/note-trainer",
     label: "Note Trainer",
     description: "Random notes in your instrument's range, with a listen mode that grades you.",

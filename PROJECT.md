@@ -2020,6 +2020,139 @@ section, and in Interval/Chord learn mode the Options button is hidden while run
 level pill shown; no page errors. Release (preview) APK built — **not installed / not heard on the
 phone yet**.
 
+### Bass Genius (2026-10-13, web)
+
+`/bass-genius` (Practice; `components/BassGenius.tsx`): pick one of your chord charts
+(`useChordChartsLibrary`, signed in or out) and a sampled jazz upright plays a bass line over it,
+with the playing bar highlighted (`ChordChart`'s new `activeBar` prop). A **Bass player** selector
+is there for the planned "play like Ray Brown" players; only **Computer** exists so far
+(`BASS_PLAYERS` in `packages/core/bassLine.ts`). Walking in 4 or two feel; tempo + tap; Form
+(choruses or keep going, count-in); Key (transposes chart and line); Sound (touch soft/medium/strong
+= different velocity layers, volume, room reverb); a hi-hat-style click on 2 & 4. Settings key
+`jam-practice-bass-genius`.
+
+- **Sound:** Karoryfer "Meatbass" pizzicato (CC0; 1958 Otto Rubner bass, D. Smolken), from
+  `github.com/sfzinstruments/karoryfer.meatbass`: 14 pitches A0–C4 every minor third (max ±1
+  semitone shift) × 4 velocity layers × 4 round robins = 224 files, converted to mono VBR mp3
+  (`-q:a 0`, ~59 dB SNR vs the 24-bit WAVs) in `apps/web/public/samples/upright-bass/` (~5 MB,
+  served by the site itself). `lib/uprightBass.ts` downloads/decodes them all on the first Play
+  (progress shown), trims any decoder padding at load (onset detection), never repeats a take
+  twice in a row, releases notes with a finger-mute fade, and runs through a light compressor and
+  a generated room impulse (identical in both ears from a fixed seed — independent random L/R
+  channels made the bass sit left of centre; measured L/R now 0.00 dB). Also checked: same bass/player as Sneakybass and D. Smolken's
+  double-bass set (both CC0) — Meatbass has the most dynamics. Its 8 percussive noises
+  (`perc1–8`, not copied) could become dead notes later.
+- **The line** (`packages/core/bassLine.ts`, shared): `chartHarmony` (per-beat harmony; "%", 2-bar
+  repeats, held chords, 2–3 chords a bar, N.C.), `playbackOrder` (repeats with N1/N2/N3, then on the
+  last chorus D.C./D.S., al Coda via the two Q markers, Fine, "al 2nd/3rd ending"), and
+  `generateChorus` (targets on each chord's downbeat — root/slash bass, a 3rd/5th when a chord is
+  held into a new bar — placed near a slowly drifting register goal; a beam search fills the
+  beats with chord/scale tones and an approach note — chromatic, scale step or the target's fifth;
+  occasional triplet skips; two feel = half notes + occasional pickups; final chorus ends on a
+  held low root). Qualities map to scales in `analyzeQuality` (dorian, mixolydian, altered,
+  half-whole, locrian ♮2, ...). Seeded RNG, state carried between choruses.
+  `lib/bassGeniusEngine.ts` schedules it a chorus ahead on the audio clock (tempo changes live).
+- Verified: the generator over all 1,460 tunes in Jack's playlist (no errors, every note E1–G3,
+  ~75% of moves are steps), playback order on real D.C./D.S./coda/3rd-ending charts, `tsc` (web,
+  mobile, core), `eslint`, `next build`, and in nix Chromium: samples load (224 requests),
+  count-in, bar highlight following at tempo, audio actually reaching the output (peaks 0.2–0.6),
+  Stop, 390 px with no overflow. **Not heard by a person yet.** **Web only** — the mobile app lists
+  it (icon `music-clef-bass`) but opens the "not migrated yet" placeholder.
+
+**Typed progressions (same day):** a "One of my charts / A progression I type" switch. Typed text
+(`packages/core/typedProgression.ts`, `parseTypedProgression`) mixes chord names (Dm7, Cmaj7, F#ø,
+Bb7/D, C7#9 — everyday spellings normalized to iReal suffixes and checked against a quality grammar)
+and roman numerals in a chosen key (ii7, V7, Imaj7, bVII7, #ivo7, secondary "V7/ii"; lowercase =
+minor; "ii-V-I" dashes split), "|" between bars (none = a bar per chord), "%" repeats a bar, N.C.
+Unknown tokens are listed. Key + 4/4 or 3/4, five presets (ii–V–I, minor ii–V–i, I–vi–ii–V, jazz
+blues, rhythm changes A); settings `source`/`typedText`/`typedKey`/`typedMeter`. Editing while it
+plays takes over from the next chorus (`BassGeniusRun.setSong`). Verified with a parser script and
+in nix Chromium (play, mid-play edit switching at the next chorus, unknown tokens, presets, 390 px).
+
+**Bass players + a notation editor (same day):** Bass Genius has **Play / Bass players** tabs
+(settings `tab`). Bass players (`components/bassgenius/BassPlayersTab.tsx`): add/rename/delete
+players (with a description), each with transcriptions; import/export JSON. Signed in it's the
+account (`packages/convex/bassPlayers.ts`, tables `bassPlayers` + `bassTranscriptions` — one row per
+transcription, `data: v.any()`, title/measureCount copied out for lists; deleting a player deletes
+its transcriptions; account deletion cascades; **dev deployed only**); signed out it's this browser
+(`lib/useBassPlayers.ts`'s own small localStorage store, key `jam-practice-bass-players`).
+**Nothing uses the transcriptions yet** — the plan is for Bass Genius to analyse a player's
+transcriptions and walk new changes in their style, so the format is built for that.
+- **Format** (`packages/core/bassTranscription.ts`, shared): `Transcription` {title, tune, source,
+  tempo, comments, timeSignature (4/4 only for now), measures[{id, chords[{beat, symbol}], notes[]}]};
+  a note is {id, value w/h/q/8/16, dots?, triplet?, tie?, ghost?, pitch? {step, alter, octave}
+  (sounding, E1 = open E), midi? (sounding MIDI, kept in sync)}; no pitch = rest. Chord symbols are
+  normalized iReal suffixes ("D-7", "G7b9") at a beat. `timeline()` gives every note's start/length
+  in ticks (48/quarter) with the chord sounding — the hook analysis will start from. Files:
+  `{format: "sheddex.bass-transcription", version: 1, exportedAt, player: {name}|null,
+  transcription}` and `{format: "sheddex.bass-player", version: 1, player: {name, description},
+  transcriptions: [...]}`; `readImportFile`/`cleanTranscription` validate untrusted JSON.
+- **Editor** (`components/bassgenius/TranscriptionEditor.tsx` + `TranscriptionScore.tsx`, VexFlow
+  5): bass clef, written an octave above sounding; rows of up to 4 bars by width; chord symbols
+  above each bar at their beat; beams per beat, triplet brackets, ties (also across rows), dots,
+  ghost x-heads, accidentals with naturals within a bar; unfinished bars padded with grey rests
+  (not stored); selection in accent with a caret, measure tint, click-to-select (hit boxes from
+  VexFlow bounding boxes). Entry: MuseScore-style keys (A–G = nearest octave to the last note,
+  3–7 = 16th…whole, . dot, T triplet, 0/R rest, ↑↓ semitone, Shift+↑↓ octave, # - N accidentals,
+  + tie, X ghost, ←→, Backspace, Space play, Ctrl+Z/Shift+Z) and the same on a palette. A note
+  that doesn't fit the bar goes to the next (made if needed), overflow ripples forward
+  (`insertNote`). Value/dot/triplet change a *picked* note (clicked or arrowed to), otherwise they
+  set the next note. Chords per bar as text ("Dm7 G7", or "Dm7 / / G7" by beat). Undo/redo,
+  800 ms autosave, Play from the cursor's bar through the upright bass. No key signatures yet.
+- Verified: `tsc` (web, mobile, core, convex), `eslint`, `next build`, the dev push, signed-out
+  Convex calls, and in nix Chromium signed out: player → transcription → keyboard entry (stored
+  notes/midi/accidentals/triplets/tie/ghost/chords checked in storage), undo, export (file
+  checked), playback starts, import back, 1400 and 390 px. **Not verified signed in.**
+
+**MusicXML import (same day):** the Bass players Import buttons also take `.musicxml`/`.xml`
+and compressed `.mxl` (MuseScore's default). `packages/core/musicXml.ts` (`importMusicXml`,
+`decodeXmlBytes` — UTF-8 or UTF-16, which Finale writes) on a small pure XML parser
+(`packages/core/xml.ts`, no DOMParser so RN can use it); `apps/web/lib/mxl.ts` unzips .mxl with the
+browser's `DecompressionStream("deflate-raw")`. Takes the bass part (name or F clef; else the first)
+and its first voice; written → sounding via `<transpose>`, or an octave down when there's none (so it
+looks the same in the editor as on the page); type/dots/triplet (from `time-modification`), ties,
+x noteheads = ghost, whole-bar rests; `<harmony>` → normalized symbols at the half-beat (kind +
+degrees + bass); title, tempo. Warns about non-4/4, double stops (first note kept), other voices,
+grace notes, notes shorter than 16ths, double dots, non-triplet tuplets. From the players list it
+asks which player the file is by. Verified: all 450 MusicXML test files in MuseScore's repo
+(`src/importexport/musicxml/tests/data`) import with no exceptions, a hand-written contrabass walking
+line checked note by note, and in nix Chromium (.mxl, .musicxml, UTF-16, a wrong file).
+
+**Mouse entry (same day):** hovering the staff shows a faint accent notehead (with ledger lines and
+its name, e.g. "B1") snapped to the line/space under the pointer; clicking adds that note there —
+after the notes to its left in that bar, at the palette's value/dot/triplet, natural (use ↑↓ or
+♯/♭ after). Clicking a note's head still selects it; above/below the staff selects the bar. The
+preview is a separate overlay SVG (no VexFlow redraw on hover); pitch comes from
+`stave.getYForLine(0)`/line spacing (bass clef top line = written A3). The chord-symbol text is
+drawn in the chord charts' Petaluma fonts (`ChordChart`'s `chordFont`/`chordSymbolFont`,
+`SMUFL_CHORD_GLYPH` now exported) and the clef/time signature only on the first bar. Gotcha fixed:
+focusing the editor (for its key handler) scrolled the page under the mouse — focus calls use
+`preventScroll`.
+
+**Overwrite editing (same day) — nothing after the cursor ever moves:** entry is MuseScore-style
+overwrite (`writeNote`, which replaced `insertNote`; `insertNote` is now an alias): a new note is
+written over whatever is at the cursor, a note it cuts into leaves its remainder as rests
+(`restsFor`), and a note that won't fit what's left of the bar starts the next bar. With a note
+*picked* (clicked/arrowed to), a letter or rest overwrites it **keeping its rhythm**
+(`overwriteNote`) and the selection moves to the next note, so a run can be typed over; past the
+last note it goes back to adding. Value/dot/triplet on a picked note (`setNoteRhythm`): shorter →
+a rest fills the gap, longer → writes over what follows in the bar, refused ("won't fit") past the
+barline. Backspace (`clearNote`) turns a note into a rest of the same length, and only removes the
+last thing in a bar. Mouse: each note has a column (halfway to its neighbours); clicking above/
+below a note in its column re-pitches it (rests too), past the last note of a bar with room adds
+one, a full bar only overwrites. Real notes' SVG groups carry `data-note="m:i"` (handy for tests).
+Verified in nix Chromium by checking the stored notes after each kind of edit.
+
+**Chords typed on the score (same day):** the per-bar chord text field is gone. Select a note →
+**+ Chord** (or Ctrl/Cmd+K) → an input opens above that note (at its start beat; bar start with
+nothing selected) → Enter saves; Space/Tab saves and opens the next note's (prefilled if it has
+one); an empty input removes the chord; Esc cancels; clicking away saves (and that click doesn't
+also add/select a note — `justClosedChord`). Clicking a chord symbol on the score edits it (chord
+hit boxes from the drawn text's `getBBox`). Placement comes from `TranscriptionScore`'s
+`handleRef.anchorFor(measure, beat)` (imperative, so no setState in the draw effect); the input is
+passed in as `overlay`. Chords keep `{beat, symbol}` (beats can be fractional, e.g. on an "and").
+Verified in nix Chromium against the stored chords after each step.
+
 ## Tools (sidebar order)
 
 - **Jam Practice** (`components/JamPractice.tsx`) — random tune/tempo/key picker with a

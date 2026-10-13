@@ -221,6 +221,18 @@ export function ChordIcon({ className }: { className?: string }) {
   );
 }
 
+/** An upright bass — scroll, neck and the body's two bouts — for Bass Genius. */
+export function BassIcon({ className }: { className?: string }) {
+  return (
+    <svg {...svgProps(className)}>
+      <path d="M12 2.5v9" />
+      <path d="M11 2.5h2" />
+      <path d="M12 11.5c-2.4 0-3.6 1.2-3.2 2.8.3 1.1-.9 1.6-1.2 2.9-.6 2.6 1.5 4.3 4.4 4.3s5-1.7 4.4-4.3c-.3-1.3-1.5-1.8-1.2-2.9.4-1.6-.8-2.8-3.2-2.8Z" />
+      <path d="M10.5 14.5v4.5M13.5 14.5v4.5M10.2 19.5h3.6" />
+    </svg>
+  );
+}
+
 /** Three little chord stacks stepping along, for Guess the Progression. */
 export function ProgressionIcon({ className }: { className?: string }) {
   return (
@@ -545,6 +557,7 @@ export const CATEGORY_ICONS: Record<Category, (props: { className?: string }) =>
     separately-ordered list that could drift out of sync with it. */
 const NAV_LINK_ICONS: Record<string, (props: { className?: string }) => React.JSX.Element> = {
   "/jam-practice": ShuffleIcon,
+  "/bass-genius": BassIcon,
   "/note-trainer": NoteIcon,
   "/scale-trainer": ScaleIcon,
   "/interval-trainer": IntervalIcon,

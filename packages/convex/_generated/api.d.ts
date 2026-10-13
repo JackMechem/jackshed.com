@@ -12,6 +12,7 @@ import type * as ResendOTP from "../ResendOTP.js";
 import type * as ResendPasswordReset from "../ResendPasswordReset.js";
 import type * as account from "../account.js";
 import type * as auth from "../auth.js";
+import type * as bassPlayers from "../bassPlayers.js";
 import type * as chordCharts from "../chordCharts.js";
 import type * as communityTunes from "../communityTunes.js";
 import type * as follows from "../follows.js";
@@ -37,6 +38,7 @@ declare const fullApi: ApiFromModules<{
   ResendPasswordReset: typeof ResendPasswordReset;
   account: typeof account;
   auth: typeof auth;
+  bassPlayers: typeof bassPlayers;
   chordCharts: typeof chordCharts;
   communityTunes: typeof communityTunes;
   follows: typeof follows;

@@ -43,6 +43,7 @@ export const TOOL_COMPONENTS: Record<string, ComponentType> = {
   "/slow-downer": dynamic(() => import("@/components/SlowDowner"), { loading: PaneLoading }),
   "/chord-charts": dynamic(() => import("@/components/library/ChartsDashboard"), { loading: PaneLoading }),
   "/tunes": dynamic(() => import("@/components/library/TunesDashboard"), { loading: PaneLoading }),
+  "/bass-genius": dynamic(() => import("@/components/BassGenius"), { loading: PaneLoading }),
   "/recorder": dynamic(() => import("@/components/Recorder"), { loading: PaneLoading }),
   "/random-sticking-warmup": dynamic(() => import("@/components/StickControl"), {
     loading: PaneLoading,

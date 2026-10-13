@@ -51,7 +51,7 @@ export const chordSymbolFont = localFont({ src: "./fonts/petaluma/Petaluma.otf" 
 // mapped to `Petaluma`'s own SMuFL "chord symbols" glyphs instead of falling back to whatever
 // other font happens to be installed. ♯/♭/ø aren't here because `PetalumaScript` already covers
 // those three directly — only Δ (major 7) and ° (diminished) need the second face.
-const SMUFL_CHORD_GLYPH: Record<string, string> = {
+export const SMUFL_CHORD_GLYPH: Record<string, string> = {
   "Δ": "", // csymMajorSeventh
   "°": "", // csymDiminished
 };
@@ -126,14 +126,18 @@ export default function ChordChart({
   barsPerRow = 4,
   fullscreen = false,
   hideHeader = false,
+  activeBar = null,
 }: {
   song: IRealSong;
   barsPerRow?: number;
   fullscreen?: boolean;
+  /** Index into `song.bars` of the bar being played right now (Bass Genius) — highlighted. */
+  activeBar?: number | null;
   /** Skip the title/style/composer block — for a page that already shows them (a tune's page). */
   hideHeader?: boolean;
 }) {
   const rows = layoutRows(song.bars, barsPerRow);
+  const active = activeBar !== null ? (song.bars[activeBar] ?? null) : null;
 
   return (
     <div
@@ -181,6 +185,7 @@ export default function ChordChart({
                 isFirstRow={i === 0}
                 isLastRow={i === rows.length - 1}
                 timeSignature={i === 0 ? song.timeSignature : undefined}
+                activeBar={active}
               />
             ))}
           </PageFit>
@@ -194,6 +199,7 @@ export default function ChordChart({
               isFirstRow={i === 0}
               isLastRow={i === rows.length - 1}
               timeSignature={i === 0 ? song.timeSignature : undefined}
+              activeBar={active}
             />
           ))}
         </PageFit>
@@ -337,8 +343,11 @@ export function Row({
   renderBarContent,
   renderSection,
   trailing,
+  activeBar = null,
 }: {
   placed: PlacedBar[];
+  /** The bar (by identity) to highlight as playing. */
+  activeBar?: Bar | null;
   isFirstRow: boolean;
   isLastRow: boolean;
   /** The chart's own time signature, printed at its very first bar. */
@@ -383,6 +392,7 @@ export function Row({
             isLastOfChart={isLastRow && i === placed.length - 1}
             content={renderBarContent?.(p.bar, i)}
             sectionContent={renderSection?.(p.bar, i)}
+            active={activeBar !== null && p.bar === activeBar}
           />
         );
       })}
@@ -402,8 +412,10 @@ function BarCell({
   isLastOfChart,
   content,
   sectionContent,
+  active = false,
 }: {
   bar: Bar;
+  active?: boolean;
   start: number;
   cells: number;
   timeSignature?: { top: number; bottom: number };
@@ -437,6 +449,7 @@ function BarCell({
       className={`relative flex items-center justify-center gap-1 px-0.5 ${leftStyle} ${rightStyle}`}
       style={{ gridColumn: `${start + 1} / span ${cells}`, gridRow: row, height: BAR_HEIGHT, width: `${cells * CELL_REM}rem` }}
     >
+      {active && <span aria-hidden className="pointer-events-none absolute inset-y-1 inset-x-1 rounded-md bg-accent/20 ring-2 ring-accent/60" />}
       {bar.startDouble && !thickLeft && <span aria-hidden className="absolute bottom-0 left-0.5 top-0 w-px bg-foreground" />}
       {bar.endBarline === "double" && !thickRight && <span aria-hidden className="absolute bottom-0 right-0.5 top-0 w-px bg-foreground" />}
       {bar.endBarline === "final" && !bar.endRepeat && <span aria-hidden className="absolute bottom-0 right-1 top-0 w-px bg-foreground" />}
