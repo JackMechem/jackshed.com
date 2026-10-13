@@ -225,13 +225,13 @@ export default function RandomMetricModulation() {
     <ToolLayout
       title="Polyrhythm Metric Modulation Metronome"
       credit="Idea by Rob Moreno"
-      sidePanelLabel="Modulations"
       sidePanel={
         log.length > 0 && (
           <CollapsiblePanel
             id="modulation-log"
             title="Modulations"
             icon={ShuffleIcon}
+            summary={`${log.length}`}
           >
             <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
               {[...log].reverse().map((entry) => (

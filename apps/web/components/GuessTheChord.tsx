@@ -56,6 +56,11 @@ import AdvancedSlider from "@/components/AdvancedSlider";
 import CountdownLabel from "@/components/CountdownLabel";
 import CountdownRing from "@/components/CountdownRing";
 import ElapsedTimer from "@/components/ElapsedTimer";
+import LearningPath from "@/components/learning/LearningPath";
+import LevelComplete from "@/components/learning/LevelComplete";
+import { Segmented } from "@/components/metronome/MetronomeOptions";
+import { cumulativeItems, levelQueue } from "@/lib/learningPath";
+import { useLearnSession } from "@/lib/useLearnSession";
 
 const MIN_ROUND_SECONDS = 5;
 const MAX_ROUND_SECONDS = 45;
@@ -147,6 +152,7 @@ const PANEL_IDS = [
 ];
 const SETTINGS_KEY = "jam-practice-guess-the-chord";
 const DEFAULT_SETTINGS = {
+  learnMode: false,
   registerId: DEFAULT_REGISTER_ID,
   roundSeconds: DEFAULT_ROUND_SECONDS,
   advanceDelayMs: DEFAULT_ADVANCE_DELAY_MS,
@@ -180,6 +186,8 @@ export default function GuessTheChord() {
     playbackStyle,
     revealNotes,
   } = settings;
+  const learnMode = settings.learnMode;
+  const learn = useLearnSession("chord");
   const history = settings.history.filter(
     (h): h is HistoryEntry =>
       !!h && typeof h.config === "object" && h.config !== null,
@@ -240,6 +248,8 @@ export default function GuessTheChord() {
   const [roundSeed, setRoundSeed] = useState(0);
   // So "Try again" repeats a "Shed weak chords" run instead of falling back to a normal one.
   const [lastMode, setLastMode] = useState<"normal" | "weak">("normal");
+  // The learning-path level being played (0-based), while a learn-mode session runs.
+  const [activeLevel, setActiveLevel] = useState<number | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const noteTimerRef = useRef({ startedAt: 0, durationMs: 1000 });
@@ -391,6 +401,7 @@ export default function GuessTheChord() {
     setRunning(false);
     setStatus(null);
     setProgress(null);
+    setActiveLevel(null);
   }
 
   function stop() {
@@ -472,15 +483,19 @@ export default function GuessTheChord() {
       the full 12-key sweep "Drill every chord" does, so it stays a quick, targeted practice on
       exactly what's giving trouble. Never touches the timed History list, since a short focused
       session isn't a fair comparison against a full one. */
-  async function start(mode: "normal" | "weak" = "normal") {
+  async function start(mode: "normal" | "weak" | "learn" = "normal", levelIndex?: number) {
     const weak = mode === "weak";
-    setLastMode(mode);
+    // `"learn"`: a learning-path level (`levelIndex`, else the selected one) — a fixed set of
+    // rounds over that level's chords (no slash bass), scored at the end to pass the level.
+    const learnLevel = mode === "learn" ? (levelIndex ?? learn.selected) : null;
+    if (mode !== "learn") setLastMode(mode);
+    learn.clearResult();
     const weakList = weak ? weakChordEntries(chordStatsRef.current) : [];
     if (weak && weakList.length === 0) {
       setError("No struggling chords yet — a wrong or missed answer builds this list up.");
       return;
     }
-    if (!weak && pool.length === 0) {
+    if (learnLevel === null && !weak && pool.length === 0) {
       setError("Select at least one chord quality to practice.");
       return;
     }
@@ -492,8 +507,12 @@ export default function GuessTheChord() {
     const slashProbability = slashChance / 100;
     // "Drill every chord" and "shed weak chords" both play through a fixed queue rather than
     // `roundCount` random draws — same machinery either way, just a different queue.
-    const drilling = weak ? true : drillMode;
-    const queue = weak
+    const drilling = weak || learnLevel !== null ? true : drillMode;
+    const queue = learnLevel !== null
+      ? levelQueue("chord", learnLevel).map((id) =>
+          randomChordRound(register.lowMidi, register.highMidi, [chordQualityById(id)!], 0),
+        )
+      : weak
       ? shuffled(
           weakList.map((e) =>
             randomChordRound(register.lowMidi, register.highMidi, [e.quality], slashProbability),
@@ -541,7 +560,7 @@ export default function GuessTheChord() {
           // Drill mode: a miss goes back on the end of the queue — with a freshly randomized
           // octave for the retry (same quality, root and slash bass), so a repeated miss doesn't
           // look like the identical round stuck on screen.
-          if (drilling && finishedGrade === "incorrect") {
+          if (drilling && learnLevel === null && finishedGrade === "incorrect") {
             const requeued = chordRoundForRootAndQuality(
               register.lowMidi,
               register.highMidi,
@@ -555,6 +574,13 @@ export default function GuessTheChord() {
         const done = drilling
           ? session.queue.length === 0
           : session.index >= session.total;
+        if (done && learnLevel !== null) {
+          sessionStartRef.current = null;
+          learn.finish(learnLevel, session.results);
+          setRound(null);
+          endSession();
+          return;
+        }
         if (done) {
           const elapsedMs = sessionStartRef.current
             ? performance.now() - sessionStartRef.current
@@ -611,7 +637,7 @@ export default function GuessTheChord() {
         // Drill mode's total grows when a chord gets requeued, so "X of Y" reflects what's
         // actually left rather than staying fixed at the pool size.
         setProgress(
-          drilling
+          drilling && learnLevel === null
             ? {
                 index: session.index,
                 total: session.index + session.queue.length,
@@ -655,10 +681,11 @@ export default function GuessTheChord() {
 
     advance();
     setRunning(true);
+    setActiveLevel(learnLevel);
     intervalRef.current = setInterval(onTimeUp, seconds * 1000);
   }
 
-  useSpaceToggle(running ? stop : () => void start());
+  useSpaceToggle(running ? stop : () => void start(learnMode ? "learn" : "normal"));
 
   const score = summary ? scoreOf(summary.results) : 0;
   const tally = (grade: Grade) =>
@@ -707,10 +734,27 @@ export default function GuessTheChord() {
   return (
     <ToolLayout
       title="Guess the Chord"
-      sidePanelLabel="History"
+      optionsMode={
+        <Segmented
+          onPage
+          label="Mode"
+          value={learnMode ? "learn" : "practice"}
+          onChange={(v) => updateSettings({ learnMode: v === "learn" })}
+          disabled={running}
+          options={[
+            { value: "practice", label: "Practice" },
+            { value: "learn", label: "Learn" },
+          ]}
+        />
+      }
       sidePanel={
         <>
-          <CollapsiblePanel id="history" title="History" icon={StopwatchIcon}>
+          <CollapsiblePanel
+            id="history"
+            title="History"
+            icon={StopwatchIcon}
+            summary={bestMs !== null ? `Best ${formatDuration(bestMs)}` : undefined}
+          >
             {bestMs !== null && (
               <p className="text-sm font-semibold tabular-nums">
                 Best {formatDuration(bestMs)}
@@ -772,7 +816,12 @@ export default function GuessTheChord() {
             )}
           </CollapsiblePanel>
 
-          <CollapsiblePanel id="struggles" title="Struggles" icon={FlagIcon}>
+          <CollapsiblePanel
+            id="struggles"
+            title="Struggles"
+            icon={FlagIcon}
+            summary={weakEntries.length ? `${weakEntries.length} weak` : undefined}
+          >
             {weakEntries.length === 0 ? (
               <p className="text-sm text-muted">
                 No struggles tracked yet — a wrong or missed answer adds it here.
@@ -820,9 +869,12 @@ export default function GuessTheChord() {
           </CollapsiblePanel>
         </>
       }
+      // Hidden while a session runs, so the round has the screen to itself.
       options={
+        running ? null : (
         <>
           <PanelsToggle ids={PANEL_IDS} />
+          {!learnMode && (
           <CollapsiblePanel id="chord-set" title="Chords" icon={ChordIcon} summary={`${pool.length} of ${CHORD_QUALITIES.length}`}>
             <div className="flex items-center justify-between text-xs">
               <span className="font-medium text-muted">
@@ -905,6 +957,7 @@ export default function GuessTheChord() {
               hint="Pre-fills the answer with the chord's root, so typing (and being graded on) is about the quality and slash bass, not also naming the root by ear. Off makes the whole chord — root included — something you have to work out."
             />
           </CollapsiblePanel>
+          )}
 
           <CollapsiblePanel id="chord-range" title="Register" icon={SlidersIcon} summary={register.label}>
             <label className="flex flex-col gap-1 text-sm">
@@ -955,6 +1008,7 @@ export default function GuessTheChord() {
               hint="A click each second of the countdown, plus a click the instant a round is graded."
             />
 
+            {!learnMode && (
             <SwitchRow
               label="Drill every chord"
               checked={drillMode}
@@ -962,8 +1016,9 @@ export default function GuessTheChord() {
               disabled={running}
               hint="Plays every selected chord quality, starting on all 12 keys, each in a random octave (with an independent chance of a slash bass each time)."
             />
+            )}
 
-            {!drillMode && (
+            {!drillMode && !learnMode && (
               <label className="flex flex-col gap-2 text-sm">
                 <span className="flex items-center justify-between font-medium text-muted">
                   Number of rounds
@@ -988,7 +1043,7 @@ export default function GuessTheChord() {
                 />
               </label>
             )}
-            {!drillMode && <Hint>How many chords make up one session.</Hint>}
+            {!drillMode && !learnMode && <Hint>How many chords make up one session.</Hint>}
           </CollapsiblePanel>
 
           <CollapsiblePanel
@@ -1040,9 +1095,25 @@ export default function GuessTheChord() {
             <Hint>How sharps and flats are spelled in the revealed answer, e.g. C# vs Db.</Hint>
           </CollapsiblePanel>
         </>
+        )
       }
     >
+      {learnMode && !running && (
+        <LearningPath
+          track="chord"
+          progress={learn.progress}
+          selected={learn.selected}
+          onSelect={learn.select}
+          onStart={() => void start("learn")}
+        />
+      )}
       <div className="flex flex-col items-center gap-3">
+        {activeLevel !== null && running && (
+          <p className="rounded-full bg-accent/10 px-3 py-1 text-xs font-semibold text-accent">
+            Level {activeLevel + 1} · {learn.levels[activeLevel].title} ·{" "}
+            {cumulativeItems("chord", activeLevel).length} chords in play
+          </p>
+        )}
         {status && running && (
           <div className="flex flex-col items-center gap-0.5">
             <span className="text-xs font-semibold uppercase tracking-wide text-muted">
@@ -1056,6 +1127,7 @@ export default function GuessTheChord() {
             </span>
           </div>
         )}
+        {!(learnMode && !running) && (
         <div className="relative flex h-44 w-44 items-center justify-center p-4 text-center sm:h-56 sm:w-56">
           <CountdownRing active={showCountdown} timerRef={noteTimerRef} />
           <h1
@@ -1074,6 +1146,7 @@ export default function GuessTheChord() {
             {mainLabel}
           </h1>
         </div>
+        )}
 
         {running && round && (
           <button
@@ -1128,6 +1201,7 @@ export default function GuessTheChord() {
           </form>
         )}
 
+        {!(learnMode && !running) && (
         <p className="max-w-xs text-xs text-muted">
           Root, then quality, then an optional /bass: <code>^7</code> major 7,{" "}
           <code>-</code> minor, <code>h7</code> half-diminished (ø7), <code>o7</code> diminished
@@ -1136,6 +1210,7 @@ export default function GuessTheChord() {
           <code>M7</code> are both read as minor 7 (use <code>maj7</code> for major 7, to avoid
           the ambiguity).
         </p>
+        )}
 
         {running && progress && (
           <p className="tabular-nums text-sm text-muted">
@@ -1146,7 +1221,7 @@ export default function GuessTheChord() {
         )}
       </div>
 
-      {summary && !running && (
+      {summary && !running && !learnMode && (
         <section
           aria-label="Results"
           className="flex w-full flex-col gap-4 rounded-2xl bg-surface p-4 text-left sm:p-6"
@@ -1242,15 +1317,24 @@ export default function GuessTheChord() {
 
       <button
         type="button"
-        onClick={running ? stop : () => void start()}
+        onClick={running ? stop : () => void start(learnMode ? "learn" : "normal")}
         className={`rounded-full px-8 py-3 text-base font-semibold transition-colors ${
           running
             ? "bg-surface hover:bg-surface-hover"
             : "bg-accent text-accent-foreground hover:bg-accent-hover"
         }`}
       >
-        {running ? "Stop" : "Start"}
+        {running ? "Stop" : learnMode ? `Start level ${learn.selected + 1}` : "Start"}
       </button>
+      {learn.result && (
+        <LevelComplete
+          result={learn.result}
+          toneId={toneId}
+          onNext={() => void start("learn", learn.result!.levelNumber)}
+          onRetry={() => void start("learn", learn.result!.levelNumber - 1)}
+          onClose={learn.clearResult}
+        />
+      )}
       <KeyHint>
         Press <KeyHint.Key>Space</KeyHint.Key> to start or stop
       </KeyHint>

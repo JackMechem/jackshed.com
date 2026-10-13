@@ -24,6 +24,9 @@ import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
 import { UserAvatar } from '@/components/UserAvatar';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { withScreenLoader } from '@/components/ScreenLoader';
+import { EarTrainingProgress } from '@/components/learning/EarTrainingProgress';
+import { summarizeLearning } from '@jam-practice/core/learningPath';
+import { useLearningProgress } from '@/lib/useLearnSession';
 
 /**
  * The native side of `apps/web/components/AccountMenu.tsx`'s `AuthForm` (signed out) plus
@@ -92,6 +95,7 @@ function SignedIn() {
   const [tunes] = useSyncedTunes();
   const [tunesToLearn] = useTunesToLearn();
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [learningProgress] = useLearningProgress();
 
   if (user === undefined || profile === undefined) {
     return (
@@ -134,6 +138,13 @@ function SignedIn() {
         </View>
         <ChevronRightIcon color={colors.muted} size={22} />
       </Pressable>
+
+      <View className="gap-2.5">
+        <Text className="font-inter-bold px-1 text-sm font-bold" style={{ color: colors.muted }}>
+          Ear training
+        </Text>
+        <EarTrainingProgress summaries={summarizeLearning(learningProgress)} links />
+      </View>
 
       {groups.map((rows, gi) => (
         <View key={gi} className="overflow-hidden rounded-2xl" style={{ backgroundColor: colors.surface }}>

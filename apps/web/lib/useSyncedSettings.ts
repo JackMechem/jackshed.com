@@ -2,7 +2,7 @@ import { useConvexAuth } from "@convex-dev/auth/react";
 import { useMutation, useQuery } from "convex/react";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { api } from "@jam-practice/convex/_generated/api";
-import { mergeWithDefaults, usePersistedSettings } from "./usePersistedSettings";
+import { usePersistedSettings, viewOf } from "./usePersistedSettings";
 import {
   getSyncedValue,
   resetSynced,
@@ -39,28 +39,31 @@ export function useSyncedSettings<T extends object>(
   const remote = useQuery(api.syncedSettings.get, isAuthenticated ? { key } : "skip");
   const setRemote = useMutation(api.syncedSettings.set);
 
-  const synced = useSyncExternalStore(
+  // The cache holds the account's *whole* object for this key; each caller views it through its
+  // own defaults (see `Store` in usePersistedSettings.ts for why — several hooks share a key).
+  const raw = useSyncExternalStore(
     useCallback((listener) => subscribeSynced(key, listener), [key]),
-    useCallback(() => getSyncedValue(key, defaults), [key, defaults]),
-    useCallback(() => defaults, [defaults]),
+    useCallback(() => getSyncedValue<Record<string, unknown> | null>(key, null), [key]),
+    useCallback(() => null, []),
   );
+  const synced = raw ? viewOf(raw, defaults) : defaults;
 
   useEffect(() => {
     if (!isAuthenticated) {
-      resetSynced<T>(key, (value) => {
+      resetSynced<Record<string, unknown>>(key, (value) => {
         setRemote({ key, value: JSON.stringify(value) });
       });
       return;
     }
     if (remote !== undefined) {
-      seedSynced(key, remote?.value ? mergeWithDefaults(safeParse(remote.value), defaults) : defaults);
+      seedSynced(key, remote?.value ? safeParse(remote.value) : {});
     }
-  }, [isAuthenticated, remote, key, defaults, setRemote]);
+  }, [isAuthenticated, remote, key, setRemote]);
 
   const update = useCallback(
     (patch: Partial<T>) => {
       if (isAuthenticated) {
-        const next = { ...getSyncedValue(key, defaults), ...patch };
+        const next = { ...(getSyncedValue<Record<string, unknown> | null>(key, null) ?? {}), ...patch };
         setSyncedValue(key, next, (value) => {
           setRemote({ key, value: JSON.stringify(value) });
         });
@@ -68,16 +71,19 @@ export function useSyncedSettings<T extends object>(
       }
       updateLocal(patch);
     },
-    [isAuthenticated, key, defaults, setRemote, updateLocal],
+    [isAuthenticated, key, setRemote, updateLocal],
   );
 
   return [isAuthenticated ? synced : localSettings, update];
 }
 
-function safeParse(raw: string): unknown {
+function safeParse(raw: string): Record<string, unknown> {
   try {
-    return JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
   } catch {
-    return null;
+    return {};
   }
 }

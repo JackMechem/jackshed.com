@@ -1,5 +1,6 @@
 "use client";
 
+import EarTrainingProgress from "@/components/learning/EarTrainingProgress";
 import Link from "next/link";
 import { useMemo } from "react";
 import { useQuery } from "convex/react";
@@ -61,6 +62,11 @@ export default function PublicProfilePage({ username }: { username: string }) {
   }
 
   const isOwnProfile = viewer?._id === profile.userId;
+  // Ear-training levels passed (shown once there's at least one to show off).
+  const earTraining = profile.earTraining;
+  const levelsPassed = earTraining
+    ? earTraining.interval.passed + earTraining.chord.passed + earTraining.progression.passed
+    : 0;
   const canAdd = !isOwnProfile && !!viewer;
   // Posts only ever load once we know whether the viewer is signed in (the queries are `"skip"`ped
   // otherwise) — treat "still loading" as "don't know yet" rather than momentarily flashing the
@@ -72,7 +78,8 @@ export default function PublicProfilePage({ username }: { username: string }) {
     !hasPosts &&
     profile.instruments.length === 0 &&
     profile.tunes.length === 0 &&
-    profile.tunesToLearn.length === 0;
+    profile.tunesToLearn.length === 0 &&
+    levelsPassed === 0;
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 pb-16 pt-[calc(env(safe-area-inset-top)+4.5rem)] sm:px-6 lg:pt-16">
@@ -105,6 +112,18 @@ export default function PublicProfilePage({ username }: { username: string }) {
               </span>
             ))}
           </div>
+        </section>
+      )}
+
+      {earTraining && levelsPassed > 0 && (
+        <section className="flex flex-col gap-3 rounded-2xl bg-surface p-5 text-left">
+          <h2 className="flex items-baseline justify-between gap-2 text-sm font-semibold text-muted">
+            Ear training
+            <span className="text-xs font-normal">
+              {levelsPassed} level{levelsPassed === 1 ? "" : "s"} passed
+            </span>
+          </h2>
+          <EarTrainingProgress summaries={earTraining} links={isOwnProfile} />
         </section>
       )}
 

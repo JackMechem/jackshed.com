@@ -24,6 +24,7 @@ import {
 import { filterNavLinks } from "@jam-practice/core/navLinks";
 import { CHORD_QUALITIES } from "@/lib/chords";
 import { INTERVALS } from "@/lib/intervals";
+import { progressionById } from "@/lib/progressions";
 import { getSnapshot as getTimerSnapshot, getServerSnapshot as getTimerServerSnapshot, subscribe as subscribeTimer } from "@/lib/practiceTimerEngine";
 import { describeSession } from "@/lib/practiceTimer";
 import { useRecentCharts, useRecentTunes } from "@/lib/recents";
@@ -36,6 +37,8 @@ import { useIsDesktop } from "@/lib/useIsDesktop";
 import { usePracticeSessions } from "@/lib/usePracticeSessions";
 import { useSetlists } from "@/lib/useSetlists";
 import { useSyncedSettings } from "@/lib/useSyncedSettings";
+import EarTrainingProgress from "@/components/learning/EarTrainingProgress";
+import { DEFAULT_LEARNING_PROGRESS, LEARNING_KEY, summarizeLearning } from "@/lib/learningPath";
 
 type ToolLink = (typeof NAV_LINKS)[number];
 type Icon = ToolLink["icon"];
@@ -50,6 +53,7 @@ const STARTER_HREFS = ["/metronome", "/jam-practice", "/tuner", "/practice-timer
 // Only the struggle stats are read from the ear trainers' synced settings (never written here).
 const INTERVAL_STATS_DEFAULTS = { intervalStats: {} as Record<string, GradeCounts> };
 const CHORD_STATS_DEFAULTS = { chordStats: {} as Record<string, GradeCounts> };
+const PROGRESSION_STATS_DEFAULTS = { progressionStats: {} as Record<string, GradeCounts> };
 
 const noop = () => () => {};
 /** Today's date as a stable string, read on the client only (the server's clock and timezone
@@ -89,6 +93,9 @@ export default function Home() {
   const timer = useSyncExternalStore(subscribeTimer, getTimerSnapshot, getTimerServerSnapshot);
   const [{ intervalStats }] = useSyncedSettings("jam-practice-guess-the-interval", INTERVAL_STATS_DEFAULTS);
   const [{ chordStats }] = useSyncedSettings("jam-practice-guess-the-chord", CHORD_STATS_DEFAULTS);
+  const [{ progressionStats }] = useSyncedSettings("jam-practice-guess-the-progression", PROGRESSION_STATS_DEFAULTS);
+  const [learningProgress] = useSyncedSettings(LEARNING_KEY, DEFAULT_LEARNING_PROGRESS);
+  const learningSummaries = summarizeLearning(learningProgress);
 
   const q = query.trim();
   const known = lists.tunes.tunes;
@@ -149,6 +156,10 @@ export default function Home() {
     ...rankWeak(chordStats).flatMap((e) => {
       const cq = CHORD_QUALITIES.find((c) => c.id === e.key);
       return cq ? [{ key: `c:${e.key}`, label: `${cq.name} chords`, kind: "Chord", counts: e.counts, score: e.score, href: "/guess-the-chord" }] : [];
+    }),
+    ...rankWeak(progressionStats).flatMap((e) => {
+      const pr = progressionById(e.key);
+      return pr ? [{ key: `p:${e.key}`, label: pr.name, kind: "Progression", counts: e.counts, score: e.score, href: "/guess-the-progression" }] : [];
     }),
   ]
     .sort((a, b) => b.score - a.score)
@@ -379,10 +390,16 @@ export default function Home() {
               ) : (
                 <Empty>
                   Play a few rounds of{" "}
-                  <Link href="/guess-the-interval" className="font-semibold text-accent hover:underline">Guess the Interval</Link> or{" "}
-                  <Link href="/guess-the-chord" className="font-semibold text-accent hover:underline">Guess the Chord</Link> and the ones you miss most show up here.
+                  <Link href="/guess-the-interval" className="font-semibold text-accent hover:underline">Guess the Interval</Link>,{" "}
+                  <Link href="/guess-the-chord" className="font-semibold text-accent hover:underline">Guess the Chord</Link> or{" "}
+                  <Link href="/guess-the-progression" className="font-semibold text-accent hover:underline">Guess the Progression</Link> and the ones you miss most show up here.
                 </Empty>
               )}
+            </Card>
+
+            {/* Ear-training learning paths */}
+            <Card title="Ear training path" className="lg:col-span-12" detail="Learn mode in each tool">
+              <EarTrainingProgress summaries={learningSummaries} links />
             </Card>
 
             {/* Every tool */}

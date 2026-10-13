@@ -69,6 +69,13 @@ export const NAV_LINKS_DATA: NavLinkInfo[] = [
     category: "Ear Training",
   },
   {
+    href: "/guess-the-progression",
+    label: "Guess the Progression",
+    description:
+      "Hear a chord progression and type it in Roman numerals (ii7 V7 I^7) or as chord names, from a pool of common jazz, pop and minor progressions.",
+    category: "Ear Training",
+  },
+  {
     href: "/practice-timer",
     label: "Practice Timer",
     description:

@@ -69,6 +69,33 @@ function getEntry(key: string): Entry {
   return entry;
 }
 
+/** The cache holds the *whole* stored object for a key, never one caller's filtered copy: several
+    screens can read the same key with different defaults (Home and the profile read the shared
+    ear-training progress; tools read their own full settings), and caching whichever caller's
+    trimmed copy loaded first used to hand the others an object missing their fields — and then
+    write that trimmed copy back, dropping fields this app (or the website, which shares these
+    keys) doesn't know about. Each caller sees it through `viewOf`. */
+function asRecord(parsed: unknown): Record<string, unknown> | null {
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+}
+
+const views = new WeakMap<object, WeakMap<object, unknown>>();
+/** `raw` filtered/defaulted for one caller's `defaults`, memoized on both identities so
+    `useSyncExternalStore` gets the same reference until the stored value changes. */
+function viewOf<T extends object>(raw: object, defaults: T): T {
+  let byDefaults = views.get(raw);
+  if (!byDefaults) {
+    byDefaults = new WeakMap();
+    views.set(raw, byDefaults);
+  }
+  let view = byDefaults.get(defaults) as T | undefined;
+  if (!view) {
+    view = mergeWithDefaults(raw, defaults);
+    byDefaults.set(defaults, view);
+  }
+  return view;
+}
+
 function notify(key: string) {
   for (const listener of getEntry(key).listeners) listener();
 }
@@ -118,7 +145,7 @@ export function useSyncedSettings<T extends object>(
         entry.listeners.delete(callback);
       };
     },
-    () => (getEntry(key).hasValue ? (getEntry(key).value as T) : defaults),
+    () => (getEntry(key).hasValue ? viewOf(getEntry(key).value as object, defaults) : defaults),
   );
 
   // `ready`: this device's saved copy has been read, so `settings` is the real value rather than
@@ -147,7 +174,9 @@ export function useSyncedSettings<T extends object>(
         const entry = getEntry(key);
         if (entry.hasValue) return;
         try {
-          entry.value = mergeWithDefaults(JSON.parse(raw), defaults);
+          const parsed = asRecord(JSON.parse(raw));
+          if (!parsed) return;
+          entry.value = parsed;
           entry.hasValue = true;
           notify(key);
         } catch {
@@ -167,9 +196,6 @@ export function useSyncedSettings<T extends object>(
     return () => {
       cancelled = true;
     };
-    // `defaults` must be a stable module-level object, same rule as `useDeviceSettings` — not a
-    // dependency, or a caller passing a fresh literal every render would restart this load loop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
   const remote = useQuery(api.syncedSettings.get, isAuthenticated ? { key } : 'skip');
@@ -208,23 +234,23 @@ export function useSyncedSettings<T extends object>(
     entry.serverApplied = true;
     if (!entry.localEdited && remote?.value) {
       try {
-        const merged = mergeWithDefaults(JSON.parse(remote.value), defaults);
-        entry.value = merged;
-        entry.hasValue = true;
-        notify(key);
-        void AsyncStorage.setItem(key, JSON.stringify(merged));
+        const parsed = asRecord(JSON.parse(remote.value));
+        if (parsed) {
+          entry.value = parsed;
+          entry.hasValue = true;
+          notify(key);
+          void AsyncStorage.setItem(key, remote.value);
+        }
       } catch {
         // corrupt server data — keep whatever's currently showing
       }
     }
-    // `defaults`/`setRemote` are stable (a module-level object and a Convex-provided function
-    // respectively) — only `isAuthenticated`/`remote`/`key` actually vary here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, remote, key]);
+  }, [isAuthenticated, remote, key, setRemote]);
 
   function update(patch: Partial<T>) {
     const entry = getEntry(key);
-    const current = (entry.hasValue ? entry.value : defaults) as T;
+    // Merged into the whole stored object, so fields other callers own are kept.
+    const current = entry.hasValue ? (entry.value as Record<string, unknown>) : {};
     const next = { ...current, ...patch };
     entry.value = next;
     entry.hasValue = true;

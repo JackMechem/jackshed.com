@@ -35,23 +35,33 @@ const GAP = 8; // between the chip and its popover
 const MARGIN = 16; // kept clear at the screen's edges
 const SM = 640; // Tailwind's `sm` breakpoint: below it the popover is a bottom sheet
 
-type Placement = { style: CSSProperties };
+type Placement = { style: CSSProperties; below: boolean };
 
-/** Where the popover goes on a wider screen: always just above its chip, centred on it but kept
-    on screen, and never taller than the space above the chip. It's `position: fixed`, so a long
+/** Where the popover goes on a wider screen: just above its chip (or below it, for a chip near
+    the top of the screen with more room underneath), centred on it but kept on screen, and never
+    taller than the space it opens into. It's `position: fixed`, so a long
     popover scrolls inside itself instead of making the page scroll. */
 function place(chip: HTMLElement, width: number): Placement | null {
   if (window.innerWidth < SM) return null;
   const r = chip.getBoundingClientRect();
   const w = Math.min(width, window.innerWidth - 2 * MARGIN);
   const left = Math.min(Math.max(r.left + r.width / 2 - w / 2, MARGIN), window.innerWidth - w - MARGIN);
+  const spaceAbove = r.top - GAP - MARGIN;
+  const spaceBelow = window.innerHeight - r.bottom - GAP - MARGIN;
+  if (spaceBelow > spaceAbove) {
+    return {
+      below: true,
+      style: { position: "fixed", left, width: w, top: r.bottom + GAP, maxHeight: spaceBelow },
+    };
+  }
   return {
+    below: false,
     style: {
       position: "fixed",
       left,
       width: w,
       bottom: window.innerHeight - r.top + GAP,
-      maxHeight: r.top - GAP - MARGIN,
+      maxHeight: spaceAbove,
     },
   };
 }
@@ -209,7 +219,7 @@ export function SettingChip({
               aria-label={title ?? label}
               style={placement?.style}
               className={`settings-pop z-50 flex flex-col overflow-hidden rounded-3xl bg-surface text-left text-foreground shadow-[0_24px_60px_-16px_rgba(0,0,0,0.45)] ring-1 ring-foreground/[0.06] ${
-                sheet ? "fixed inset-x-3 bottom-3 max-h-[80dvh]" : "origin-bottom"
+                sheet ? "fixed inset-x-3 bottom-3 max-h-[80dvh]" : placement.below ? "origin-top" : "origin-bottom"
               }`}
             >
               <div className="flex shrink-0 items-center gap-1 px-5 pb-2 pt-4">

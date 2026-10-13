@@ -60,7 +60,7 @@ export function useTabBarSpace(extra = 32) {
   return TAB_BAR_CONTENT_HEIGHT + insets.bottom + extra;
 }
 
-const HIDDEN_ON = ['/tool/chord-charts-editor', '/setlist-charts', '/tool/guess-the-chord'];
+const HIDDEN_ON = ['/tool/chord-charts-editor', '/setlist-charts', '/tool/guess-the-chord', '/tool/guess-the-progression'];
 
 export function FloatingTabBar() {
   const router = useRouter();

@@ -56,6 +56,11 @@ import AdvancedSlider from "@/components/AdvancedSlider";
 import CountdownLabel from "@/components/CountdownLabel";
 import CountdownRing from "@/components/CountdownRing";
 import ElapsedTimer from "@/components/ElapsedTimer";
+import LearningPath from "@/components/learning/LearningPath";
+import LevelComplete from "@/components/learning/LevelComplete";
+import { Segmented } from "@/components/metronome/MetronomeOptions";
+import { cumulativeItems, intervalLevelOptions, levelQueue } from "@/lib/learningPath";
+import { useLearnSession } from "@/lib/useLearnSession";
 
 const MIN_ROUND_SECONDS = 2;
 const MAX_ROUND_SECONDS = 20;
@@ -131,6 +136,7 @@ const PANEL_IDS = [
 ];
 const SETTINGS_KEY = "jam-practice-guess-the-interval";
 const DEFAULT_SETTINGS = {
+  learnMode: false,
   instrumentId: INSTRUMENTS[0].id,
   customRange: "A1-A6",
   roundSeconds: DEFAULT_ROUND_SECONDS,
@@ -164,6 +170,8 @@ export default function GuessTheInterval() {
     playbackStyle,
     revealNotes,
   } = settings;
+  const learnMode = settings.learnMode;
+  const learn = useLearnSession("interval");
   const history = settings.history.filter(
     (h): h is HistoryEntry =>
       !!h && typeof h.config === "object" && h.config !== null,
@@ -232,6 +240,8 @@ export default function GuessTheInterval() {
   const [roundSeed, setRoundSeed] = useState(0);
   // So "Try again" repeats a "Shed weak intervals" run instead of falling back to a normal one.
   const [lastMode, setLastMode] = useState<"normal" | "weak">("normal");
+  // The learning-path level being played (0-based), while a learn-mode session runs.
+  const [activeLevel, setActiveLevel] = useState<number | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const noteTimerRef = useRef({ startedAt: 0, durationMs: 1000 });
@@ -241,6 +251,8 @@ export default function GuessTheInterval() {
   const sessionStartRef = useRef<number | null>(null);
   const toneIdRef = useRef(toneId);
   const playbackStyleRef = useRef(playbackStyle);
+  // A learning-path level's own playback style, overriding the setting while it runs.
+  const learnStyleRef = useRef<PlaybackStyle | null>(null);
   const mountedRef = useRef(true);
   const sessionRef = useRef<Session | null>(null);
   const cfgRef = useRef({ advanceDelayMs, soundFeedback });
@@ -337,7 +349,7 @@ export default function GuessTheInterval() {
       per the "Playback style" setting. */
   function playIntervalSound(notes: string[]) {
     clearPlayback();
-    if (playbackStyleRef.current === "harmonic") {
+    if ((learnStyleRef.current ?? playbackStyleRef.current) === "harmonic") {
       void playNotesTogether(notes, HARMONIC_NOTE_DURATION_SECONDS, toneIdRef.current);
     } else {
       notes.forEach((n, i) => {
@@ -366,6 +378,8 @@ export default function GuessTheInterval() {
     setStatus(null);
     setGuessedId(null);
     setProgress(null);
+    setActiveLevel(null);
+    learnStyleRef.current = null;
   }
 
   function stop() {
@@ -419,9 +433,14 @@ export default function GuessTheInterval() {
       not the full 12-key sweep "Drill every interval" does, so it stays a quick, targeted
       practice on exactly what's giving trouble. Never touches the timed History list, since a
       short weak-intervals session isn't a fair comparison against a full one. */
-  async function start(mode: "normal" | "weak" = "normal") {
+  async function start(mode: "normal" | "weak" | "learn" = "normal", levelIndex?: number) {
     const weak = mode === "weak";
-    setLastMode(mode);
+    // `"learn"`: a learning-path level (`levelIndex`, else the selected one) — a fixed set of
+    // rounds over the intervals unlocked so far, in that level's directions/playback style,
+    // scored at the end to pass the level.
+    const learnLevel = mode === "learn" ? (levelIndex ?? learn.selected) : null;
+    if (mode !== "learn") setLastMode(mode);
+    learn.clearResult();
     const range = parseRange(rangeInput);
     if (!range) {
       setError('Enter a valid range like "A1-A6".');
@@ -434,7 +453,7 @@ export default function GuessTheInterval() {
       );
       return;
     }
-    if (!weak && pool.length === 0) {
+    if (learnLevel === null && !weak && pool.length === 0) {
       setError("Select at least one interval to practice.");
       return;
     }
@@ -445,8 +464,14 @@ export default function GuessTheInterval() {
 
     // "Drill every interval" and "shed weak intervals" both play through a fixed queue rather
     // than `roundCount` random draws — same machinery either way, just a different queue.
-    const drilling = weak ? true : drillMode;
-    const queue = weak
+    const drilling = weak || learnLevel !== null ? true : drillMode;
+    const learnOptions = learnLevel !== null ? intervalLevelOptions(learnLevel) : null;
+    learnStyleRef.current = learnOptions ? (learnOptions.harmonic ? "harmonic" : "melodic") : null;
+    const queue = learnLevel !== null
+      ? levelQueue("interval", learnLevel).map((id) =>
+          randomIntervalRound(range, [INTERVALS.find((i) => i.id === id)!], learnOptions!.directions),
+        )
+      : weak
       ? shuffled(weakList.map((e) => randomIntervalRound(range, [e.interval], directions)))
       : drilling
         ? shuffled(drillQueueForPool(range, pool, directions))
@@ -455,7 +480,9 @@ export default function GuessTheInterval() {
     // interval that's since been deselected from the main pool, so its choices come from
     // whatever's actually in the queue, not from `pool`, to make sure the right answer is
     // always one of the options on screen.
-    const choiceIntervals = weak
+    const choiceIntervals = learnLevel !== null
+      ? INTERVALS.filter((i) => cumulativeItems("interval", learnLevel).includes(i.id))
+      : weak
       ? INTERVALS.filter((i) => weakList.some((e) => e.interval.id === i.id))
       : pool;
     setAnswerChoices(choiceIntervals);
@@ -493,7 +520,7 @@ export default function GuessTheInterval() {
           bumpIntervalStat(session.round.interval.id, finishedGrade);
           // Drill mode: a miss goes back on the end of the queue — with a freshly randomized
           // octave for the retry, so a repeated miss doesn't look like the exact same round.
-          if (drilling && finishedGrade === "incorrect") {
+          if (drilling && learnLevel === null && finishedGrade === "incorrect") {
             const pitchClass = pitchClassOf(session.round.startMidi);
             const requeued = intervalRoundForPitchClass(
               range,
@@ -507,6 +534,13 @@ export default function GuessTheInterval() {
         const done = drilling
           ? session.queue.length === 0
           : session.index >= session.total;
+        if (done && learnLevel !== null) {
+          sessionStartRef.current = null;
+          learn.finish(learnLevel, session.results);
+          setRound(null);
+          endSession();
+          return;
+        }
         if (done) {
           const elapsedMs = sessionStartRef.current
             ? performance.now() - sessionStartRef.current
@@ -561,7 +595,7 @@ export default function GuessTheInterval() {
         // Drill mode's total grows when an interval gets requeued, so "X of Y" reflects what's
         // actually left rather than staying fixed at the pool size.
         setProgress(
-          drilling
+          drilling && learnLevel === null
             ? {
                 index: session.index,
                 total: session.index + session.queue.length,
@@ -595,10 +629,11 @@ export default function GuessTheInterval() {
 
     advance();
     setRunning(true);
+    setActiveLevel(learnLevel);
     intervalRef.current = setInterval(advance, seconds * 1000);
   }
 
-  useSpaceToggle(running ? stop : () => void start());
+  useSpaceToggle(running ? stop : () => void start(learnMode ? "learn" : "normal"));
 
   const arrow = (r: IntervalRound) => (r.direction === 1 ? "↑" : "↓");
   const revealedLabel = (r: IntervalRound) => `${arrow(r)} ${r.interval.label}`;
@@ -637,10 +672,27 @@ export default function GuessTheInterval() {
   return (
     <ToolLayout
       title="Guess the Interval"
-      sidePanelLabel="History"
+      optionsMode={
+        <Segmented
+          onPage
+          label="Mode"
+          value={learnMode ? "learn" : "practice"}
+          onChange={(v) => updateSettings({ learnMode: v === "learn" })}
+          disabled={running}
+          options={[
+            { value: "practice", label: "Practice" },
+            { value: "learn", label: "Learn" },
+          ]}
+        />
+      }
       sidePanel={
         <>
-          <CollapsiblePanel id="history" title="History" icon={StopwatchIcon}>
+          <CollapsiblePanel
+            id="history"
+            title="History"
+            icon={StopwatchIcon}
+            summary={bestMs !== null ? `Best ${formatDuration(bestMs)}` : undefined}
+          >
             {bestMs !== null && (
               <p className="text-sm font-semibold tabular-nums">
                 Best {formatDuration(bestMs)}
@@ -702,7 +754,12 @@ export default function GuessTheInterval() {
             )}
           </CollapsiblePanel>
 
-          <CollapsiblePanel id="struggles" title="Struggles" icon={FlagIcon}>
+          <CollapsiblePanel
+            id="struggles"
+            title="Struggles"
+            icon={FlagIcon}
+            summary={weakEntries.length ? `${weakEntries.length} weak` : undefined}
+          >
             {weakEntries.length === 0 ? (
               <p className="text-sm text-muted">
                 No struggles tracked yet — a wrong guess adds it here.
@@ -750,9 +807,12 @@ export default function GuessTheInterval() {
           </CollapsiblePanel>
         </>
       }
+      // Hidden while a session runs, so the round has the screen to itself.
       options={
+        running ? null : (
         <>
           <PanelsToggle ids={PANEL_IDS} />
+          {!learnMode && (
           <CollapsiblePanel id="guess-intervals" title="Intervals" icon={IntervalIcon} summary={`${pool.length} of ${INTERVALS.length}`}>
             <div className="flex items-center justify-between text-xs">
               <span className="font-medium text-muted">
@@ -814,6 +874,7 @@ export default function GuessTheInterval() {
               hint="Lets a round play the interval below the starting note, not just above it — the choices are still just the interval's name, not its direction."
             />
           </CollapsiblePanel>
+          )}
 
           <CollapsiblePanel id="guess-range" title="Range" icon={NoteIcon} summary={rangeInput}>
             <label className="flex flex-col gap-1 text-sm">
@@ -887,6 +948,7 @@ export default function GuessTheInterval() {
               hint="A click each second of the countdown, plus a click the instant a round is graded."
             />
 
+            {!learnMode && (
             <SwitchRow
               label="Drill every interval"
               checked={drillMode}
@@ -894,8 +956,9 @@ export default function GuessTheInterval() {
               disabled={running}
               hint="Plays every selected interval, in every selected direction, starting on all 12 keys, each in a random octave."
             />
+            )}
 
-            {!drillMode && (
+            {!drillMode && !learnMode && (
               <label className="flex flex-col gap-2 text-sm">
                 <span className="flex items-center justify-between font-medium text-muted">
                   Number of rounds
@@ -974,9 +1037,24 @@ export default function GuessTheInterval() {
             )}
           </CollapsiblePanel>
         </>
+        )
       }
     >
+      {learnMode && !running && (
+        <LearningPath
+          track="interval"
+          progress={learn.progress}
+          selected={learn.selected}
+          onSelect={learn.select}
+          onStart={() => void start("learn")}
+        />
+      )}
       <div className="flex flex-col items-center gap-3">
+        {activeLevel !== null && running && (
+          <p className="rounded-full bg-accent/10 px-3 py-1 text-xs font-semibold text-accent">
+            Level {activeLevel + 1} · {learn.levels[activeLevel].title}
+          </p>
+        )}
         {status && running && (
           <div className="flex flex-col items-center gap-0.5">
             <span className="text-xs font-semibold uppercase tracking-wide text-muted">
@@ -990,6 +1068,7 @@ export default function GuessTheInterval() {
             </span>
           </div>
         )}
+        {!(learnMode && !running) && (
         <div className="relative flex h-44 w-44 items-center justify-center p-4 text-center sm:h-56 sm:w-56">
           <CountdownRing active={showCountdown} timerRef={noteTimerRef} />
           <h1
@@ -1008,6 +1087,7 @@ export default function GuessTheInterval() {
             {mainLabel}
           </h1>
         </div>
+        )}
 
         {running && round && (
           <button
@@ -1087,7 +1167,7 @@ export default function GuessTheInterval() {
         )}
       </div>
 
-      {summary && !running && (
+      {summary && !running && !learnMode && (
         <section
           aria-label="Results"
           className="flex w-full flex-col gap-4 rounded-2xl bg-surface p-4 text-left sm:p-6"
@@ -1178,15 +1258,24 @@ export default function GuessTheInterval() {
 
       <button
         type="button"
-        onClick={running ? stop : () => void start()}
+        onClick={running ? stop : () => void start(learnMode ? "learn" : "normal")}
         className={`rounded-full px-8 py-3 text-base font-semibold transition-colors ${
           running
             ? "bg-surface hover:bg-surface-hover"
             : "bg-accent text-accent-foreground hover:bg-accent-hover"
         }`}
       >
-        {running ? "Stop" : "Start"}
+        {running ? "Stop" : learnMode ? `Start level ${learn.selected + 1}` : "Start"}
       </button>
+      {learn.result && (
+        <LevelComplete
+          result={learn.result}
+          toneId={toneId}
+          onNext={() => void start("learn", learn.result!.levelNumber)}
+          onRetry={() => void start("learn", learn.result!.levelNumber - 1)}
+          onClose={learn.clearResult}
+        />
+      )}
       <KeyHint>
         Press <KeyHint.Key>Space</KeyHint.Key> to start or stop
       </KeyHint>

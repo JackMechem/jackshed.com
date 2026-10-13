@@ -21,6 +21,11 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CountdownRing } from '@/components/CountdownRing';
+import { LearningPath } from '@/components/learning/LearningPath';
+import { LevelComplete } from '@/components/learning/LevelComplete';
+import { ModeSwitch } from '@/components/learning/ModeSwitch';
+import { cumulativeItems, intervalLevelOptions, levelQueue } from '@jam-practice/core/learningPath';
+import { useLearnSession } from '@/lib/useLearnSession';
 import { CountdownText, ProgressTab, ResultsCard } from '@/components/EarTrainingParts';
 import { ElapsedTimer } from '@/components/CountdownLabel';
 import { Dropdown } from '@/components/Dropdown';
@@ -105,6 +110,7 @@ type HistoryEntry = { at: number; elapsedMs: number; score: number; total: numbe
 // Same key and shape as the website's, so both read and write the same synced settings.
 const SETTINGS_KEY = 'jam-practice-guess-the-interval';
 const DEFAULT_SETTINGS = {
+  learnMode: false,
   instrumentId: INSTRUMENTS[0].id,
   customRange: 'A1-A6',
   roundSeconds: DEFAULT_ROUND_SECONDS,
@@ -142,6 +148,8 @@ function GuessTheIntervalScreen() {
   const { colors } = useAppTheme();
   const [settings, updateSettings, settingsReady] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const learnMode = settings.learnMode;
+  const learn = useLearnSession('interval');
 
   const { customRange, roundSeconds, advanceDelayMs, soundFeedback, drillMode, includeDescending, playbackStyle, revealNotes } = settings;
   const history = settings.history.filter((h): h is HistoryEntry => !!h && typeof h.config === 'object' && h.config !== null);
@@ -169,12 +177,16 @@ function GuessTheIntervalScreen() {
   const [lastMode, setLastMode] = useState<'normal' | 'weak'>('normal');
   const [noteTimer, setNoteTimer] = useState({ startedAt: 0, durationMs: 1000 });
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
+  // The learning-path level being played (0-based), while a learn-mode session runs.
+  const [activeLevel, setActiveLevel] = useState<number | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const roundSeedRef = useRef(0);
   const sessionStartRef = useRef<number | null>(null);
   const toneIdRef = useRef(toneId);
   const playbackStyleRef = useRef(playbackStyle);
+  // A learning-path level's own playback style, overriding the setting while it runs.
+  const learnStyleRef = useRef<PlaybackStyle | null>(null);
   const sessionRef = useRef<Session | null>(null);
   const cfgRef = useRef({ advanceDelayMs, soundFeedback });
   const skipRef = useRef<(() => void) | null>(null);
@@ -227,7 +239,7 @@ function GuessTheIntervalScreen() {
 
   function playIntervalSound(notes: string[]) {
     clearPlayback();
-    if (playbackStyleRef.current === 'harmonic') {
+    if ((learnStyleRef.current ?? playbackStyleRef.current) === 'harmonic') {
       void playNotesTogether(notes, HARMONIC_NOTE_DURATION_SECONDS, toneIdRef.current);
     } else {
       notes.forEach((n, i) => {
@@ -251,6 +263,8 @@ function GuessTheIntervalScreen() {
     setStatus(null);
     setGuessedId(null);
     setProgress(null);
+    setActiveLevel(null);
+    learnStyleRef.current = null;
   }
 
   function scheduleAdvance(index: number) {
@@ -285,9 +299,13 @@ function GuessTheIntervalScreen() {
     lockInRound(id === session.round.interval.id ? 'correct' : 'incorrect');
   }
 
-  function start(mode: 'normal' | 'weak' = 'normal') {
+  /** `'learn'` plays a learning-path level (`levelIndex`, else the selected one): a fixed set of
+      rounds over the intervals unlocked so far, in that level's directions/playback style. */
+  function start(mode: 'normal' | 'weak' | 'learn' = 'normal', levelIndex?: number) {
     const weak = mode === 'weak';
-    setLastMode(mode);
+    const learnLevel = mode === 'learn' ? (levelIndex ?? learn.selected) : null;
+    if (mode !== 'learn') setLastMode(mode);
+    learn.clearResult();
     const range = parseRange(rangeInput);
     if (!range) {
       setError('Enter a valid range like "A1-A6".');
@@ -298,7 +316,7 @@ function GuessTheIntervalScreen() {
       setError('No struggling intervals yet — a wrong guess builds this list up.');
       return;
     }
-    if (!weak && pool.length === 0) {
+    if (learnLevel === null && !weak && pool.length === 0) {
       setError('Select at least one interval to practice.');
       return;
     }
@@ -307,14 +325,18 @@ function GuessTheIntervalScreen() {
     if (intervalRef.current) clearInterval(intervalRef.current);
     clearPlayback();
 
-    const drilling = weak ? true : drillMode;
-    const queue = weak
+    const drilling = weak || learnLevel !== null ? true : drillMode;
+    const learnOptions = learnLevel !== null ? intervalLevelOptions(learnLevel) : null;
+    learnStyleRef.current = learnOptions ? (learnOptions.harmonic ? 'harmonic' : 'melodic') : null;
+    const queue = learnLevel !== null
+      ? levelQueue('interval', learnLevel).map((id) => randomIntervalRound(range, [INTERVALS.find((i) => i.id === id)!], learnOptions!.directions))
+      : weak
       ? shuffled(weakList.map((e) => randomIntervalRound(range, [e.interval], directions)))
       : drilling
         ? shuffled(drillQueueForPool(range, pool, directions))
         : [];
     // A weak session may shed an interval since deselected — offer what's actually in the queue.
-    setAnswerChoices(weak ? INTERVALS.filter((i) => weakList.some((e) => e.interval.id === i.id)) : pool);
+    setAnswerChoices(learnLevel !== null ? INTERVALS.filter((i) => cumulativeItems('interval', learnLevel).includes(i.id)) : weak ? INTERVALS.filter((i) => weakList.some((e) => e.interval.id === i.id)) : pool);
 
     sessionRef.current = { total: drilling ? queue.length : roundCount, index: 0, round: null, best: null, results: [], rounds: [], queue, guessedId: null };
     // eslint-disable-next-line react-hooks/purity -- only reached from button presses, never during render (same as web)
@@ -336,12 +358,19 @@ function GuessTheIntervalScreen() {
           session.results.push(finishedGrade);
           session.rounds.push(session.round);
           bumpIntervalStat(session.round.interval.id, finishedGrade);
-          if (drilling && finishedGrade === 'incorrect') {
+          if (drilling && learnLevel === null && finishedGrade === 'incorrect') {
             const requeued = intervalRoundForPitchClass(range, session.round.interval, session.round.direction, pitchClassOf(session.round.startMidi));
             if (requeued) session.queue.push(requeued);
           }
         }
         const done = drilling ? session.queue.length === 0 : session.index >= session.total;
+        if (done && learnLevel !== null) {
+          sessionStartRef.current = null;
+          learn.finish(learnLevel, session.results);
+          setRound(null);
+          endSession();
+          return;
+        }
         if (done) {
           const elapsedMs = sessionStartRef.current ? Date.now() - sessionStartRef.current : 0;
           sessionStartRef.current = null;
@@ -375,7 +404,7 @@ function GuessTheIntervalScreen() {
         session.guessedId = null;
         setStatus(null);
         setGuessedId(null);
-        setProgress(drilling ? { index: session.index, total: session.index + session.queue.length } : { index: session.index, total: session.total });
+        setProgress(drilling && learnLevel === null ? { index: session.index, total: session.index + session.queue.length } : { index: session.index, total: session.total });
       }
       const next = drilling && session ? session.queue.shift()! : randomIntervalRound(range, pool, directions);
       if (session) session.round = next;
@@ -396,6 +425,7 @@ function GuessTheIntervalScreen() {
 
     advance();
     setRunning(true);
+    setActiveLevel(learnLevel);
     intervalRef.current = setInterval(advance, seconds * 1000);
   }
 
@@ -436,7 +466,17 @@ function GuessTheIntervalScreen() {
       <Stack.Screen options={{ title: 'Guess the Interval' }} />
       <SafeAreaView className="flex-1" edges={['bottom']}>
         <View className="flex-1 px-5 py-3">
-          <View className="flex-row justify-end">
+          {/* Hidden while a session runs, so the round has the screen to itself. */}
+          {!running ? (
+          <View className="flex-row items-center justify-between">
+            <ModeSwitch
+              value={learnMode ? 'learn' : 'practice'}
+              options={[
+                { value: 'practice', label: 'Practice' },
+                { value: 'learn', label: 'Learn' },
+              ]}
+              onChange={(v) => updateSettings({ learnMode: v === 'learn' })}
+            />
             <Pressable
               onPress={() => setOptionsOpen(true)}
               hitSlop={8}
@@ -450,9 +490,20 @@ function GuessTheIntervalScreen() {
               </Text>
             </Pressable>
           </View>
+          ) : activeLevel !== null ? (
+            <View className="items-center">
+              <View className="rounded-full px-3 py-1" style={{ backgroundColor: `${colors.accent}1f` }}>
+                <Text className="font-inter-bold text-xs font-bold" style={{ color: colors.accent }}>
+                  Level {activeLevel + 1} · {learn.levels[activeLevel].title}
+                </Text>
+              </View>
+            </View>
+          ) : null}
 
           <View className="flex-1 items-center justify-center gap-4" style={{ paddingBottom: TAB_BAR_CONTENT_HEIGHT }}>
-            {showingSummary && summary ? (
+            {learnMode && !running ? (
+              <LearningPath track="interval" progress={learn.progress} selected={learn.selected} onSelect={learn.select} onStart={() => start('learn')} />
+            ) : showingSummary && summary ? (
               <ResultsCard
                 score={score}
                 total={summary.results.length}
@@ -564,12 +615,12 @@ function GuessTheIntervalScreen() {
 
             {!showingSummary ? (
               <Pressable
-                onPress={running ? endSession : () => start()}
+                onPress={running ? endSession : () => start(learnMode ? 'learn' : 'normal')}
                 className="min-w-[200px] items-center rounded-full py-3.5"
                 style={{ backgroundColor: running ? colors.surface : colors.accent }}
               >
                 <Text className="font-inter-bold text-base font-bold" style={{ color: running ? colors.foreground : colors['accent-foreground'] }}>
-                  {running ? 'Stop' : 'Start'}
+                  {running ? 'Stop' : learnMode ? `Start level ${learn.selected + 1}` : 'Start'}
                 </Text>
               </Pressable>
             ) : null}
@@ -577,12 +628,22 @@ function GuessTheIntervalScreen() {
         </View>
       </SafeAreaView>
 
+      {learn.result ? (
+        <LevelComplete
+          result={learn.result}
+          instrument={toneId}
+          onNext={() => start('learn', learn.result!.levelNumber)}
+          onRetry={() => start('learn', learn.result!.levelNumber - 1)}
+          onClose={learn.clearResult}
+        />
+      ) : null}
+
       <ToolOptionsSheet
         visible={optionsOpen}
         onClose={() => setOptionsOpen(false)}
         title="Guess the Interval options"
         tabs={[
-          {
+          ...(learnMode ? [] : [{
             key: 'intervals',
             label: 'Intervals',
             content: () => (
@@ -636,7 +697,7 @@ function GuessTheIntervalScreen() {
                 />
               </>
             ),
-          },
+          }]),
           {
             key: 'range',
             label: 'Range',
@@ -704,6 +765,7 @@ function GuessTheIntervalScreen() {
                   disabled={running}
                   hint="A click each second of the countdown, plus a click the instant a round is graded."
                 />
+                {!learnMode ? (
                 <SwitchRow
                   label="Drill every interval"
                   checked={drillMode}
@@ -711,7 +773,8 @@ function GuessTheIntervalScreen() {
                   disabled={running}
                   hint="Plays every selected interval, in every selected direction, starting on all 12 keys, each in a random octave."
                 />
-                {!drillMode ? (
+                ) : null}
+                {!drillMode && !learnMode ? (
                   <NumberStepper
                     label="Number of rounds"
                     value={roundCount}

@@ -116,7 +116,10 @@ function context() {
   return ctx;
 }
 
-function playBuffer(ctx: AudioContext, buffer: AudioBuffer, rate: number, durationSeconds: number, startTime: number) {
+/** react-native-audio-api's buffer source (not the DOM type of the same name). */
+type SourceNode = ReturnType<AudioContext['createBufferSource']>;
+
+function playBuffer(ctx: AudioContext, buffer: AudioBuffer, rate: number, durationSeconds: number, startTime: number): SourceNode {
   const now = Math.max(startTime, ctx.currentTime);
   const end = now + durationSeconds;
   const source = ctx.createBufferSource();
@@ -131,6 +134,7 @@ function playBuffer(ctx: AudioContext, buffer: AudioBuffer, rate: number, durati
   gain.connect(ctx.destination);
   source.start(now);
   source.stop(end);
+  return source;
 }
 
 /** Plays one note (e.g. "C4") as soon as its sample is ready. A failed download is a silent note,
@@ -161,4 +165,43 @@ export async function playNotesTogether(notes: string[], durationSeconds: number
     const buffer = buffers[i];
     if (buffer) playBuffer(ctx, buffer, v.freq / v.sampleFreq, durationSeconds, start);
   });
+}
+
+/** Plays a sequence of chords (each a list of notes, bass first) back to back, `stepSeconds` apart,
+    each ringing `ringSeconds` — Guess the Progression's playback. Every sample is downloaded first
+    and every chord is then scheduled on the audio clock (not a chain of JS timers), so the changes
+    land exactly in time even on a first play. `arpeggioGapSeconds` rolls each chord's notes.
+    Resolves once everything is scheduled, with `cancel()` to cut it all off (stop/replay/next). */
+export async function playChordSequence(
+  chords: string[][],
+  options: { stepSeconds: number; ringSeconds: number; instrument: SampledInstrumentId; arpeggioGapSeconds?: number },
+): Promise<{ cancel: () => void }> {
+  const ctx = context();
+  const voices = chords.map((notes) =>
+    notes
+      .map((n) => noteToFrequency(n))
+      .filter((f): f is number => f !== null)
+      .map((freq) => ({ freq, ...resolve(options.instrument, freq) })),
+  );
+  const buffers = await Promise.all(voices.map((chord) => Promise.all(chord.map((v) => loadBuffer(ctx, v.url).catch(() => null)))));
+  const start = ctx.currentTime + 0.05;
+  const gap = options.arpeggioGapSeconds ?? 0;
+  const sources: SourceNode[] = [];
+  voices.forEach((chord, i) => {
+    chord.forEach((v, j) => {
+      const buffer = buffers[i][j];
+      if (buffer) sources.push(playBuffer(ctx, buffer, v.freq / v.sampleFreq, options.ringSeconds, start + i * options.stepSeconds + j * gap));
+    });
+  });
+  return {
+    cancel: () => {
+      for (const source of sources) {
+        try {
+          source.stop();
+        } catch {
+          // already finished
+        }
+      }
+    },
+  };
 }

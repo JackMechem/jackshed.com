@@ -25,6 +25,11 @@ import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ChordAnswerKeyboard } from '@/components/ChordAnswerKeyboard';
+import { LearningPath } from '@/components/learning/LearningPath';
+import { LevelComplete } from '@/components/learning/LevelComplete';
+import { ModeSwitch } from '@/components/learning/ModeSwitch';
+import { cumulativeItems, levelQueue } from '@jam-practice/core/learningPath';
+import { useLearnSession } from '@/lib/useLearnSession';
 import { CountdownRing } from '@/components/CountdownRing';
 import { ElapsedTimer } from '@/components/CountdownLabel';
 import { Dropdown } from '@/components/Dropdown';
@@ -119,6 +124,7 @@ type HistoryEntry = { at: number; elapsedMs: number; score: number; total: numbe
 // Same key and shape as the website's, so both read and write the same synced settings.
 const SETTINGS_KEY = 'jam-practice-guess-the-chord';
 const DEFAULT_SETTINGS = {
+  learnMode: false,
   registerId: DEFAULT_REGISTER_ID,
   roundSeconds: DEFAULT_ROUND_SECONDS,
   advanceDelayMs: DEFAULT_ADVANCE_DELAY_MS,
@@ -155,6 +161,8 @@ function GuessTheChordScreen() {
   const { colors } = useAppTheme();
   const [settings, updateSettings, settingsReady] = useSyncedSettings(SETTINGS_KEY, DEFAULT_SETTINGS);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const learnMode = settings.learnMode;
+  const learn = useLearnSession('chord');
 
   const { roundSeconds, advanceDelayMs, soundFeedback, drillMode, slashChance, giveRoot, playbackStyle, revealNotes } = settings;
   const history = settings.history.filter((h): h is HistoryEntry => !!h && typeof h.config === 'object' && h.config !== null);
@@ -177,6 +185,8 @@ function GuessTheChordScreen() {
   const [lastMode, setLastMode] = useState<'normal' | 'weak'>('normal');
   const [noteTimer, setNoteTimer] = useState({ startedAt: 0, durationMs: 1000 });
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
+  // The learning-path level being played (0-based), while a learn-mode session runs.
+  const [activeLevel, setActiveLevel] = useState<number | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const roundSeedRef = useRef(0);
@@ -265,6 +275,7 @@ function GuessTheChordScreen() {
     setRunning(false);
     setStatus(null);
     setProgress(null);
+    setActiveLevel(null);
   }
 
   function scheduleAdvance(index: number) {
@@ -306,15 +317,19 @@ function GuessTheChordScreen() {
     gradeAndReveal();
   }
 
-  function start(mode: 'normal' | 'weak' = 'normal') {
+  /** `'learn'` plays a learning-path level (`levelIndex`, else the selected one): a fixed set of
+      rounds over the chords unlocked so far (no slash bass), scored at the end to pass the level. */
+  function start(mode: 'normal' | 'weak' | 'learn' = 'normal', levelIndex?: number) {
     const weak = mode === 'weak';
-    setLastMode(mode);
+    const learnLevel = mode === 'learn' ? (levelIndex ?? learn.selected) : null;
+    if (mode !== 'learn') setLastMode(mode);
+    learn.clearResult();
     const weakList = weak ? weakChordEntries(chordStatsRef.current) : [];
     if (weak && weakList.length === 0) {
       setError('No struggling chords yet — a wrong or missed answer builds this list up.');
       return;
     }
-    if (!weak && pool.length === 0) {
+    if (learnLevel === null && !weak && pool.length === 0) {
       setError('Select at least one chord quality to practice.');
       return;
     }
@@ -324,8 +339,10 @@ function GuessTheChordScreen() {
     clearPlayback();
 
     const slashProbability = slashChance / 100;
-    const drilling = weak ? true : drillMode;
-    const queue = weak
+    const drilling = weak || learnLevel !== null ? true : drillMode;
+    const queue = learnLevel !== null
+      ? levelQueue('chord', learnLevel).map((id) => randomChordRound(register.lowMidi, register.highMidi, [chordQualityById(id)!], 0))
+      : weak
       ? shuffled(weakList.map((e) => randomChordRound(register.lowMidi, register.highMidi, [e.quality], slashProbability)))
       : drilling
         ? shuffled(drillQueueForPool(register.lowMidi, register.highMidi, pool, slashProbability))
@@ -351,12 +368,19 @@ function GuessTheChordScreen() {
           session.results.push(finishedGrade);
           session.rounds.push(session.round);
           bumpChordStat(session.round.quality.id, finishedGrade);
-          if (drilling && finishedGrade === 'incorrect') {
+          if (drilling && learnLevel === null && finishedGrade === 'incorrect') {
             const requeued = chordRoundForRootAndQuality(register.lowMidi, register.highMidi, session.round.quality, session.round.rootPc, session.round.bassPc);
             if (requeued) session.queue.push(requeued);
           }
         }
         const done = drilling ? session.queue.length === 0 : session.index >= session.total;
+        if (done && learnLevel !== null) {
+          sessionStartRef.current = null;
+          learn.finish(learnLevel, session.results);
+          setRound(null);
+          endSession();
+          return;
+        }
         if (done) {
           const elapsedMs = sessionStartRef.current ? Date.now() - sessionStartRef.current : 0;
           sessionStartRef.current = null;
@@ -388,7 +412,7 @@ function GuessTheChordScreen() {
         session.index++;
         session.best = null;
         setStatus(null);
-        setProgress(drilling ? { index: session.index, total: session.index + session.queue.length } : { index: session.index, total: session.total });
+        setProgress(drilling && learnLevel === null ? { index: session.index, total: session.index + session.queue.length } : { index: session.index, total: session.total });
       }
       const next = drilling && session ? session.queue.shift()! : randomChordRound(register.lowMidi, register.highMidi, pool, slashProbability);
       if (session) session.round = next;
@@ -411,6 +435,7 @@ function GuessTheChordScreen() {
 
     advance();
     setRunning(true);
+    setActiveLevel(learnLevel);
     intervalRef.current = setInterval(onTimeUp, seconds * 1000);
   }
 
@@ -457,7 +482,17 @@ function GuessTheChordScreen() {
       <Stack.Screen options={{ title: 'Guess the Chord' }} />
       <SafeAreaView className="flex-1" edges={['bottom']}>
         <View className="flex-1 px-5 py-3">
-          <View className="flex-row justify-end">
+          {/* Hidden while a session runs, so the round has the screen to itself. */}
+          {!running ? (
+          <View className="flex-row items-center justify-between">
+            <ModeSwitch
+              value={learnMode ? 'learn' : 'practice'}
+              options={[
+                { value: 'practice', label: 'Practice' },
+                { value: 'learn', label: 'Learn' },
+              ]}
+              onChange={(v) => updateSettings({ learnMode: v === 'learn' })}
+            />
             <Pressable
               onPress={() => setOptionsOpen(true)}
               hitSlop={8}
@@ -471,9 +506,20 @@ function GuessTheChordScreen() {
               </Text>
             </Pressable>
           </View>
+          ) : activeLevel !== null ? (
+            <View className="items-center">
+              <View className="rounded-full px-3 py-1" style={{ backgroundColor: `${colors.accent}1f` }}>
+                <Text className="font-inter-bold text-xs font-bold" style={{ color: colors.accent }}>
+                  Level {activeLevel + 1} · {learn.levels[activeLevel].title} · {cumulativeItems('chord', activeLevel).length} chords
+                </Text>
+              </View>
+            </View>
+          ) : null}
 
           <View className="flex-1 items-center justify-center gap-4">
-            {showingSummary && summary ? (
+            {learnMode && !running ? (
+              <LearningPath track="chord" progress={learn.progress} selected={learn.selected} onSelect={learn.select} onStart={() => start('learn')} />
+            ) : showingSummary && summary ? (
               <ResultsCard
                 score={score}
                 total={summary.results.length}
@@ -555,12 +601,12 @@ function GuessTheChordScreen() {
 
             {!showingSummary && !answering ? (
               <Pressable
-                onPress={running ? endSession : () => start()}
+                onPress={running ? endSession : () => start(learnMode ? 'learn' : 'normal')}
                 className="min-w-[200px] items-center rounded-full py-3.5"
                 style={{ backgroundColor: running ? colors.surface : colors.accent }}
               >
                 <Text className="font-inter-bold text-base font-bold" style={{ color: running ? colors.foreground : colors['accent-foreground'] }}>
-                  {running ? 'Stop' : 'Start'}
+                  {running ? 'Stop' : learnMode ? `Start level ${learn.selected + 1}` : 'Start'}
                 </Text>
               </Pressable>
             ) : null}
@@ -584,12 +630,22 @@ function GuessTheChordScreen() {
         ) : null}
       </SafeAreaView>
 
+      {learn.result ? (
+        <LevelComplete
+          result={learn.result}
+          instrument={toneId}
+          onNext={() => start('learn', learn.result!.levelNumber)}
+          onRetry={() => start('learn', learn.result!.levelNumber - 1)}
+          onClose={learn.clearResult}
+        />
+      ) : null}
+
       <ToolOptionsSheet
         visible={optionsOpen}
         onClose={() => setOptionsOpen(false)}
         title="Guess the Chord options"
         tabs={[
-          {
+          ...(learnMode ? [] : [{
             key: 'chords',
             label: 'Chords',
             content: () => (
@@ -658,7 +714,7 @@ function GuessTheChordScreen() {
                 />
               </>
             ),
-          },
+          }]),
           {
             key: 'register',
             label: 'Register',
@@ -704,6 +760,7 @@ function GuessTheChordScreen() {
                   disabled={running}
                   hint="A click each second of the countdown, plus a click the instant a round is graded."
                 />
+                {!learnMode ? (
                 <SwitchRow
                   label="Drill every chord"
                   checked={drillMode}
@@ -711,7 +768,8 @@ function GuessTheChordScreen() {
                   disabled={running}
                   hint="Plays every selected chord quality, starting on all 12 keys, each in a random octave (with an independent chance of a slash bass each time)."
                 />
-                {!drillMode ? (
+                ) : null}
+                {!drillMode && !learnMode ? (
                   <NumberStepper
                     label="Number of rounds"
                     value={roundCount}

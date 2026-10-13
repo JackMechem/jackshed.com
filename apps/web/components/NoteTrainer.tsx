@@ -835,11 +835,15 @@ export default function NoteTrainer() {
     <ToolLayout
       title="Note Trainer"
       credit="Idea by Rob Moreno"
-      sidePanelLabel="History"
       sidePanel={
         listenMode && (
           <>
-            <CollapsiblePanel id="history" title="History" icon={StopwatchIcon}>
+            <CollapsiblePanel
+              id="history"
+              title="History"
+              icon={StopwatchIcon}
+              summary={bestMs !== null ? `Best ${formatDuration(bestMs)}` : undefined}
+            >
             {bestMs !== null && (
               <p className="text-sm font-semibold tabular-nums">
                 Best {formatDuration(bestMs)}
@@ -901,7 +905,12 @@ export default function NoteTrainer() {
             )}
             </CollapsiblePanel>
 
-            <CollapsiblePanel id="struggles" title="Struggles" icon={FlagIcon}>
+            <CollapsiblePanel
+              id="struggles"
+              title="Struggles"
+              icon={FlagIcon}
+              summary={weakEntries.length ? `${weakEntries.length} weak` : undefined}
+            >
               {weakEntries.length === 0 ? (
                 <p className="text-sm text-muted">
                   No struggles tracked yet — a wrong or partial note in listen mode adds it here.

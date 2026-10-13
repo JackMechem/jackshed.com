@@ -30,6 +30,9 @@ export const TOOL_COMPONENTS: Record<string, ComponentType> = {
   "/interval-trainer": dynamic(() => import("@/components/IntervalTrainer"), { loading: PaneLoading }),
   "/guess-the-interval": dynamic(() => import("@/components/GuessTheInterval"), { loading: PaneLoading }),
   "/guess-the-chord": dynamic(() => import("@/components/GuessTheChord"), { loading: PaneLoading }),
+  "/guess-the-progression": dynamic(() => import("@/components/GuessTheProgression"), {
+    loading: PaneLoading,
+  }),
   "/practice-timer": dynamic(() => import("@/components/PracticeTimer"), { loading: PaneLoading }),
   "/metronome": dynamic(() => import("@/components/Metronome"), { loading: PaneLoading }),
   "/random-metric-modulation": dynamic(() => import("@/components/RandomMetricModulation"), {

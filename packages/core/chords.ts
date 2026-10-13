@@ -251,6 +251,12 @@ for (const quality of CHORD_QUALITIES) {
   for (const a of quality.aliases) QUALITY_ALIASES.set(normalizeQualityText(a), quality.id);
 }
 
+/** The quality id typed quality text resolves to (any suffix or alias, same matching rules as a
+    full chord's quality), or null. */
+export function qualityIdForText(raw: string): string | null {
+  return QUALITY_ALIASES.get(normalizeQualityText(raw)) ?? null;
+}
+
 export type ParsedChordInput = {
   rootLetter: string;
   rootAccidental?: "#" | "b";

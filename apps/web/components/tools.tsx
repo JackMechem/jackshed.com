@@ -221,6 +221,21 @@ export function ChordIcon({ className }: { className?: string }) {
   );
 }
 
+/** Three little chord stacks stepping along, for Guess the Progression. */
+export function ProgressionIcon({ className }: { className?: string }) {
+  return (
+    <svg {...svgProps(className)}>
+      <circle cx="5" cy="15" r="1.8" />
+      <circle cx="5" cy="10" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="12" cy="7" r="1.8" />
+      <circle cx="19" cy="9" r="1.8" />
+      <circle cx="19" cy="4" r="1.8" />
+      <path d="M3 20h18" />
+    </svg>
+  );
+}
+
 export function TunerIcon({ className }: { className?: string }) {
   return (
     <svg {...svgProps(className)}>
@@ -535,6 +550,7 @@ const NAV_LINK_ICONS: Record<string, (props: { className?: string }) => React.JS
   "/interval-trainer": IntervalIcon,
   "/guess-the-interval": EarIcon,
   "/guess-the-chord": ChordIcon,
+  "/guess-the-progression": ProgressionIcon,
   "/practice-timer": StopwatchIcon,
   "/metronome": MetronomeIcon,
   "/random-metric-modulation": MetricModulationIcon,

@@ -132,3 +132,16 @@ export async function playNotesTogether(notes: string[], durationSeconds: number
     tone.play(ctx, freq, durationSeconds, startTime);
   }
 }
+
+/** Loads every note's sample (for a sample-backed tone) without playing anything, so a sequence
+    of chords can be timed from the moment it's all ready rather than stalling on each one's first
+    fetch. Resolves immediately for the synthesized tones. */
+export async function prepareNotes(notes: string[], toneId: string) {
+  const tone = resolveTone(toneId);
+  if (!tone.prepare) return;
+  const ctx = getAudioContext();
+  const freqs = notes
+    .map((note) => noteToFrequency(note))
+    .filter((freq): freq is number => freq !== null);
+  await Promise.all(freqs.map((freq) => tone.prepare!(ctx, freq)));
+}

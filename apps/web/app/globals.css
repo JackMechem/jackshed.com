@@ -220,3 +220,30 @@ input[type="range"].slider:focus-visible::-moz-range-thumb {
     animation: settings-pop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   }
 }
+
+/* Ear-training learning path: the level-complete celebration and the current level's pulse. */
+@keyframes confetti-fall {
+  0% { transform: translate3d(0, -10vh, 0) rotate(0deg); opacity: 1; }
+  100% { transform: translate3d(var(--drift), 105vh, 0) rotate(var(--spin)); opacity: 0.9; }
+}
+@keyframes star-pop {
+  0% { transform: scale(0) rotate(-30deg); opacity: 0; }
+  60% { transform: scale(1.35) rotate(8deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+@keyframes level-rise {
+  from { transform: translateY(16px) scale(0.96); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+@keyframes level-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
+  50% { box-shadow: 0 0 0 10px color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+.confetti-piece { animation: confetti-fall var(--fall) cubic-bezier(0.2, 0.6, 0.4, 1) var(--delay) forwards; }
+.star-pop { animation: star-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) var(--delay, 0s) both; }
+.level-rise { animation: level-rise 0.35s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.level-pulse { animation: level-pulse 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .confetti-piece { display: none; }
+  .star-pop, .level-rise, .level-pulse { animation: none; }
+}

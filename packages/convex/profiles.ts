@@ -4,6 +4,7 @@ import { mutation, query } from "./_generated/server";
 import { normalizeUsername, usernameError } from "@jam-practice/core/username";
 import { resolvePublicTunes } from "@jam-practice/core/profileTunes";
 import { TUNES_TO_LEARN_KEY } from "@jam-practice/core/tunesToLearn";
+import { LEARNING_KEY, summarizeLearning } from "@jam-practice/core/learningPath";
 import type { PublicTune } from "@jam-practice/core/profileTunes";
 import { resolveLinkedChart } from "./lib/chordCharts";
 
@@ -213,7 +214,7 @@ export const getPublicByUsername = query({
     if (!row || !row.isPublic) return null;
 
     const avatarUrl = row.avatarStorageId ? await ctx.storage.getUrl(row.avatarStorageId) : null;
-    const [tunesRow, tunesToLearnRow] = await Promise.all([
+    const [tunesRow, tunesToLearnRow, learningRow] = await Promise.all([
       ctx.db
         .query("syncedSettings")
         .withIndex("by_user_key", (q) =>
@@ -224,7 +225,19 @@ export const getPublicByUsername = query({
         .query("syncedSettings")
         .withIndex("by_user_key", (q) => q.eq("userId", row.userId).eq("key", TUNES_TO_LEARN_KEY))
         .unique(),
+      ctx.db
+        .query("syncedSettings")
+        .withIndex("by_user_key", (q) => q.eq("userId", row.userId).eq("key", LEARNING_KEY))
+        .unique(),
     ]);
+
+    // Ear-training learning paths: only the per-tool level/star counts, never the raw scores.
+    let learningValue: unknown = null;
+    try {
+      learningValue = learningRow ? JSON.parse(learningRow.value) : null;
+    } catch {
+      learningValue = null;
+    }
 
     // Each tune's own `chordChartId` (if any) only ever means "one of *this profile's own*
     // chord-chart library songs" — resolved here, scoped to `ownerUserId`, into a full
@@ -248,6 +261,7 @@ export const getPublicByUsername = query({
       avatarUrl,
       tunes: await withLinkedCharts(resolvePublicTunes(tunesRow?.value)),
       tunesToLearn: await withLinkedCharts(resolvePublicTunes(tunesToLearnRow?.value)),
+      earTraining: summarizeLearning(learningValue),
     };
   },
 });

@@ -27,6 +27,9 @@ import { useFavorites } from '@/lib/useFavorites';
 import { useSetlists } from '@/lib/useSetlists';
 import { tuneSummary, useTuneLists, type TuneListId } from '@/lib/useTuneList';
 import { useAppTheme } from '@/theme/ThemeProvider';
+import { EarTrainingProgress } from '@/components/learning/EarTrainingProgress';
+import { summarizeLearning } from '@jam-practice/core/learningPath';
+import { useLearningProgress } from '@/lib/useLearnSession';
 
 /** Shown in place of Favorites until you've starred some tools. */
 const STARTER_HREFS = ['/metronome', '/jam-practice', '/tuner', '/practice-timer'];
@@ -50,6 +53,8 @@ function Home() {
   const { lists, ready: tunesReady } = useTuneLists();
   const { setlists } = useSetlists();
   const { allSongs, totalSongs } = useChordChartsLibrary(null);
+  const [learningProgress] = useLearningProgress();
+  const learningSummaries = summarizeLearning(learningProgress);
 
   const q = query.trim();
   const openTool = (item: NavLinkInfo) => router.push(`/tool/${hrefToSlug(item.href)}`);
@@ -251,6 +256,10 @@ function Home() {
                   <LibraryCard Icon={SetlistIcon} count={setlists.length} label="Setlists" onPress={() => router.push(setlists.length ? '/library/setlists' : '/library')} />
                   <LibraryCard Icon={ChordChartIcon} count={totalSongs} label="Charts" onPress={() => router.push('/charts')} />
                 </View>
+              </Section>
+
+              <Section title="Ear training path" detail="Learn mode in each tool">
+                <EarTrainingProgress summaries={learningSummaries} links />
               </Section>
 
               {groupByCategory(TOOLS).map(({ category, items }) => (

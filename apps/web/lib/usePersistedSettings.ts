@@ -1,19 +1,41 @@
 import { useCallback, useSyncExternalStore } from "react";
 
-type Store<T> = {
-  value: T | null;
+/** One key's cache holds the *whole* stored object (`raw`), not any one caller's filtered view of
+    it: several hooks can read the same key with different defaults (the dashboard reads just the
+    ear trainers' stats out of their full settings objects), and caching whichever caller's trimmed
+    copy loaded first used to hand every other caller an object missing its own fields — and then
+    write that trimmed copy back, dropping the rest. Each caller gets its own view via `viewOf`. */
+type Store = {
+  raw: Record<string, unknown> | null;
   listeners: Set<() => void>;
 };
 
-const stores = new Map<string, Store<unknown>>();
+const stores = new Map<string, Store>();
 
-function getStore<T>(key: string): Store<T> {
+function getStore(key: string): Store {
   let store = stores.get(key);
   if (!store) {
-    store = { value: null, listeners: new Set() };
+    store = { raw: null, listeners: new Set() };
     stores.set(key, store);
   }
-  return store as Store<T>;
+  return store;
+}
+
+/** `raw` filtered/defaulted for one caller's `defaults`, memoized on both object identities so
+    `useSyncExternalStore` sees the same reference until the stored value actually changes. */
+const views = new WeakMap<object, WeakMap<object, unknown>>();
+export function viewOf<T extends object>(raw: object, defaults: T): T {
+  let byDefaults = views.get(raw);
+  if (!byDefaults) {
+    byDefaults = new WeakMap();
+    views.set(raw, byDefaults);
+  }
+  let view = byDefaults.get(defaults) as T | undefined;
+  if (!view) {
+    view = mergeWithDefaults(raw, defaults);
+    byDefaults.set(defaults, view);
+  }
+  return view;
 }
 
 /** Keep only fields of `parsed` whose type matches `defaults`, so bad/stale/foreign data can't
@@ -34,28 +56,37 @@ export function mergeWithDefaults<T extends object>(parsed: unknown, defaults: T
   return merged as T;
 }
 
-/** Keep only stored fields whose type matches the default, so bad data can't break the UI. */
-function read<T extends object>(key: string, defaults: T): T {
+/** The whole stored object for `key` (or `{}`), unfiltered — see `Store`. */
+function readRaw(key: string): Record<string, unknown> {
   try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return defaults;
-    return mergeWithDefaults(JSON.parse(raw), defaults);
+    const text = window.localStorage.getItem(key);
+    const parsed: unknown = text ? JSON.parse(text) : null;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
   } catch {
-    return defaults;
+    return {};
   }
 }
 
-export function snapshotOf<T extends object>(key: string, defaults: T): T {
-  const store = getStore<T>(key);
-  if (!store.value) store.value = read(key, defaults);
-  return store.value;
+function rawOf(key: string): Record<string, unknown> {
+  const store = getStore(key);
+  if (!store.raw) store.raw = readRaw(key);
+  return store.raw;
 }
 
-export function writeSettings<T extends object>(key: string, defaults: T, patch: Partial<T>) {
-  const store = getStore<T>(key);
-  store.value = { ...snapshotOf(key, defaults), ...patch };
+/** Keep only stored fields whose type matches the default, so bad data can't break the UI. */
+export function snapshotOf<T extends object>(key: string, defaults: T): T {
+  return viewOf(rawOf(key), defaults);
+}
+
+/** Merges `patch` into the whole stored object, so fields other callers of the same key own
+    (and anything this caller's `defaults` doesn't know about) are kept. */
+export function writeSettings<T extends object>(key: string, _defaults: T, patch: Partial<T>) {
+  const store = getStore(key);
+  store.raw = { ...rawOf(key), ...patch };
   try {
-    window.localStorage.setItem(key, JSON.stringify(store.value));
+    window.localStorage.setItem(key, JSON.stringify(store.raw));
   } catch {
     // storage unavailable
   }
@@ -63,7 +94,7 @@ export function writeSettings<T extends object>(key: string, defaults: T, patch:
 }
 
 export function subscribeTo(key: string, listener: () => void) {
-  const store = getStore<unknown>(key);
+  const store = getStore(key);
   store.listeners.add(listener);
   return () => store.listeners.delete(listener);
 }

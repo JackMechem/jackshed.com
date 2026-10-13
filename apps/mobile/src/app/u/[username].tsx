@@ -12,6 +12,7 @@ import { PublicTuneList } from '@/components/community/PublicTuneList';
 import { TAB_BAR_CONTENT_HEIGHT } from '@/components/FloatingTabBar';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { UserAvatar } from '@/components/UserAvatar';
+import { EarTrainingProgress } from '@/components/learning/EarTrainingProgress';
 import { useAppTheme } from '@/theme/ThemeProvider';
 import { withScreenLoader } from '@/components/ScreenLoader';
 
@@ -68,6 +69,9 @@ function PublicProfileScreen() {
   }
 
   const isOwnProfile = viewer?._id === profile.userId;
+  // Ear-training levels passed (shown once there's at least one to show off).
+  const earTraining = profile.earTraining;
+  const levelsPassed = earTraining ? earTraining.interval.passed + earTraining.chord.passed + earTraining.progression.passed : 0;
   const canAdd = !isOwnProfile && !!viewer;
   const postsSettled = !viewer || posts !== undefined;
   const hasPosts = (posts?.length ?? 0) > 0;
@@ -76,7 +80,8 @@ function PublicProfileScreen() {
     !hasPosts &&
     profile.instruments.length === 0 &&
     profile.tunes.length === 0 &&
-    profile.tunesToLearn.length === 0;
+    profile.tunesToLearn.length === 0 &&
+    levelsPassed === 0;
 
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background }}>
@@ -110,6 +115,20 @@ function PublicProfileScreen() {
                   </View>
                 ))}
               </View>
+            </View>
+          ) : null}
+
+          {earTraining && levelsPassed > 0 ? (
+            <View className="gap-3 rounded-2xl p-5" style={{ backgroundColor: colors.surface }}>
+              <View className="flex-row items-baseline justify-between">
+                <Text className="text-sm font-semibold font-inter-semibold" style={{ color: colors.muted }}>
+                  Ear training
+                </Text>
+                <Text className="text-xs font-inter" style={{ color: colors.muted }}>
+                  {levelsPassed} level{levelsPassed === 1 ? '' : 's'} passed
+                </Text>
+              </View>
+              <EarTrainingProgress summaries={earTraining} links={isOwnProfile} card="background" />
             </View>
           ) : null}
 
