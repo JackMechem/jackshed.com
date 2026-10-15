@@ -283,11 +283,27 @@ export default defineSchema({
     durationSec: v.number(),
     mimeType: v.string(),
     tuneId: v.optional(v.string()),
+    /** How it plays back over its tune's song (`tuneSongs`): each side's volume (0..1) and where
+        in the song the take starts, in seconds (negative = the take starts before the song). */
+    mix: v.optional(v.object({ songVolume: v.number(), takeVolume: v.number(), offsetSec: v.number() })),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_user", ["userId"])
     .index("by_user_tune", ["userId", "tuneId"]),
+
+  /** A tune's song — an audio file of the actual recording, uploaded by the owner to play
+      behind their takes of that tune (and along with them while recording). One per tune; the
+      file lives in Convex file storage. `tuneId` is a plain string, same as `recordings`. */
+  tuneSongs: defineTable({
+    userId: v.id("users"),
+    tuneId: v.string(),
+    storageId: v.id("_storage"),
+    name: v.string(),
+    mimeType: v.string(),
+    durationSec: v.number(),
+    createdAt: v.number(),
+  }).index("by_user_tune", ["userId", "tuneId"]),
 
   /** Bass Genius's bass players (the "Bass players" tab) — a name to file transcriptions under.
       Later Bass Genius will learn each player's style from their transcriptions. */

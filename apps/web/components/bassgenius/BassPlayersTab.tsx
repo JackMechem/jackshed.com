@@ -5,8 +5,11 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import PromptDialog from "@/components/PromptDialog";
 import { BackButton } from "@/components/library/shared";
-import { BassIcon, ChevronRightIcon, DownloadIcon, PlusIcon, TrashIcon } from "@/components/tools";
+import { BassIcon, ChevronRightIcon, DownloadIcon, PlusIcon, TrashIcon, WaveIcon } from "@/components/tools";
 import TranscriptionEditor, { downloadJson, safeFilename } from "@/components/bassgenius/TranscriptionEditor";
+import PatternsDialog from "@/components/bassgenius/PatternsDialog";
+import TranscriptionScore from "@/components/bassgenius/TranscriptionScore";
+import { BUILT_IN_PLAYERS } from "@/lib/bassBuiltIns";
 import { cleanTranscription, emptyTranscription, playerFile, readImportFile, type Transcription } from "@/lib/bassTranscription";
 import { decodeXmlBytes, importMusicXml } from "@/lib/musicXml";
 import { looksLikeZip, readMxl } from "@/lib/mxl";
@@ -26,6 +29,17 @@ export default function BassPlayersTab() {
   const [confirm, setConfirm] = useState<null | { title: string; message: string; confirm: string; onConfirm: () => void }>(null);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // The Patterns page: one transcription's, or (null) all of the player's.
+  const [patterns, setPatterns] = useState<{ transcriptionId: string | null } | null>(null);
+  /** Copies a built-in player (and its transcriptions) into your own players, then opens it. */
+  const copyBuiltIn = async (builtInId: string) => {
+    const b = BUILT_IN_PLAYERS.find((x) => x.id === builtInId);
+    if (!b) return;
+    const id = await lib.createPlayer(b.name, b.description);
+    for (const t of b.transcriptions) await lib.createTranscription(id, t.data);
+    setView({ kind: "player", playerId: id });
+    setNotice({ text: `${b.name} is now one of your players — edit and add to it as you like.` });
+  };
   const importTarget = useRef<string | null>(null);
 
   const player = view.kind !== "players" ? lib.players.find((p) => p.id === view.playerId) ?? null : null;
@@ -166,6 +180,7 @@ export default function BassPlayersTab() {
           id={view.transcriptionId}
           playerName={player.name}
           onBack={() => setView({ kind: "player", playerId: player.id })}
+          onCopy={player.builtIn ? () => void copyBuiltIn(player.id) : undefined}
           onDelete={() =>
             setConfirm({
               title: "Delete this transcription?",
@@ -190,23 +205,44 @@ export default function BassPlayersTab() {
         <div>
           <BackButton onClick={() => setView({ kind: "players" })} label="Bass players" className="mb-2" />
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={() =>
-                setPrompt({ title: "Rename player", initial: player.name, confirm: "Rename", onSubmit: (name) => void lib.updatePlayer(player.id, { name }) })
-              }
-              className="text-left text-3xl font-extrabold tracking-tight hover:text-accent"
-              title="Rename"
-            >
-              {player.name}
-            </button>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => pickImport(player.id)} className="rounded-full bg-surface px-4 py-2 text-sm font-semibold hover:bg-surface-hover">
-                Import
+            {player.builtIn ? (
+              <h2 className="text-3xl font-extrabold tracking-tight">{player.name}</h2>
+            ) : (
+              <button
+                type="button"
+                onClick={() =>
+                  setPrompt({ title: "Rename player", initial: player.name, confirm: "Rename", onSubmit: (name) => void lib.updatePlayer(player.id, { name }) })
+                }
+                className="text-left text-3xl font-extrabold tracking-tight hover:text-accent"
+                title="Rename"
+              >
+                {player.name}
               </button>
+            )}
+            <div className="flex flex-wrap gap-2">
+              {items.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setPatterns({ transcriptionId: null })}
+                  className="flex items-center gap-1.5 rounded-full bg-surface px-4 py-2 text-sm font-semibold hover:bg-surface-hover"
+                  title={`What Bass Genius notices across all of ${player.name}'s transcriptions`}
+                >
+                  <WaveIcon className="h-4 w-4" /> Patterns
+                </button>
+              )}
+              {player.builtIn ? (
+                <button type="button" onClick={() => void copyBuiltIn(player.id)} className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground hover:bg-accent-hover">
+                  Make it my own
+                </button>
+              ) : (
+                <button type="button" onClick={() => pickImport(player.id)} className="rounded-full bg-surface px-4 py-2 text-sm font-semibold hover:bg-surface-hover">
+                  Import
+                </button>
+              )}
               <button type="button" onClick={() => void exportPlayer(player.id, player.name, player.description)} className="flex items-center gap-1.5 rounded-full bg-surface px-4 py-2 text-sm font-semibold hover:bg-surface-hover">
                 <DownloadIcon className="h-4 w-4" /> Export player
               </button>
+              {!player.builtIn && (
               <button
                 type="button"
                 onClick={() =>
@@ -225,9 +261,15 @@ export default function BassPlayersTab() {
               >
                 <TrashIcon className="h-4 w-4" />
               </button>
+              )}
             </div>
           </div>
         </div>
+        {player.builtIn ? (
+          <p className="rounded-xl bg-surface px-4 py-3 text-sm text-muted">
+            {player.description} It&apos;s read-only — <strong>Make it my own</strong> copies it into your players to edit and add to.
+          </p>
+        ) : (
         <textarea
           defaultValue={player.description}
           onBlur={(e) => e.target.value !== player.description && void lib.updatePlayer(player.id, { description: e.target.value })}
@@ -236,23 +278,26 @@ export default function BassPlayersTab() {
           className="rounded-xl bg-surface px-4 py-3 text-sm outline-none ring-accent focus:ring-2"
           aria-label="About this player"
         />
+        )}
         {noticeEl}
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold">Transcriptions</h2>
+          {!player.builtIn && (
           <button type="button" onClick={() => void newTranscription(player.id)} className="flex items-center gap-1.5 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground hover:bg-accent-hover">
             <PlusIcon className="h-4 w-4" /> New transcription
           </button>
+          )}
         </div>
         {items.length === 0 ? (
           <p className="rounded-2xl bg-surface p-6 text-center text-sm text-muted">No transcriptions yet. Start one, or import a MusicXML (.musicxml, .mxl) or Bass Genius .json file.</p>
         ) : (
           <ul className="flex flex-col gap-1 rounded-2xl bg-surface p-2">
             {items.map((t) => (
-              <li key={t.id}>
+              <li key={t.id} className="flex items-center gap-1">
                 <button
                   type="button"
                   onClick={() => setView({ kind: "transcription", playerId: player.id, transcriptionId: t.id })}
-                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-background"
+                  className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-background"
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold">{t.title}</span>
@@ -262,12 +307,23 @@ export default function BassPlayersTab() {
                   </span>
                   <ChevronRightIcon className="h-4 w-4 text-muted" />
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setPatterns({ transcriptionId: t.id })}
+                  className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold text-muted hover:bg-background hover:text-foreground"
+                  title="What Bass Genius notices in this transcription"
+                >
+                  <WaveIcon className="h-4 w-4" /> <span className="hidden sm:inline">Patterns</span>
+                </button>
               </li>
             ))}
           </ul>
         )}
         {fileInput}
         {dialogs}
+        {patterns && (
+          <PatternsDialog playerId={player.id} playerName={player.name} transcriptionId={patterns.transcriptionId} onClose={() => setPatterns(null)} />
+        )}
       </div>
     );
   }
@@ -308,6 +364,7 @@ export default function BassPlayersTab() {
                   <span className="block truncate font-semibold">{p.name}</span>
                   <span className="block text-xs text-muted">
                     {countFor(p.id)} transcription{countFor(p.id) === 1 ? "" : "s"}
+                    {p.builtIn ? " · built in" : ""}
                   </span>
                 </span>
                 <ChevronRightIcon className="h-4 w-4 text-muted" />
@@ -322,11 +379,48 @@ export default function BassPlayersTab() {
   );
 }
 
-function TranscriptionView({ id, playerName, onBack, onDelete }: { id: string; playerName: string; onBack: () => void; onDelete: () => void }) {
-  const { data, save } = useTranscription(id);
+function TranscriptionView({
+  id,
+  playerName,
+  onBack,
+  onDelete,
+  onCopy,
+}: {
+  id: string;
+  playerName: string;
+  onBack: () => void;
+  onDelete: () => void;
+  /** For a built-in (read-only) transcription: copy its player into your own. */
+  onCopy?: () => void;
+}) {
+  const { data, save, readOnly } = useTranscription(id);
   // Take the transcription once; from then on the editor owns it (its saves come back here too).
   const [initial, setInitial] = useState<Transcription | null>(null);
   if (!initial && data) setInitial(data);
   if (!initial) return data === undefined ? <LoadingSpinner label="Loading transcription…" showLabel /> : <p className="text-sm text-muted">That transcription isn&apos;t there anymore.</p>;
+  if (readOnly)
+    return (
+      <div className="flex w-full flex-col gap-4 text-left">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            <BackButton onClick={onBack} label={playerName} className="mb-2" />
+            <h2 className="text-2xl font-extrabold tracking-tight">{initial.title}</h2>
+            <p className="text-sm text-muted">{[initial.tune, initial.source].filter(Boolean).join(" · ")}</p>
+          </div>
+          {onCopy && (
+            <button type="button" onClick={onCopy} className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground hover:bg-accent-hover">
+              Make it my own
+            </button>
+          )}
+        </div>
+        {initial.comments && <p className="rounded-xl bg-surface px-4 py-3 text-sm">{initial.comments}</p>}
+        <div className="rounded-2xl bg-surface p-3 sm:p-5">
+          <TranscriptionScore transcription={initial} cursor={null} playing={null} mode="select" onSelect={noop} onAdd={noop} onReplace={noop} onChordClick={noop} />
+        </div>
+        <p className="text-xs text-muted">Built in and read-only — make it your own to edit it.</p>
+      </div>
+    );
   return <TranscriptionEditor initial={initial} playerName={playerName} onSave={save} onBack={onBack} onDelete={onDelete} />;
 }
+
+const noop = () => {};

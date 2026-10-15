@@ -12,6 +12,17 @@ import { mutation, query, type QueryCtx } from "./_generated/server";
 const MAX_NAME = 120;
 const MAX_NOTES = 20000;
 
+const mixValidator = v.object({ songVolume: v.number(), takeVolume: v.number(), offsetSec: v.number() });
+
+function cleanMix(mix: { songVolume: number; takeVolume: number; offsetSec: number }) {
+  const vol = (x: number) => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 1);
+  return {
+    songVolume: vol(mix.songVolume),
+    takeVolume: vol(mix.takeVolume),
+    offsetSec: Number.isFinite(mix.offsetSec) ? Math.min(36000, Math.max(-36000, mix.offsetSec)) : 0,
+  };
+}
+
 async function withUrl(ctx: QueryCtx, row: Doc<"recordings">) {
   return {
     _id: row._id,
@@ -20,6 +31,7 @@ async function withUrl(ctx: QueryCtx, row: Doc<"recordings">) {
     durationSec: row.durationSec,
     mimeType: row.mimeType,
     tuneId: row.tuneId ?? null,
+    mix: row.mix ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     url: await ctx.storage.getUrl(row.storageId),
@@ -43,6 +55,7 @@ export const create = mutation({
     durationSec: v.number(),
     mimeType: v.string(),
     tuneId: v.optional(v.string()),
+    mix: v.optional(mixValidator),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -56,6 +69,7 @@ export const create = mutation({
       durationSec: Math.max(0, args.durationSec),
       mimeType: args.mimeType,
       ...(args.tuneId ? { tuneId: args.tuneId } : {}),
+      ...(args.mix ? { mix: cleanMix(args.mix) } : {}),
       createdAt: now,
       updatedAt: now,
     });
@@ -102,15 +116,17 @@ export const get = query({
   },
 });
 
-/** Rename, edit notes, or link/unlink a tune (`tuneId: null` unlinks). */
+/** Rename, edit notes, link/unlink a tune (`tuneId: null` unlinks), or change how it plays over
+    the tune's song (`mix`). */
 export const update = mutation({
   args: {
     id: v.id("recordings"),
     name: v.optional(v.string()),
     notes: v.optional(v.string()),
     tuneId: v.optional(v.union(v.string(), v.null())),
+    mix: v.optional(mixValidator),
   },
-  handler: async (ctx, { id, name, notes, tuneId }) => {
+  handler: async (ctx, { id, name, notes, tuneId, mix }) => {
     const userId = await getAuthUserId(ctx);
     const row = await ctx.db.get(id);
     if (!userId || !row || row.userId !== userId) throw new Error("Recording not found.");
@@ -118,6 +134,7 @@ export const update = mutation({
       ...(name !== undefined ? { name: name.trim().slice(0, MAX_NAME) || "Recording" } : {}),
       ...(notes !== undefined ? { notes: notes.slice(0, MAX_NOTES) } : {}),
       ...(tuneId !== undefined ? { tuneId: tuneId ?? undefined } : {}),
+      ...(mix ? { mix: cleanMix(mix) } : {}),
       updatedAt: Date.now(),
     });
   },

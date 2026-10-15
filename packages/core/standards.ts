@@ -458,6 +458,7 @@ const ROWS: Row[] = [
   ["Bags' Groove", "F", 120, "Milt Jackson"],
   ["Cheesecake", "Bb", 130, "Dexter Gordon"],
   ["Mr. Magic", "Ab", 100, "Grover Washington Jr."],
+  ["Just the Two of Us", "Fm", 96, "Grover Washington Jr."],
   ["Take Five", "Ebm", 174, "Paul Desmond", "5/4"],
   ["Blue Rondo à la Turk", "Cm", 200, "Dave Brubeck", "9/8"],
   ["Unsquare Dance", "Am", 150, "Dave Brubeck", "7/4"],

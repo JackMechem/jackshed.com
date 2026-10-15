@@ -37,15 +37,17 @@ import { MAX_BEATS } from "@/lib/meters";
 import {
   type FinishedTake,
   type RecorderMetronome,
+  type RecorderMono,
   clearRecorderError,
   getRecorderServerSnapshot,
   getRecorderSnapshot,
+  setRecorderSongVolume,
   startRecording,
   stopRecording,
   subscribeRecorder,
   updateRecorderMetronome,
 } from "@/lib/recorderEngine";
-import { formatDuration, recordingsApi, useTuneIndex } from "@/lib/recordings";
+import { DEFAULT_MIX, formatDuration, recordingsApi, useTuneIndex, useTuneSong } from "@/lib/recordings";
 import { EMPTY_STRUCTURE, type Structure, cycleSectionAccent, cycleSectionSubAccent, sectionAt } from "@/lib/structure";
 import { useSyncedSettings } from "@/lib/useSyncedSettings";
 
@@ -54,6 +56,12 @@ import { useSyncedSettings } from "@/lib/useSyncedSettings";
 const SETTINGS_KEY = "jam-practice-recorder-take";
 const DEFAULT_SETTINGS = {
   autoGain: true,
+  /** Record in mono (one channel, both ears), from both inputs mixed or just one side. */
+  mono: false,
+  monoSource: "mix" as RecorderMono,
+  /** With a tune that has a song: play it along while recording, at this volume. */
+  playSong: true,
+  songVolume: 0.7,
   metronome: false,
   countInBars: 1,
   bpm: 100,
@@ -84,6 +92,10 @@ export default function Recorder({ tuneId }: { tuneId?: string }) {
   const byId = useTuneIndex();
   const tune = tuneId ? byId.get(tuneId)?.tune : undefined;
   const recordings = useQuery(recordingsApi.list, isAuthenticated ? {} : "skip");
+  const song = useTuneSong(tuneId);
+  const songOn = !!song?.url && settings.playSong;
+  const [songStart, setSongStart] = useState(0);
+  const songMax = song?.durationSec ? Math.max(0, Math.floor(song.durationSec) - 1) : 3600;
 
   // From a tune's page, the metronome starts at the tune's own tempo (not saved as the default).
   const tuneTempo = tune?.tempos.find((t) => t.enabled)?.value ?? tune?.tempos[0]?.value;
@@ -131,7 +143,11 @@ export default function Recorder({ tuneId }: { tuneId?: string }) {
         structure: { useStructure, structure },
         countInBars: settings.countInBars,
       };
-      await startRecording(metronome, { autoGain: settings.autoGain });
+      await startRecording(metronome, {
+        autoGain: settings.autoGain,
+        mono: settings.mono ? settings.monoSource : null,
+        song: songOn && song?.url ? { url: song.url, startSec: songStart, volume: settings.songVolume } : null,
+      });
       return;
     }
     if (rec.phase === "finishing") return;
@@ -307,7 +323,75 @@ export default function Recorder({ tuneId }: { tuneId?: string }) {
             disabled={busy}
             hint="On: the browser sets the recording level automatically, so quiet playing still comes out at a good volume. Off: the raw microphone — truer dynamics, but quieter."
           />
+          <SwitchRow
+            label="Mono"
+            checked={settings.mono}
+            onChange={(v) => updateSettings({ mono: v })}
+            disabled={busy}
+            hint="Records one channel that plays in both ears. Use it when your audio interface puts your mic on only the left or right side. Pick the side your mic is plugged into for full volume; Mix blends both, which makes a one-sided mic about half as loud."
+          />
+          {settings.mono && (
+            <div className="pt-1">
+              <Segmented
+                onPage
+                label="Mono source"
+                value={settings.monoSource}
+                onChange={(v) => updateSettings({ monoSource: v })}
+                disabled={busy}
+                options={[
+                  { value: "left", label: "Left" },
+                  { value: "mix", label: "Mix" },
+                  { value: "right", label: "Right" },
+                ]}
+              />
+            </div>
+          )}
         </div>
+        {song?.url && (
+          <div className="flex w-full max-w-sm flex-col gap-3 rounded-2xl bg-surface p-4">
+            <SwitchRow
+              label="Play the song"
+              checked={settings.playSong}
+              onChange={(v) => updateSettings({ playSong: v })}
+              disabled={busy}
+              hint={`Plays “${song.name}” along with you, starting when the take does (after the count-in). Wear headphones, or the microphone records it too.`}
+            />
+            {settings.playSong && (
+              <>
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <span className="font-medium">Start the song at</span>
+                  <div className="flex items-center gap-1">
+                    <button type="button" disabled={busy} onClick={() => setSongStart((t) => Math.max(0, t - 5))} className="rounded-lg bg-background px-2 py-1 font-medium hover:bg-surface-hover disabled:opacity-50">
+                      −5 s
+                    </button>
+                    <span className="w-12 text-center tabular-nums">{formatDuration(songStart)}</span>
+                    <button type="button" disabled={busy} onClick={() => setSongStart((t) => Math.min(songMax, t + 5))} className="rounded-lg bg-background px-2 py-1 font-medium hover:bg-surface-hover disabled:opacity-50">
+                      +5 s
+                    </button>
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <span className="w-24 shrink-0 font-medium">Song volume</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={Math.round(settings.songVolume * 100)}
+                    onChange={(e) => {
+                      const v = Number(e.target.value) / 100;
+                      updateSettings({ songVolume: v });
+                      setRecorderSongVolume(v);
+                    }}
+                    aria-label="Song volume"
+                    style={{ "--progress": `${Math.round(settings.songVolume * 100)}%` } as React.CSSProperties}
+                    className="slider h-6 min-w-0 flex-1 cursor-pointer"
+                  />
+                  <span className="w-10 text-right text-xs tabular-nums text-muted">{Math.round(settings.songVolume * 100)}%</span>
+                </label>
+              </>
+            )}
+          </div>
+        )}
         </div>
         <section className="flex w-full flex-col items-center gap-4 rounded-3xl border border-surface-hover p-4 lg:col-start-1 lg:row-span-2 lg:row-start-1">
           <div className="flex w-full items-center gap-2">
@@ -374,6 +458,7 @@ export default function Recorder({ tuneId }: { tuneId?: string }) {
           blob={take.blob}
           durationSec={take.durationSec}
           initialTuneId={tuneId ?? null}
+          initialMix={take.songOffsetSec !== undefined ? { ...DEFAULT_MIX, songVolume: settings.songVolume, offsetSec: take.songOffsetSec } : null}
           onDiscard={() => setTake(null)}
           onSaved={(id) => {
             setTake(null);

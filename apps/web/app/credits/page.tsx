@@ -41,6 +41,35 @@ export default function CreditsPage() {
         </p>
       </LegalSection>
 
+      <LegalSection title="Bass Genius">
+        <p>
+          Bass Genius was Rob Moreno&apos;s idea, and Rob wrote the Ray Brown transcription (&quot;Cool Walk&quot;, two choruses of rhythm
+          changes) that comes with it — the line its built-in Ray Brown player learns from.
+        </p>
+      </LegalSection>
+
+      <LegalSection title="Bass Genius chords">
+        <p>
+          The piano comping in Bass Genius uses the velocity-layered{" "}
+          <LegalLink href="https://archive.org/details/SalamanderGrandPianoV3">Salamander Grand Piano</LegalLink> (Alexander Holm,{" "}
+          <LegalLink href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</LegalLink>), as hosted by the{" "}
+          <LegalLink href="https://github.com/tambien/Piano">Tone.js Piano</LegalLink> project. The Rhodes is{" "}
+          <LegalLink href="https://github.com/sfzinstruments/jlearman.jRhodes3d">jRhodes3d</LegalLink> by Jeff Learman — a 1977 Rhodes Mark I
+          Stage 73 — used under{" "}
+          <LegalLink href="https://creativecommons.org/licenses/by-nc/4.0/">CC BY-NC 4.0</LegalLink> (non-commercial use, with credit) and
+          served by sheddex itself as trimmed mono mp3s.
+        </p>
+      </LegalSection>
+
+      <LegalSection title="Bass Genius drums">
+        <p>
+          The drummer plays{" "}
+          <LegalLink href="https://github.com/sfzinstruments/virtuosity_drums">Virtuosity Drums</LegalLink> by Versilian Studios and Karoryfer
+          Samples (<LegalLink href="https://creativecommons.org/publicdomain/zero/1.0/">CC0</LegalLink>), a contemporary jazz kit recorded at
+          Virtuosity Musical Instruments in Boston, served by sheddex itself as mono mp3s (mic pairs mixed).
+        </p>
+      </LegalSection>
+
       <LegalSection title="How this works">
         <p>
           Neither sample set ships with sheddex itself — your browser fetches the specific notes a

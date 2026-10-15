@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NoteValueIcon } from "@/components/MeterFields";
 import { BackButton } from "@/components/library/shared";
+import ContextMenu, { type MenuItem, type MenuState } from "@/components/ContextMenu";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import { DownloadIcon, PlayIcon, StopIcon, TrashIcon } from "@/components/tools";
 import TranscriptionScore, { type ScoreHandle } from "@/components/bassgenius/TranscriptionScore";
@@ -45,6 +46,12 @@ const VALUE_KEYS: Record<string, NoteValue> = { "3": "16", "4": "8", "5": "q", "
 const VALUE_ICON: Record<NoteValue, number> = { w: 1, h: 2, q: 4, "8": 8, "16": 16 };
 const STEP_KEYS = new Set(["a", "b", "c", "d", "e", "f", "g"]);
 const HISTORY = 200;
+
+type BarRange = { from: number; to: number };
+type ChordClip = Transcription["measures"][number]["chords"][];
+/** Copied chord changes, one list per bar — kept for the session so they can go into another
+    transcription too. */
+let chordClipboard: ChordClip | null = null;
 
 /** Downloads `data` as a .json file. */
 export function downloadJson(data: unknown, filename: string) {
@@ -98,6 +105,12 @@ export default function TranscriptionEditor({
   const [picked, setPicked] = useState(false);
   // The inline chord input above the score: which beat of which bar, where to draw it, the text.
   const [chordEdit, setChordEdit] = useState<{ measure: number; beat: number; left: number; top: number; text: string; error: string | null } | null>(null);
+  // Select: clicks only select (a note, or whole bars). Write: clicking the staff adds notes.
+  const [mode, setMode] = useState<"select" | "write">("select");
+  const [range, setRangeState] = useState<BarRange | null>(null);
+  const rangeAnchor = useRef(0);
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const [clipNote, setClipNote] = useState<string | null>(null);
   const scoreRef = useRef<ScoreHandle>(null);
   /** Set once the chord input has been saved or cancelled, so its blur on the way out does nothing. */
   const chordClosed = useRef(false);
@@ -168,6 +181,66 @@ export default function TranscriptionEditor({
   };
 
   const selected: TNote | null = t.measures[cursor.measure]?.notes[cursor.note] ?? null;
+  const last = t.measures.length - 1;
+  const bars: BarRange | null = range ? { from: Math.min(range.from, last), to: Math.min(range.to, last) } : null;
+
+  // ---- Selecting whole bars, and copying their chord changes ----
+  const selectMeasure = (measure: number, extend: boolean) => {
+    if (!extend) rangeAnchor.current = measure;
+    const a = rangeAnchor.current;
+    setRangeState({ from: Math.min(a, measure), to: Math.max(a, measure) });
+    // Typing then adds after the bar's last note.
+    setCursor({ measure, note: t.measures[measure].notes.length - 1 });
+    setPicked(false);
+  };
+  const clearRange = () => setRangeState(null);
+  const flash = (text: string) => {
+    setClipNote(text);
+    setTimeout(() => setClipNote((c) => (c === text ? null : c)), 1800);
+  };
+  const barsLabel = (r: BarRange) => (r.from === r.to ? `bar ${r.from + 1}` : `bars ${r.from + 1}–${r.to + 1}`);
+  const copyChords = (r: BarRange) => {
+    chordClipboard = t.measures.slice(r.from, r.to + 1).map((m) => m.chords.map((c) => ({ ...c })));
+    flash(`Copied the chords in ${barsLabel(r)}`);
+  };
+  /** Pastes the copied chords from the first selected bar, replacing those bars' chords (notes
+      untouched). A selection longer than one bar is filled, repeating the copied bars. */
+  const pasteChords = (r: BarRange) => {
+    const clip = chordClipboard;
+    if (!clip?.length) return;
+    const count = r.to > r.from ? r.to - r.from + 1 : clip.length;
+    const measures = [...t.measures];
+    while (measures.length < r.from + count) measures.push(emptyMeasure());
+    for (let i = 0; i < count; i++) {
+      const mi = r.from + i;
+      measures[mi] = { ...measures[mi], chords: clip[i % clip.length].map((c) => ({ ...c })) };
+    }
+    commit({ ...t, measures });
+    setRangeState({ from: r.from, to: r.from + count - 1 });
+    flash(`Pasted chords into ${barsLabel({ from: r.from, to: r.from + count - 1 })}`);
+  };
+  const clearChords = (r: BarRange) => {
+    commit({ ...t, measures: t.measures.map((m, i) => (i >= r.from && i <= r.to ? { ...m, chords: [] } : m)) });
+  };
+  const openMenu = (measure: number | null, x: number, y: number) => {
+    if (measure === null) return;
+    let r = bars;
+    if (!r || measure < r.from || measure > r.to) {
+      rangeAnchor.current = measure;
+      r = { from: measure, to: measure };
+      setRangeState(r);
+      setCursor({ measure, note: t.measures[measure].notes.length - 1 });
+      setPicked(false);
+    }
+    const sel = r;
+    const items: MenuItem[] = [{ label: `Copy chords (${barsLabel(sel)})`, onSelect: () => copyChords(sel) }];
+    if (chordClipboard?.length) {
+      const n = chordClipboard.length;
+      items.push({ label: `Paste chords (${n} bar${n === 1 ? "" : "s"})`, onSelect: () => pasteChords(sel) });
+    }
+    items.push({ label: "Clear chords", onSelect: () => clearChords(sel), danger: true });
+    setMenu({ x, y, items });
+  };
 
   // ---- Note entry ----
   /** Overwrites the note at `at` (keeping its rhythm), then moves on to the next note so a run can
@@ -180,6 +253,7 @@ export default function TranscriptionEditor({
     setPicked(moved);
   };
   const addNote = (pitch: Pitch | null) => {
+    setRangeState(null);
     if (picked && selected) return overwriteAt(cursor, pitch);
     const note: TNote = { id: newId(), value, ...(dotted ? { dots: 1 as const } : {}), ...(triplet ? { triplet: true } : {}) };
     const n = pitch ? withPitch(note, pitch) : note;
@@ -239,6 +313,7 @@ export default function TranscriptionEditor({
   const toggleTie = () => changeSelected((n) => (n.pitch ? { ...n, tie: !n.tie } : n));
   const toggleGhost = () => changeSelected((n) => (n.pitch ? { ...n, ghost: !n.ghost } : n));
   const removeSelected = () => {
+    setRangeState(null);
     if (!selected) {
       setCursor((c) => moveCursor(t, c, -1));
       return;
@@ -375,6 +450,8 @@ export default function TranscriptionEditor({
     }
     else if (mod && k === "y") redo();
     else if (mod && (k === "k" || k === "K")) addChordAtCursor();
+    else if (mod && (k === "c" || k === "C") && bars) copyChords(bars);
+    else if (mod && (k === "v" || k === "V") && bars) pasteChords(bars);
     else if (mod) handled = false;
     else if (STEP_KEYS.has(k.toLowerCase()) && !e.altKey) addStep(k.toUpperCase() as Step);
     else if (k === "0" || k === "r" || k === "R") addNote(null);
@@ -391,10 +468,16 @@ export default function TranscriptionEditor({
     else if (k === "ArrowLeft") {
       setCursor((c) => moveCursor(t, c, -1));
       setPicked(true);
+      clearRange();
     } else if (k === "ArrowRight") {
       setCursor((c) => moveCursor(t, c, 1));
       setPicked(true);
-    } else if (k === "Escape") setPicked(false);
+      clearRange();
+    } else if (k === "Escape") {
+      setPicked(false);
+      clearRange();
+      setMode("select");
+    } else if (k === "w" || k === "W") setMode("write");
     else if (k === "Backspace" || k === "Delete") removeSelected();
     else if (k === " ") void play();
     else handled = false;
@@ -473,6 +556,27 @@ export default function TranscriptionEditor({
         {/* Palette */}
         <div className="sticky top-2 z-10 flex flex-col gap-2 rounded-2xl bg-surface p-3 shadow-sm">
           <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex rounded-lg bg-background p-0.5" role="radiogroup" aria-label="Mouse mode">
+              {(
+                [
+                  ["select", "Select", "Clicks only select a note, or a whole bar (Shift+click for a range). Esc"],
+                  ["write", "Write", "Clicking the staff adds a note, or re-pitches the one in that spot. W"],
+                ] as const
+              ).map(([m, label, title]) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === m}
+                  onClick={() => setMode(m)}
+                  title={title}
+                  className={`h-9 rounded-md px-3 text-sm font-semibold transition-colors ${mode === m ? "bg-accent text-accent-foreground" : "text-muted hover:text-foreground"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span className="mx-1 h-6 w-px bg-background" />
             {(["w", "h", "q", "8", "16"] as NoteValue[]).map((v) => (
               <button key={v} type="button" onClick={() => pickValue(v)} className={btn(picked && selected ? selected.value === v : value === v)} title={`${NOTE_VALUE_NAMES[v]} (${Object.keys(VALUE_KEYS).find((k) => VALUE_KEYS[k] === v)})`} aria-label={NOTE_VALUE_NAMES[v]}>
                 <NoteValueIcon value={VALUE_ICON[v]} className="h-6 w-3" />
@@ -531,6 +635,7 @@ export default function TranscriptionEditor({
               ⌫
             </button>
             {rhythmError && <span className="text-xs text-danger">That won&apos;t fit in the bar.</span>}
+            {clipNote && <span className="text-xs text-accent">{clipNote}</span>}
             <span className="ml-auto text-xs text-muted tabular-nums">
               {selected?.pitch ? pitchName(selected.pitch) : selected ? "Rest" : "—"} · bar {cursor.measure + 1} · {Math.round((filled / cap) * 100) === 100 ? "full" : `${formatBeats(filled / TICKS_PER_QUARTER)} of ${cap / TICKS_PER_QUARTER} beats`}
             </span>
@@ -584,14 +689,25 @@ export default function TranscriptionEditor({
                 </div>
               )
             }
+            mode={mode}
+            range={bars}
+            onSelectMeasure={(measure, extend) => {
+              if (justClosedChord()) return;
+              selectMeasure(measure, extend);
+              editorRef.current?.focus({ preventScroll: true });
+            }}
+            onMenu={openMenu}
             transcription={t} cursor={cursor} playing={playing} onSelect={(c) => {
               if (justClosedChord()) return;
+              rangeAnchor.current = c.measure;
               setCursor(c);
               setPicked(true);
+              clearRange();
             }}
             onReplace={(measure, note, pitch) => {
               if (justClosedChord()) return;
               overwriteAt({ measure, note }, pitch);
+              clearRange();
               editorRef.current?.focus({ preventScroll: true });
             }}
             onAdd={(measure, after, pitch) => {
@@ -600,8 +716,10 @@ export default function TranscriptionEditor({
               const r = writeNote(t, { measure, note: after }, note);
               commit({ ...t, measures: r.measures }, r.cursor);
               setPicked(false);
+              clearRange();
               editorRef.current?.focus({ preventScroll: true });
             }} />
+          {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
         </div>
 
         {/* Measure tools */}
@@ -623,7 +741,7 @@ export default function TranscriptionEditor({
 }
 
 const KEY_HELP =
-  "Keys: A–G add a note (nearest the last one) · 3 4 5 6 7 = 16th, 8th, quarter, half, whole · . dot · T triplet · 0 or R rest · ↑ ↓ semitone, Shift+↑ ↓ octave · # sharp, - flat, N natural · + tie · X ghost note · ← → move · Backspace turns a note into a rest · Space play · Ctrl+Z undo. Chords: select a note, then + Chord (Ctrl+K), type it, Enter — Space/Tab goes on to the next note's, an empty one removes it, click a chord to edit it. Click the staff to add a note there, or above/below an existing note to change its pitch (the preview shows which); click a note's head (or arrow to it) to select it — typing then overwrites it and moves on, keeping the rhythm — then the note-value, dot and triplet buttons change that note; Esc goes back to entering. New notes go after the cursor.";
+  "Select mode (Esc): clicks only select — a note, or a whole bar (click beside its notes; Shift+click another bar for a range); right-click bars to copy, paste or clear their chords (Ctrl+C / Ctrl+V). Write mode (W): clicking the staff adds notes. Keys: A–G add a note (nearest the last one) · 3 4 5 6 7 = 16th, 8th, quarter, half, whole · . dot · T triplet · 0 or R rest · ↑ ↓ semitone, Shift+↑ ↓ octave · # sharp, - flat, N natural · + tie · X ghost note · ← → move · Backspace turns a note into a rest · Space play · Ctrl+Z undo. Chords: select a note, then + Chord (Ctrl+K), type it, Enter — Space/Tab goes on to the next note's, an empty one removes it, click a chord to edit it. In write mode, click the staff to add a note there, or above/below an existing note to change its pitch (the preview shows which); click a note's head (or arrow to it) to select it — typing then overwrites it and moves on, keeping the rhythm — then the note-value, dot and triplet buttons change that note; Esc goes back to entering. New notes go after the cursor.";
 
 /** The beat (in quarters from the bar line) the note at `c` starts on. */
 function startBeat(t: Transcription, c: Cursor): number {

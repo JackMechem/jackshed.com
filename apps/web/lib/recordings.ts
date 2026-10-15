@@ -2,6 +2,8 @@
 
 import { api } from "@jam-practice/convex/_generated/api";
 import type { Id } from "@jam-practice/convex/_generated/dataModel";
+import { useConvexAuth } from "@convex-dev/auth/react";
+import { useQuery } from "convex/react";
 import { useMemo } from "react";
 import type { Tune } from "@/lib/types";
 import { useSyncedTunes } from "@/lib/useSyncedTunes";
@@ -15,12 +17,51 @@ export type Recording = {
   durationSec: number;
   mimeType: string;
   tuneId: string | null;
+  mix: RecordingMix | null;
   createdAt: number;
   updatedAt: number;
   url: string | null;
 };
 
+/** How a take plays over its tune's song: each side's volume (0..1), and where in the song the
+    take starts (seconds; negative = the take starts before the song does). */
+export type RecordingMix = { songVolume: number; takeVolume: number; offsetSec: number };
+
+export const DEFAULT_MIX: RecordingMix = { songVolume: 0.7, takeVolume: 1, offsetSec: 0 };
+
 export const recordingsApi = api.recordings;
+export const tuneSongsApi = api.tuneSongs;
+
+/** A tune's song (the audio file played behind its takes), or null / undefined while loading. */
+export type TuneSong = {
+  name: string;
+  durationSec: number;
+  mimeType: string;
+  url: string | null;
+};
+
+export function useTuneSong(tuneId: string | null | undefined): TuneSong | null | undefined {
+  const { isAuthenticated } = useConvexAuth();
+  const active = isAuthenticated && !!tuneId;
+  const song = useQuery(tuneSongsApi.getForTune, active ? { tuneId } : "skip");
+  return active ? song : null;
+}
+
+/** An audio file's length in seconds, read by the browser (0 if it can't tell). */
+export function audioFileDuration(file: Blob): Promise<number> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const audio = new Audio();
+    const done = (sec: number) => {
+      URL.revokeObjectURL(url);
+      resolve(Number.isFinite(sec) ? sec : 0);
+    };
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => done(audio.duration);
+    audio.onerror = () => done(0);
+    audio.src = url;
+  });
+}
 
 /** "1:05", "12:40", "1:02:03". */
 export function formatDuration(seconds: number): string {

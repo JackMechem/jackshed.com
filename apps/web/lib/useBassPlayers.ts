@@ -3,13 +3,31 @@ import { useConvex, useMutation, useQuery } from "convex/react";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { api } from "@jam-practice/convex/_generated/api";
 import type { Id } from "@jam-practice/convex/_generated/dataModel";
+import { BUILT_IN_PLAYERS, isBuiltInId } from "./bassBuiltIns";
 import { cleanTranscription, newId, type Transcription } from "./bassTranscription";
+
+/** A built-in transcription by id. */
+function builtInTranscription(id: string) {
+  for (const p of BUILT_IN_PLAYERS) {
+    const t = p.transcriptions.find((x) => x.id === id);
+    if (t) return { ...t, playerId: p.id };
+  }
+  return null;
+}
 
 // Bass Genius's bass players and transcriptions. Signed in they're in the account
 // (`convex/bassPlayers.ts`, one row per transcription); signed out they're kept in this browser
 // only, same shape, so the editor works either way.
 
-export type BassPlayerMeta = { id: string; name: string; description: string; createdAt: number; updatedAt: number };
+export type BassPlayerMeta = {
+  id: string;
+  name: string;
+  description: string;
+  createdAt: number;
+  updatedAt: number;
+  /** Comes with Bass Genius (read-only). */
+  builtIn?: boolean;
+};
 export type TranscriptionMeta = { id: string; playerId: string; title: string; measureCount: number; createdAt: number; updatedAt: number };
 
 type LocalTranscription = { id: string; playerId: string; data: Transcription; createdAt: number; updatedAt: number };
@@ -68,16 +86,25 @@ export function useBassPlayers() {
   const moveTranscriptionM = useMutation(api.bassPlayers.moveTranscription);
   const convex = useConvex();
 
+  const own = useMemo(() => (isAuthenticated ? (remote?.players ?? []) : local.players), [isAuthenticated, remote, local.players]);
+  // Built-in players, unless you already have one by that name.
+  const builtIns = useMemo(() => BUILT_IN_PLAYERS.filter((b) => !own.some((p) => p.name.trim().toLowerCase() === b.name.toLowerCase())), [own]);
   const players: BassPlayerMeta[] = useMemo(
-    () => [...(isAuthenticated ? (remote?.players ?? []) : local.players)].sort((a, b) => a.name.localeCompare(b.name)),
-    [isAuthenticated, remote, local.players],
+    () =>
+      [...own, ...builtIns.map((b) => ({ id: b.id, name: b.name, description: b.description, createdAt: 0, updatedAt: 0, builtIn: true }))].sort((a, b) =>
+        a.name.localeCompare(b.name),
+      ),
+    [own, builtIns],
   );
   const transcriptions: TranscriptionMeta[] = useMemo(() => {
     const list: TranscriptionMeta[] = isAuthenticated
       ? (remote?.transcriptions ?? [])
       : local.transcriptions.map((t) => ({ id: t.id, playerId: t.playerId, title: t.data.title, measureCount: t.data.measures.length, createdAt: t.createdAt, updatedAt: t.updatedAt }));
+    for (const b of builtIns)
+      for (const t of b.transcriptions)
+        list.push({ id: t.id, playerId: b.id, title: t.data.title, measureCount: t.data.measures.length, createdAt: 0, updatedAt: 0 });
     return [...list].sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [isAuthenticated, remote, local.transcriptions]);
+  }, [isAuthenticated, remote, local.transcriptions, builtIns]);
 
   const loading = authLoading || (isAuthenticated && remote === undefined);
 
@@ -138,6 +165,7 @@ export function useBassPlayers() {
   /** One transcription's notes, fetched once (for exporting a whole player). */
   const fetchTranscription = useCallback(
     async (id: string): Promise<unknown> => {
+      if (isBuiltInId(id)) return builtInTranscription(id)?.data ?? null;
       if (isAuthenticated) return (await convex.query(api.bassPlayers.getTranscription, { transcriptionId: id }))?.data ?? null;
       return readLocal().transcriptions.find((t) => t.id === id)?.data ?? null;
     },
@@ -151,11 +179,13 @@ export function useBassPlayers() {
 export function useTranscription(id: string | null) {
   const { isAuthenticated } = useConvexAuth();
   const local = useLocalStore();
-  const remote = useQuery(api.bassPlayers.getTranscription, isAuthenticated && id ? { transcriptionId: id } : "skip");
+  const builtIn = useMemo(() => (isBuiltInId(id) ? builtInTranscription(id!) : null), [id]);
+  const remote = useQuery(api.bassPlayers.getTranscription, isAuthenticated && id && !builtIn ? { transcriptionId: id } : "skip");
   const saveM = useMutation(api.bassPlayers.saveTranscription);
 
   const data: Transcription | null | undefined = useMemo(() => {
     if (!id) return null;
+    if (builtIn) return cleanTranscription(builtIn.data);
     if (isAuthenticated) {
       if (remote === undefined) return undefined;
       return remote ? cleanTranscription(remote.data) : null;
@@ -163,17 +193,39 @@ export function useTranscription(id: string | null) {
     const row = local.transcriptions.find((t) => t.id === id);
     return row ? cleanTranscription(row.data) : null;
     // Recomputed as saves land; the editor only takes it once, when it loads a transcription.
-  }, [id, isAuthenticated, remote, local.transcriptions]);
+  }, [id, builtIn, isAuthenticated, remote, local.transcriptions]);
 
   const save = useCallback(
     async (next: Transcription) => {
-      if (!id) return;
+      if (!id || isBuiltInId(id)) return; // built-ins are read-only
       if (isAuthenticated) return void (await saveM({ transcriptionId: id as Id<"bassTranscriptions">, data: plain(next) }));
       updateLocal((s) => ({ transcriptions: s.transcriptions.map((t) => (t.id === id ? { ...t, data: plain(next), updatedAt: Date.now() } : t)) }));
     },
     [id, isAuthenticated, saveM],
   );
 
-  const playerId = isAuthenticated ? (remote?.playerId ?? null) : (local.transcriptions.find((t) => t.id === id)?.playerId ?? null);
-  return { data, save, playerId };
+  const playerId = builtIn ? builtIn.playerId : isAuthenticated ? (remote?.playerId ?? null) : (local.transcriptions.find((t) => t.id === id)?.playerId ?? null);
+  return { data, save, playerId, readOnly: !!builtIn };
+}
+
+/** All of one player's transcriptions with their ids, notes and all; undefined while loading,
+    [] for none / no such player. */
+export function usePlayerTranscriptionRows(playerId: string | null): { id: string; data: Transcription }[] | undefined {
+  const { isAuthenticated, isLoading } = useConvexAuth();
+  const local = useLocalStore();
+  const builtIn = isBuiltInId(playerId);
+  const remote = useQuery(api.bassPlayers.playerTranscriptions, isAuthenticated && playerId && !builtIn ? { playerId } : "skip");
+  return useMemo(() => {
+    if (!playerId) return [];
+    if (builtIn) return (BUILT_IN_PLAYERS.find((b) => b.id === playerId)?.transcriptions ?? []).map((t) => ({ id: t.id, data: cleanTranscription(t.data) }));
+    if (isLoading) return undefined;
+    if (isAuthenticated) return remote === undefined ? undefined : (remote ?? []).map((r) => ({ id: r.id, data: cleanTranscription(r.data) }));
+    return local.transcriptions.filter((t) => t.playerId === playerId).map((t) => ({ id: t.id, data: cleanTranscription(t.data) }));
+  }, [playerId, builtIn, isLoading, isAuthenticated, remote, local.transcriptions]);
+}
+
+/** All of one player's transcriptions (what Bass Genius analyses to play like them). */
+export function usePlayerTranscriptions(playerId: string | null): Transcription[] | undefined {
+  const rows = usePlayerTranscriptionRows(playerId);
+  return useMemo(() => rows?.map((r) => r.data), [rows]);
 }

@@ -249,6 +249,16 @@ export const performDelete = internalMutation({
       await ctx.db.delete(row._id);
     }
 
+    // Tunes' songs (the audio files played behind recordings).
+    const songs = await ctx.db
+      .query("tuneSongs")
+      .withIndex("by_user_tune", (q) => q.eq("userId", userId))
+      .collect();
+    for (const row of songs) {
+      await ctx.storage.delete(row.storageId);
+      await ctx.db.delete(row._id);
+    }
+
     // Bass Genius players and their transcriptions.
     for (const table of ["bassTranscriptions", "bassPlayers"] as const) {
       const rows = await ctx.db

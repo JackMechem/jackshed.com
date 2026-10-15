@@ -25,8 +25,8 @@ import { prettyQuality } from "@/lib/iRealPro";
 // grey rests that aren't part of the transcription. Bass parts are written an octave above where
 // they sound, so a note's stored (sounding) octave is drawn one higher.
 //
-// Clicking a note selects it; clicking elsewhere in a measure selects that measure's last note
-// (new notes go in after the selection). The selected note is drawn in the accent colour with a
+// Clicking a note selects it. In write mode clicking the staff adds or re-pitches a note; in
+// select mode clicking elsewhere in a measure selects the whole measure (Shift extends a range). The selected note is drawn in the accent colour with a
 // caret after it; a playing note too.
 
 const ROW_HEIGHT = 150;
@@ -145,6 +145,11 @@ export default function TranscriptionScore({
   onChordClick,
   handleRef,
   overlay,
+  mode = "write",
+  range = null,
+  onSelectMeasure,
+  onMenu,
+  firstBar = 1,
 }: {
   transcription: Transcription;
   cursor: Cursor | null;
@@ -160,6 +165,17 @@ export default function TranscriptionScore({
   handleRef?: React.Ref<ScoreHandle>;
   /** Drawn over the score (the editor's inline chord input). */
   overlay?: React.ReactNode;
+  /** "select": clicks only select (a note, or a whole bar); "write": clicking the staff adds or
+      re-pitches notes. */
+  mode?: "select" | "write";
+  /** Whole bars selected (inclusive), drawn tinted. */
+  range?: { from: number; to: number } | null;
+  /** Clicking a bar (away from its notes in select mode, or Shift+clicking anywhere in it). */
+  onSelectMeasure?: (measure: number, extend: boolean) => void;
+  /** Right-click: the bar under the pointer (null if none) and where to open a menu. */
+  onMenu?: (measure: number | null, x: number, y: number) => void;
+  /** The number printed on the first measure (for a snippet out of a longer transcription). */
+  firstBar?: number;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const geomRef = useRef<{ topY: number; spacing: number }>({ topY: STAVE_Y + 10, spacing: 10 });
@@ -179,6 +195,9 @@ export default function TranscriptionScore({
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap || width <= 0) return;
+    // Hold the old height while redrawing: the rows are rebuilt one by one and getBBox() forces
+    // layout in between, so a momentarily shorter page would clamp the scroll position upward.
+    wrap.style.minHeight = `${wrap.offsetHeight}px`;
     wrap.innerHTML = "";
     const accent = themeColor("--accent", "#6366f1");
     const muted = themeColor("--muted", "#888");
@@ -226,7 +245,7 @@ export default function TranscriptionScore({
           ctx.save();
           ctx.setFont("Inter, sans-serif", 10, "normal");
           ctx.setFillStyle(muted);
-          ctx.fillText(String(mi + 1), x + 2, STAVE_Y + 8);
+          ctx.fillText(String(mi + firstBar), x + 2, STAVE_Y + 8);
           ctx.restore();
         }
 
@@ -362,7 +381,27 @@ export default function TranscriptionScore({
         const bb = rn.note.getBoundingBox();
         if (bb) hits.unshift({ kind: "note", measure: rn.measure, note: rn.index, x: bb.getX() - 3, y: bb.getY() - 3, w: bb.getW() + 6, h: bb.getH() + 6 });
       }
-      if (cursor && row.includes(cursor.measure)) {
+      const svgEl = div.querySelector("svg");
+      if (range && svgEl) {
+        const ns = "http://www.w3.org/2000/svg";
+        for (const h of hits) {
+          if (h.kind !== "measure" || h.measure < range.from || h.measure > range.to) continue;
+          const { topY, spacing } = geomRef.current;
+          const r = document.createElementNS(ns, "rect");
+          r.setAttribute("x", String(h.x));
+          r.setAttribute("y", String(topY - 64));
+          r.setAttribute("width", String(h.w));
+          r.setAttribute("height", String(spacing * 4 + 76));
+          r.setAttribute("rx", "4");
+          r.setAttribute("fill", accent);
+          r.setAttribute("fill-opacity", "0.16");
+          r.setAttribute("stroke", accent);
+          r.setAttribute("stroke-opacity", "0.5");
+          r.setAttribute("stroke-width", "1");
+          svgEl.insertBefore(r, svgEl.firstChild);
+        }
+      }
+      if (cursor && !range && row.includes(cursor.measure)) {
         const sel = rowNotes.find((rn) => rn.measure === cursor.measure && rn.index === cursor.note);
         const measureHit = hits.find((h) => h.kind === "measure" && h.measure === cursor.measure);
         let caretX: number | null = null;
@@ -414,7 +453,8 @@ export default function TranscriptionScore({
         svg.style.overflow = "visible";
       }
     });
-  }, [transcription, cursor, playing, width]);
+    wrap.style.minHeight = "";
+  }, [transcription, cursor, playing, width, range, firstBar]);
 
   useImperativeHandle(
     handleRef,
@@ -490,6 +530,7 @@ export default function TranscriptionScore({
   };
 
   const onMove = (e: React.MouseEvent) => {
+    if (mode === "select") return;
     const at = locate(e);
     const next = at?.kind === "staff" ? at.hover : null;
     setHover((h) => (h && next && h.row === next.row && h.y === next.y && Math.abs(h.x - next.x) < 2 && h.after === next.after && h.replace === next.replace ? h : next));
@@ -498,8 +539,11 @@ export default function TranscriptionScore({
   const onClick = (e: React.MouseEvent) => {
     const at = locate(e);
     if (!at) return;
-    if (at.kind === "chord") onChordClick(at.chord.measure, at.chord.beat);
+    const measureOf = at.kind === "chord" ? at.chord.measure : at.kind === "note" ? at.note.measure : at.measure.measure;
+    if (e.shiftKey && onSelectMeasure) onSelectMeasure(measureOf, true);
+    else if (at.kind === "chord") onChordClick(at.chord.measure, at.chord.beat);
     else if (at.kind === "note") onSelect({ measure: at.note.measure, note: at.note.note });
+    else if (mode === "select" && onSelectMeasure) onSelectMeasure(measureOf, false);
     else if (at.kind === "staff") {
       if (at.hover.replace !== null) onReplace(at.hover.measure, at.hover.replace, at.hover.pitch);
       else onAdd(at.hover.measure, at.hover.after, at.hover.pitch);
@@ -509,10 +553,24 @@ export default function TranscriptionScore({
 
   const accentVar = "var(--accent)";
   return (
-    <div className="relative w-full" onMouseMove={onMove} onMouseLeave={() => setHover(null)} onClick={onClick} style={{ cursor: hover ? "copy" : "default" }}>
+    <div
+      className="relative w-full"
+      onMouseMove={onMove}
+      onMouseLeave={() => setHover(null)}
+      onClick={onClick}
+      onContextMenu={(e) => {
+        if (!onMenu) return;
+        e.preventDefault();
+        setHover(null);
+        const at = locate(e);
+        const measure = !at ? null : at.kind === "chord" ? at.chord.measure : at.kind === "note" ? at.note.measure : at.measure.measure;
+        onMenu(measure, e.clientX, e.clientY);
+      }}
+      style={{ cursor: hover && mode === "write" ? "copy" : "default" }}
+    >
       <div ref={wrapRef} className="w-full select-none text-foreground" aria-label="Notation" />
       {overlay}
-      {hover && (
+      {hover && mode === "write" && (
         <svg className="pointer-events-none absolute left-0 w-full overflow-visible" style={{ top: hover.rowTop, height: ROW_HEIGHT }} aria-hidden>
           {hover.ledgers.map((ly) => (
             <line key={ly} x1={hover.x - 11} x2={hover.x + 11} y1={ly} y2={ly} stroke={accentVar} strokeOpacity={0.6} strokeWidth={1.2} />

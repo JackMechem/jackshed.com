@@ -104,7 +104,7 @@ let chain: Chain | null = null;
     from a fixed seed: independent random left/right channels left the bass audibly off centre
     (even energy-matched ones leaned a few tenths of a dB one way or the other). An upright is a
     mono source anyway; this keeps it dead centre. */
-function roomImpulse(ctx: AudioContext): AudioBuffer {
+export function roomImpulse(ctx: AudioContext): AudioBuffer {
   const length = Math.floor(ctx.sampleRate * 1.3);
   const ir = ctx.createBuffer(2, length, ctx.sampleRate);
   let seed = 0x9e3779b9;
@@ -154,8 +154,10 @@ export function setUprightBassVolume(volume: number) {
   getChain().master.gain.setTargetAtTime(volume * 1.1, getAudioContext().currentTime, 0.05);
 }
 
-export function setUprightBassRoom(on: boolean) {
-  getChain().wet.gain.setTargetAtTime(on ? 0.16 : 0, getAudioContext().currentTime, 0.05);
+/** Room sound around the bass: true/false, or an amount 0–1 (0.5 = the usual touch). */
+export function setUprightBassRoom(amount: boolean | number) {
+  const a = typeof amount === "boolean" ? (amount ? 0.5 : 0) : amount;
+  getChain().wet.gain.setTargetAtTime(a * 0.32, getAudioContext().currentTime, 0.05);
 }
 
 const lastTake = new Map<string, number>();

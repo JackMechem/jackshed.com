@@ -8,9 +8,10 @@ import { useEffect, useRef, useState } from "react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import { EmptyCard, PageHeader, PageShell } from "@/components/library/shared";
+import { SavedMixPlayer } from "@/components/recordings/MixPlayer";
 import { TuneSelectDialog } from "@/components/recordings/RecordingParts";
 import { LinkIcon, TrashIcon } from "@/components/tools";
-import { formatDuration, formatRecordedAt, recordingsApi, useTuneIndex } from "@/lib/recordings";
+import { formatDuration, formatRecordedAt, recordingsApi, useTuneIndex, useTuneSong } from "@/lib/recordings";
 
 /** `/recordings/view?id=…` — one recording: play it, rename it, keep notes on it, link it to a tune
     (or change or unlink it), or delete it. Edits save with the Save button, or when you leave. */
@@ -20,6 +21,7 @@ export default function RecordingPage({ id }: { id: string }) {
   const update = useMutation(recordingsApi.update);
   const remove = useMutation(recordingsApi.remove);
   const byId = useTuneIndex();
+  const song = useTuneSong(recording?.tuneId);
   const [name, setName] = useState<string | null>(null);
   const [notes, setNotes] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
@@ -98,7 +100,17 @@ export default function RecordingPage({ id }: { id: string }) {
           </>
         }
       />
-      {rec.url && <audio controls src={rec.url} className="w-full" />}
+      {rec.url &&
+        (song?.url ? (
+          <div className="flex flex-col gap-2 rounded-2xl bg-surface p-4">
+            <div className="text-sm text-muted">
+              Playing over <span className="font-medium text-foreground">{song.name}</span>
+            </div>
+            <SavedMixPlayer key={rec._id} recording={rec} songUrl={song.url} songName={song.name} />
+          </div>
+        ) : (
+          <audio controls src={rec.url} className="w-full" />
+        ))}
 
       <label className="flex flex-col gap-1 text-sm">
         <span className="font-medium text-muted">Name</span>

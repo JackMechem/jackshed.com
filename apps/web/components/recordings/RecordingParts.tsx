@@ -3,21 +3,39 @@
 import { useConvexAuth } from "@convex-dev/auth/react";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import LoadingSpinner from "@/components/LoadingSpinner";
-import { CloseIcon, LinkIcon, MicIcon, SearchIcon } from "@/components/tools";
+import MixPlayer, { SavedMixPlayer } from "@/components/recordings/MixPlayer";
+import { CloseIcon, LinkIcon, MicIcon, NoteIcon, SearchIcon, TrashIcon } from "@/components/tools";
 import { sortByText } from "@jam-practice/core/sortText";
 import {
   type Recording,
+  type RecordingMix,
+  DEFAULT_MIX,
+  audioFileDuration,
   formatDuration,
   formatRecordedAt,
   recordingsApi,
+  tuneSongsApi,
   uploadRecordingBlob,
   useTuneIndex,
+  useTuneSong,
 } from "@/lib/recordings";
 
-/** A recording in a list: name (links to its page), date · length (· tune), and a player. */
-export function RecordingCard({ recording, tuneName }: { recording: Recording; tuneName?: string | null }) {
+/** A recording in a list: name (links to its page), date · length (· tune), and a player — over
+    the tune's song, with the mixer, when `songUrl` is given. */
+export function RecordingCard({
+  recording,
+  tuneName,
+  songUrl,
+  songName,
+}: {
+  recording: Recording;
+  tuneName?: string | null;
+  songUrl?: string | null;
+  songName?: string;
+}) {
   const detail = [formatRecordedAt(recording.createdAt), formatDuration(recording.durationSec), tuneName].filter(Boolean).join(" · ");
   return (
     <div className="flex flex-col gap-2 rounded-2xl bg-surface p-3">
@@ -25,7 +43,12 @@ export function RecordingCard({ recording, tuneName }: { recording: Recording; t
         <div className="truncate font-semibold">{recording.name}</div>
         <div className="truncate text-xs text-muted">{detail}</div>
       </Link>
-      {recording.url && <audio controls preload="none" src={recording.url} className="h-10 w-full" />}
+      {recording.url &&
+        (songUrl ? (
+          <SavedMixPlayer recording={recording} songUrl={songUrl} songName={songName} compact lazy />
+        ) : (
+          <audio controls preload="none" src={recording.url} className="h-10 w-full" />
+        ))}
     </div>
   );
 }
@@ -137,12 +160,15 @@ export function SaveTakeDialog({
   blob,
   durationSec,
   initialTuneId,
+  initialMix,
   onSaved,
   onDiscard,
 }: {
   blob: Blob;
   durationSec: number;
   initialTuneId: string | null;
+  /** The mix it was recorded with, when the tune's song played along (its line-up measured). */
+  initialMix?: RecordingMix | null;
   onSaved: (id: string) => void;
   onDiscard: () => void;
 }) {
@@ -162,6 +188,8 @@ export function SaveTakeDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [mix, setMix] = useState<RecordingMix>(initialMix ?? DEFAULT_MIX);
+  const song = useTuneSong(tuneId);
 
   const defaultName = initialTuneId && forTune ? `Take ${forTune.length + 1}` : formatRecordedAt(recordedAt);
   const shownName = name ?? defaultName;
@@ -179,6 +207,7 @@ export function SaveTakeDialog({
         durationSec,
         mimeType: blob.type || "audio/webm",
         ...(tuneId ? { tuneId } : {}),
+        ...(tuneId && (song?.url || initialMix) ? { mix } : {}),
       });
       URL.revokeObjectURL(url);
       onSaved(id);
@@ -197,7 +226,11 @@ export function SaveTakeDialog({
             <CloseIcon className="h-5 w-5" />
           </button>
         </div>
-        <audio controls src={url} className="w-full" />
+        {song?.url ? (
+          <MixPlayer takeUrl={url} songUrl={song.url} takeName={shownName} songName={song.name} mix={mix} onMixChange={setMix} />
+        ) : (
+          <audio controls src={url} className="w-full" />
+        )}
         <label className="flex flex-col gap-1 text-sm">
           <span className="font-medium text-muted">Name</span>
           <input value={shownName} onChange={(e) => setName(e.target.value)} className="rounded-xl bg-background px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-accent" />
@@ -280,6 +313,7 @@ export function SaveTakeDialog({
 export function TuneRecordings({ tuneId }: { tuneId: string }) {
   const { isAuthenticated } = useConvexAuth();
   const recordings = useQuery(recordingsApi.listForTune, isAuthenticated ? { tuneId } : "skip");
+  const song = useTuneSong(tuneId);
   const update = useMutation(recordingsApi.update);
   const [linking, setLinking] = useState(false);
   return (
@@ -292,13 +326,14 @@ export function TuneRecordings({ tuneId }: { tuneId: string }) {
         <p className="rounded-2xl bg-surface p-4 text-sm text-muted">Sign in to record takes of this tune — recordings are saved to your account.</p>
       ) : (
         <>
+          <TuneSongPanel tuneId={tuneId} />
           {recordings === undefined ? (
             <LoadingSpinner />
           ) : (
             recordings.length > 0 && (
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className={song?.url ? "flex flex-col gap-3" : "grid gap-3 sm:grid-cols-2"}>
                 {recordings.map((r) => (
-                  <RecordingCard key={r._id} recording={r} />
+                  <RecordingCard key={r._id} recording={r} songUrl={song?.url} songName={song?.name} />
                 ))}
               </div>
             )
@@ -324,5 +359,117 @@ export function TuneRecordings({ tuneId }: { tuneId: string }) {
         />
       )}
     </section>
+  );
+}
+
+const MAX_SONG_BYTES = 100 * 1024 * 1024;
+
+/** The tune's song: an audio file of the real recording, played behind your takes (with a mixer)
+    and, from the Recorder, along with you while you record. Add, replace or remove it. */
+function TuneSongPanel({ tuneId }: { tuneId: string }) {
+  const song = useTuneSong(tuneId);
+  const generateUploadUrl = useMutation(recordingsApi.generateUploadUrl);
+  const setSong = useMutation(tuneSongsApi.set);
+  const removeSong = useMutation(tuneSongsApi.remove);
+  const input = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+
+  async function upload(file: File) {
+    setError(null);
+    if (!file.type.startsWith("audio/") && !/\.(mp3|m4a|aac|wav|aiff?|flac|ogg|opus|webm)$/i.test(file.name)) {
+      setError("That isn't an audio file.");
+      return;
+    }
+    if (file.size > MAX_SONG_BYTES) {
+      setError("That file is over 100 MB — try an mp3 or m4a of it.");
+      return;
+    }
+    setUploading(true);
+    try {
+      const durationSec = await audioFileDuration(file);
+      const storageId = await uploadRecordingBlob(file, generateUploadUrl);
+      await setSong({
+        tuneId,
+        storageId,
+        name: file.name.replace(/\.[^.]+$/, ""),
+        mimeType: file.type || "audio/mpeg",
+        durationSec,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't upload the song.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-2xl bg-surface p-3">
+      <input
+        ref={input}
+        type="file"
+        accept="audio/*,.mp3,.m4a,.wav,.aif,.aiff,.flac,.ogg"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) void upload(file);
+        }}
+      />
+      <div className="flex items-center gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-background text-accent">
+          <NoteIcon className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          {song === undefined ? (
+            <LoadingSpinner size="sm" inline />
+          ) : song ? (
+            <>
+              <div className="truncate text-sm font-semibold">{song.name}</div>
+              <div className="text-xs text-muted">Song{song.durationSec ? ` · ${formatDuration(song.durationSec)}` : ""} · plays behind your takes</div>
+            </>
+          ) : (
+            <>
+              <div className="text-sm font-semibold">Add the song</div>
+              <div className="text-xs text-muted">Upload an audio file of the tune to play behind your takes, with a mixer for each.</div>
+            </>
+          )}
+        </div>
+        {uploading ? (
+          <LoadingSpinner size="sm" label="Uploading the song" />
+        ) : (
+          <>
+            <button type="button" onClick={() => input.current?.click()} className="rounded-lg bg-background px-3 py-1.5 text-sm font-medium hover:bg-surface-hover">
+              {song ? "Replace" : "Upload"}
+            </button>
+            {song && (
+              <button
+                type="button"
+                onClick={() => setConfirmRemove(true)}
+                aria-label="Remove the song"
+                title="Remove the song"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-background hover:text-danger"
+              >
+                <TrashIcon className="h-4 w-4" />
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      {error && <p className="text-sm text-danger">{error}</p>}
+      {confirmRemove && (
+        <ConfirmDialog
+          title="Remove the song?"
+          message="The audio file is deleted from your account. Your recordings stay; they just play on their own."
+          confirmLabel="Remove"
+          onConfirm={() => {
+            setConfirmRemove(false);
+            void removeSong({ tuneId });
+          }}
+          onCancel={() => setConfirmRemove(false)}
+        />
+      )}
+    </div>
   );
 }

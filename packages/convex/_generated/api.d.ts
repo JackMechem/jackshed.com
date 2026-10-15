@@ -25,6 +25,7 @@ import type * as profiles from "../profiles.js";
 import type * as recordings from "../recordings.js";
 import type * as setlists from "../setlists.js";
 import type * as syncedSettings from "../syncedSettings.js";
+import type * as tuneSongs from "../tuneSongs.js";
 import type * as users from "../users.js";
 
 import type {
@@ -51,6 +52,7 @@ declare const fullApi: ApiFromModules<{
   recordings: typeof recordings;
   setlists: typeof setlists;
   syncedSettings: typeof syncedSettings;
+  tuneSongs: typeof tuneSongs;
   users: typeof users;
 }>;
 

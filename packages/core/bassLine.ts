@@ -120,7 +120,7 @@ export function analyzeQuality(quality: string): { tones: number[]; scale: numbe
   return { tones: [...new Set(tones)], scale };
 }
 
-function harmonyOf(slot: Extract<ChordSlot, { kind: "chord" }>): Harmony {
+export function harmonyOf(slot: Extract<ChordSlot, { kind: "chord" }>): Harmony {
   const root = pcOf(slot.letter, slot.accidental);
   const { tones, scale } = analyzeQuality(slot.quality);
   const bass = slot.bass ? pcOf(slot.bass.letter, slot.bass.accidental) : root;
@@ -344,12 +344,51 @@ export type PerformedBeat = {
   beatsInBar: number;
   harmony: Harmony | null;
   chorus: number;
+  /** Where the line on this beat came from, for a modelled player ("Blue Bossa, bars 9–12"). */
+  from?: string;
 };
 
-export type BassChorus = { notes: BassNote[]; beats: PerformedBeat[] };
+/** How one phrase of a modelled player's chorus was made (for showing the working). */
+export type BassPhrase = {
+  /** Start, in performance beats, and length in beats. */
+  beat: number;
+  length: number;
+  /** The chart's chords over it, bar by bar ("Bb6 G-7 | C-7 F7"). */
+  chartChords: string;
+  /** Null: the Computer walked it (nothing in the transcriptions fitted well enough). */
+  source: null | {
+    /** Index into the transcriptions the style was analysed from. */
+    transcription: number;
+    title: string;
+    /** Where in that transcription, in beats from its top (4 a bar). */
+    startBeat: number;
+    /** Moved up this many semitones (0–11) to the chart's key, then `octave` octaves. */
+    shift: number;
+    octave: number;
+    /** The transcription's own chords over the passage, bar by bar. */
+    sourceChords: string;
+    /** Share (0–1) of the player's notes there that are chord tones, scale tones or stepwise
+        passing notes of the chart's chords. */
+    fit: number;
+    /** Notes moved to fit a different chord quality, or onto a slash chord's bass. */
+    refitted: number;
+    /** Notes folded back into the bass's range on their own. */
+    folded: number;
+  };
+  /** The last note was turned into a half-step lead-in to the next phrase. */
+  leadIn: boolean;
+  /** "Learn their style" mode: what the new line did and the player tendencies behind it. */
+  learned?: { player: string; points: string[] };
+};
+
+export type BassChorus = { notes: BassNote[]; beats: PerformedBeat[]; phrases?: BassPhrase[] };
 
 export type BassLineOptions = {
-  player: BassPlayerId;
+  /** For a modelled player: copy phrases from their transcriptions, or write new lines in their
+      style. */
+  styleMode?: "copy" | "learn";
+  /** "computer", or one of your own players (their analysed transcriptions come in separately). */
+  player: string;
   feel: BassFeel;
   touch: BassTouch;
 };
@@ -360,6 +399,10 @@ export type BassLineState = {
   registerGoal: number;
   barsToNewGoal: number;
   seed: number;
+  /** Transcription passages a modelled player used lately, so choruses don't repeat them. */
+  recent?: string[];
+  /** Where a modelled player's last chorus left off in their transcriptions. */
+  next?: { tune: number; beat: number; shift: number } | null;
 };
 
 export function initialBassState(seed = Math.floor(Math.random() * 2 ** 31)): BassLineState {
@@ -367,7 +410,7 @@ export function initialBassState(seed = Math.floor(Math.random() * 2 ** 31)): Ba
 }
 
 /** Small seeded PRNG (mulberry32), so a chorus can be regenerated identically from its state. */
-function makeRng(seed: number) {
+export function makeRng(seed: number) {
   let a = seed >>> 0;
   const next = () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -393,7 +436,7 @@ function makeRng(seed: number) {
     seed: () => Math.floor(next() * 2 ** 31),
   };
 }
-type Rng = ReturnType<typeof makeRng>;
+export type Rng = ReturnType<typeof makeRng>;
 
 type Span = {
   /** Index into the chorus's beats. */
@@ -515,7 +558,22 @@ function walkSpan(span: Span, first: number, next: number | null, goal: number, 
   return rng.weighted(top.map((p) => [p, Math.exp(-(p.cost - best) * 1.8)] as [Path, number])).notes;
 }
 
-const TOUCH_VELOCITY: Record<BassTouch, number> = { soft: 0.42, medium: 0.62, strong: 0.84 };
+export const TOUCH_VELOCITY: Record<BassTouch, number> = { soft: 0.42, medium: 0.62, strong: 0.84 };
+
+/** One time through the chart, beat by beat, in the order it's played. */
+export function performedBeats(song: IRealSong, harmony: BarHarmony[], chorus: number, isLast: boolean): { beats: PerformedBeat[]; starts: boolean[] } {
+  const beats: PerformedBeat[] = [];
+  const starts: boolean[] = [];
+  for (const barIndex of playbackOrder(song.bars, isLast)) {
+    const bh = harmony[barIndex];
+    if (!bh) continue;
+    for (let b = 0; b < bh.beats; b++) {
+      beats.push({ bar: barIndex, beatInBar: b, beatsInBar: bh.beats, harmony: bh.perBeat[b], chorus });
+      starts.push(bh.starts[b]);
+    }
+  }
+  return { beats, starts };
+}
 
 /**
  * Writes one chorus of bass line. `isLast` takes the chart's jumps (D.C., coda) and ends on a held
@@ -531,17 +589,7 @@ export function generateChorus(
   harmony: BarHarmony[] = chartHarmony(song),
 ): { chorus: BassChorus; state: BassLineState } {
   const rng = makeRng(state.seed);
-  const order = playbackOrder(song.bars, isLast);
-  const beats: PerformedBeat[] = [];
-  const starts: boolean[] = [];
-  for (const barIndex of order) {
-    const bh = harmony[barIndex];
-    if (!bh) continue;
-    for (let b = 0; b < bh.beats; b++) {
-      beats.push({ bar: barIndex, beatInBar: b, beatsInBar: bh.beats, harmony: bh.perBeat[b], chorus });
-      starts.push(bh.starts[b]);
-    }
-  }
+  const { beats, starts } = performedBeats(song, harmony, chorus, isLast);
 
   const spans = spansOf(beats, starts);
   const base = TOUCH_VELOCITY[options.touch];

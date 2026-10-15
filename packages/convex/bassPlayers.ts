@@ -117,6 +117,24 @@ export const getTranscription = query({
   },
 });
 
+/** Every transcription of one player, notes and all — what Bass Genius analyses to play like them. */
+export const playerTranscriptions = query({
+  args: { playerId: v.string() },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
+    const playerId = ctx.db.normalizeId("bassPlayers", args.playerId);
+    if (!playerId) return null;
+    const player = await ctx.db.get(playerId);
+    if (!player || player.userId !== userId) return null;
+    const rows = await ctx.db
+      .query("bassTranscriptions")
+      .withIndex("by_player", (q) => q.eq("playerId", playerId))
+      .collect();
+    return rows.map((r) => ({ id: r._id as string, data: r.data }));
+  },
+});
+
 export const createTranscription = mutation({
   args: { playerId: v.id("bassPlayers"), data: v.any() },
   handler: async (ctx, args) => {
