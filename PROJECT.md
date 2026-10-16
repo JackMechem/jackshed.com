@@ -2526,16 +2526,56 @@ per-setting reset, reset all, playback, no errors).
 (`BUILT_IN_PLAYERS`, `isBuiltInId`) bundles Rob Moreno's Ray Brown transcription "Cool Walk" (64
 bars, rhythm changes, from `~/Downloads/cool-walk.json`; notes and chords untouched — the second
 chorus's misplaced chord symbols included; tune/source/comments filled in to credit Rob) as player
-`builtin:ray-brown` / transcription `builtin:ray-brown:cool-walk`. `useBassPlayers` lists built-ins
-for everyone (signed in or out) **unless you already have a player of that name**, so an account
-with its own Ray Brown sees only theirs; `useTranscription`/`usePlayerTranscriptionRows` serve them
-read-only (`readOnly`; saves ignored). Bass players tab: "· built in" in the list; a built-in's page
+`builtin:ray-brown` / transcription `builtin:ray-brown:cool-walk`, titled **"Rhythm Changes Tune 1"**
+(Jack's name for it). `useBassPlayers` lists the built-in player for everyone (signed in or out);
+if you already have a player of that name, the built-in transcriptions are listed **under your
+player** instead ("· built in"; skipped if yours already has one with the same title —
+`builtInExtrasFor` in `bassBuiltIns.ts`), and that player plays from them too
+(`usePlayerTranscriptionRows(playerId, playerName)`). Found on prod: Jack's own Ray Brown held only
+an empty "Untitled transcription", which used to hide the built-in entirely.
+`useTranscription`/`usePlayerTranscriptionRows` serve them read-only (`readOnly`; saves ignored);
+"Make it my own" on such a transcription copies it into your player. Bass players tab: "· built in" in the list; a built-in's page
 has no rename/import/delete/new transcription — **Make it my own** copies it into your players
 (after which the built-in steps aside); its transcription opens as a read-only score with the
 credit. Play tab: Ray Brown is in the player picker out of the box. Credit: Bass Genius's page
-credit line "Idea and Ray Brown transcription by Rob Moreno", and a "Bass Genius" section on
+credit beside the title "Idea and built-in transcriptions by Rob Moreno", and a "Bass Genius" section on
 /credits. Verified in nix Chromium (signed out, from empty: listed, read-only view, copy, picker,
 learn/copy info line; no errors).
+
+**Play tab redesigned around a properties panel (2026-10-16):** the stacked on-page switches
+(source, player, phrases/style, chords, drums, comping, drum settings, Mixer popover) and the
+option chips under the page (Form, Key, Sound, Chords, Swing, Click; Feel above them) are gone.
+The Play button (and the status line under it) sits right under the Play / Bass players switch.
+Below, desktop is two columns: a sticky left **properties panel** (`components/bassgenius/PlayPanel.tsx`:
+`PanelSection` — collapsible, open/closed remembered per device under
+`jam-practice-bass-genius-panel` —, `Field` (label optional), `LevelRow`) and, on the right, the bass
+line and the chart. Phones (below `lg`) don't show the panel: an **Options** button beside Play opens
+it as a bottom sheet (`OptionsSheet`, z-60, so the chart picker and drum settings open over it; Esc /
+× / tap above closes). Gotcha hit here: the dev server's Tailwind never generated a brand-new
+`lg:block`, so the panel uses `lg:flex` (already in use elsewhere). Descriptions are kept only where something
+needs doing (a player with no transcriptions / no chord symbols; typed chords not understood).
+Sections, in the order you'd set up a session: **Tempo** (the BPM hero, slider, tap), **Tune** (A chart / Type chords; the chart card or the typed editor with presets, key, time; Key;
+How long + Count-in), **Bass** (Player; Their phrases / Their style with the explanation, or Feel
+for the Computer; Touch; Swing), **Chords** (Off / Piano / Rhodes; Comping / Held), **Drums**
+(Off / Time / Comping in one switch; Drum settings; the hi-hat click on 2 & 4 when there are no
+drums), **Mix** (Bass, Chords, Drums, Click, Room levels — replaces the Mixer popover). The page
+passes `options={null}` to `ToolLayout`. Settings keys are unchanged.
+
+**The line is written as you set the options (2026-10-16):** while stopped, the Bass line card shows
+the first chorus the current settings would play — chart/typed changes, key, player, phrases/style,
+feel, touch, tempo (deferred while dragging), length — redrawn on every change, phrase chips and
+"how this was made" included. `lib/bassGeniusEngine.ts`'s `previewChorus` writes it with the same
+code a performance uses (`writeLine`, factored out of `writeChorus`: generator + `makePlayable`) from
+a seed the page holds; Play passes that seed (`seed` option → `initialBassState(seed)`), so the
+first chorus heard is exactly the one shown (checked note for note for the Computer, Ray's phrases
+and his style). **New line** (on the card, while stopped) picks a new seed. After Stop the card goes
+back to the preview.
+
+**Chart beside the bass line (2026-10-16):** from `xl` (1280 px) the right side is two columns —
+the written bass line (3fr) and the chord chart (2fr, sticky so it stays in view while the line
+scrolls); narrower screens stack them. The Bass line card's header has **Hide chart / Show chart**
+(setting `showChart`, default on); hiding it gives the bass line the full width. The empty states
+(no charts, pick a chart, type some chords) always show.
 
 ## Tools (sidebar order)
 

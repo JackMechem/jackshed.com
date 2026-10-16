@@ -25,7 +25,7 @@ export default function PatternsDialog({
   transcriptionId: string | null;
   onClose: () => void;
 }) {
-  const rows = usePlayerTranscriptionRows(playerId);
+  const rows = usePlayerTranscriptionRows(playerId, playerName);
   const picked = useMemo(() => rows?.filter((r) => !transcriptionId || r.id === transcriptionId).map((r) => r.data), [rows, transcriptionId]);
   const insights = useMemo(() => (picked ? analyzeInsights(picked) : null), [picked]);
   const title = transcriptionId ? (picked?.[0]?.title ?? "Transcription") : `All of ${playerName}'s transcriptions`;

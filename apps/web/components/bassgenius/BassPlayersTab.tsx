@@ -9,7 +9,7 @@ import { BassIcon, ChevronRightIcon, DownloadIcon, PlusIcon, TrashIcon, WaveIcon
 import TranscriptionEditor, { downloadJson, safeFilename } from "@/components/bassgenius/TranscriptionEditor";
 import PatternsDialog from "@/components/bassgenius/PatternsDialog";
 import TranscriptionScore from "@/components/bassgenius/TranscriptionScore";
-import { BUILT_IN_PLAYERS } from "@/lib/bassBuiltIns";
+import { BUILT_IN_PLAYERS, isBuiltInId } from "@/lib/bassBuiltIns";
 import { cleanTranscription, emptyTranscription, playerFile, readImportFile, type Transcription } from "@/lib/bassTranscription";
 import { decodeXmlBytes, importMusicXml } from "@/lib/musicXml";
 import { looksLikeZip, readMxl } from "@/lib/mxl";
@@ -39,6 +39,15 @@ export default function BassPlayersTab() {
     for (const t of b.transcriptions) await lib.createTranscription(id, t.data);
     setView({ kind: "player", playerId: id });
     setNotice({ text: `${b.name} is now one of your players — edit and add to it as you like.` });
+  };
+  /** Copies a built-in transcription listed under one of your players into that player (the
+      built-in then steps aside, since yours has its title), then opens the copy. */
+  const copyBuiltInTranscription = async (playerId: string, transcriptionId: string) => {
+    const t = BUILT_IN_PLAYERS.flatMap((b) => b.transcriptions).find((x) => x.id === transcriptionId);
+    if (!t) return;
+    const id = await lib.createTranscription(playerId, t.data);
+    setView({ kind: "transcription", playerId, transcriptionId: id });
+    setNotice({ text: `"${t.data.title}" is now yours to edit.` });
   };
   const importTarget = useRef<string | null>(null);
 
@@ -180,7 +189,7 @@ export default function BassPlayersTab() {
           id={view.transcriptionId}
           playerName={player.name}
           onBack={() => setView({ kind: "player", playerId: player.id })}
-          onCopy={player.builtIn ? () => void copyBuiltIn(player.id) : undefined}
+          onCopy={player.builtIn ? () => void copyBuiltIn(player.id) : isBuiltInId(view.transcriptionId) ? () => void copyBuiltInTranscription(player.id, view.transcriptionId) : undefined}
           onDelete={() =>
             setConfirm({
               title: "Delete this transcription?",
@@ -302,7 +311,7 @@ export default function BassPlayersTab() {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold">{t.title}</span>
                     <span className="block text-xs text-muted">
-                      {t.measureCount} bar{t.measureCount === 1 ? "" : "s"} · edited {new Date(t.updatedAt).toLocaleDateString()}
+                      {t.measureCount} bar{t.measureCount === 1 ? "" : "s"} · {isBuiltInId(t.id) ? "built in" : `edited ${new Date(t.updatedAt).toLocaleDateString()}`}
                     </span>
                   </span>
                   <ChevronRightIcon className="h-4 w-4 text-muted" />
@@ -417,7 +426,7 @@ function TranscriptionView({
         <div className="rounded-2xl bg-surface p-3 sm:p-5">
           <TranscriptionScore transcription={initial} cursor={null} playing={null} mode="select" onSelect={noop} onAdd={noop} onReplace={noop} onChordClick={noop} />
         </div>
-        <p className="text-xs text-muted">Built in and read-only — make it your own to edit it.</p>
+        <p className="text-xs text-muted">Built in and read-only — make it your own to get an editable copy.</p>
       </div>
     );
   return <TranscriptionEditor initial={initial} playerName={playerName} onSave={save} onBack={onBack} onDelete={onDelete} />;

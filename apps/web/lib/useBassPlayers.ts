@@ -3,7 +3,7 @@ import { useConvex, useMutation, useQuery } from "convex/react";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { api } from "@jam-practice/convex/_generated/api";
 import type { Id } from "@jam-practice/convex/_generated/dataModel";
-import { BUILT_IN_PLAYERS, isBuiltInId } from "./bassBuiltIns";
+import { BUILT_IN_PLAYERS, builtInExtrasFor, isBuiltInId } from "./bassBuiltIns";
 import { cleanTranscription, newId, type Transcription } from "./bassTranscription";
 
 /** A built-in transcription by id. */
@@ -103,8 +103,14 @@ export function useBassPlayers() {
     for (const b of builtIns)
       for (const t of b.transcriptions)
         list.push({ id: t.id, playerId: b.id, title: t.data.title, measureCount: t.data.measures.length, createdAt: 0, updatedAt: 0 });
+    // Your own player sharing a built-in's name gets its transcriptions too.
+    for (const p of own) {
+      const titles = list.filter((t) => t.playerId === p.id).map((t) => t.title);
+      for (const t of builtInExtrasFor(p.name, titles))
+        list.push({ id: t.id, playerId: p.id, title: t.data.title, measureCount: t.data.measures.length, createdAt: 0, updatedAt: 0 });
+    }
     return [...list].sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [isAuthenticated, remote, local.transcriptions, builtIns]);
+  }, [isAuthenticated, remote, local.transcriptions, builtIns, own]);
 
   const loading = authLoading || (isAuthenticated && remote === undefined);
 
@@ -210,7 +216,7 @@ export function useTranscription(id: string | null) {
 
 /** All of one player's transcriptions with their ids, notes and all; undefined while loading,
     [] for none / no such player. */
-export function usePlayerTranscriptionRows(playerId: string | null): { id: string; data: Transcription }[] | undefined {
+export function usePlayerTranscriptionRows(playerId: string | null, playerName?: string): { id: string; data: Transcription }[] | undefined {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const local = useLocalStore();
   const builtIn = isBuiltInId(playerId);
@@ -219,13 +225,19 @@ export function usePlayerTranscriptionRows(playerId: string | null): { id: strin
     if (!playerId) return [];
     if (builtIn) return (BUILT_IN_PLAYERS.find((b) => b.id === playerId)?.transcriptions ?? []).map((t) => ({ id: t.id, data: cleanTranscription(t.data) }));
     if (isLoading) return undefined;
-    if (isAuthenticated) return remote === undefined ? undefined : (remote ?? []).map((r) => ({ id: r.id, data: cleanTranscription(r.data) }));
-    return local.transcriptions.filter((t) => t.playerId === playerId).map((t) => ({ id: t.id, data: cleanTranscription(t.data) }));
-  }, [playerId, builtIn, isLoading, isAuthenticated, remote, local.transcriptions]);
+    let rows: { id: string; data: Transcription }[];
+    if (isAuthenticated) {
+      if (remote === undefined) return undefined;
+      rows = (remote ?? []).map((r) => ({ id: r.id, data: cleanTranscription(r.data) }));
+    } else rows = local.transcriptions.filter((t) => t.playerId === playerId).map((t) => ({ id: t.id, data: cleanTranscription(t.data) }));
+    // A player of yours named like a built-in also plays from the built-in's transcriptions.
+    const extras = playerName ? builtInExtrasFor(playerName, rows.map((r) => r.data.title)) : [];
+    return [...rows, ...extras.map((t) => ({ id: t.id, data: cleanTranscription(t.data) }))];
+  }, [playerId, playerName, builtIn, isLoading, isAuthenticated, remote, local.transcriptions]);
 }
 
 /** All of one player's transcriptions (what Bass Genius analyses to play like them). */
-export function usePlayerTranscriptions(playerId: string | null): Transcription[] | undefined {
-  const rows = usePlayerTranscriptionRows(playerId);
+export function usePlayerTranscriptions(playerId: string | null, playerName?: string): Transcription[] | undefined {
+  const rows = usePlayerTranscriptionRows(playerId, playerName);
   return useMemo(() => rows?.map((r) => r.data), [rows]);
 }

@@ -82,6 +82,9 @@ export type BassGeniusStartOptions = {
   drums?: DrumKit | null;
   drumsComping?: boolean;
   drumConfig?: DrumConfig;
+  /** The line's random seed: the same seed (and settings) writes the same first chorus as
+      `previewChorus`, so what was shown before Play is what plays. Random if left out. */
+  seed?: number;
   /** Fires as each beat is heard: its index in the performance (negative during the count-in). */
   onBeat: (beat: number, info: PerformedBeat | null) => void;
   /** Each chorus as soon as it's written (ahead of the music): its notes and beats, and the
@@ -89,6 +92,39 @@ export type BassGeniusStartOptions = {
   onWrite?: (chorus: number, notes: BassNote[], beats: PerformedBeat[], startBeat: number, phrases: BassPhrase[]) => void;
   onEnd: () => void;
 };
+
+type LineSource = { song: IRealSong; line: BassLineOptions; style?: BassStyle | null; model?: StyleModel | null };
+
+/** One chorus of the line, by whoever is playing it (the Computer, a player's phrases, or their
+    style), made playable on an upright at `bpm`. */
+function writeLine(
+  src: LineSource,
+  harmony: ReturnType<typeof chartHarmony>,
+  state: BassLineState,
+  chorusIndex: number,
+  startBeat: number,
+  isLast: boolean,
+  bpm: number,
+  previousNote: BassNote | null,
+) {
+  const { chorus, state: next } =
+    src.line.styleMode === "learn" && src.model
+      ? generateLearnedChorus(src.song, src.line, src.model, state, chorusIndex, startBeat, isLast, harmony)
+      : src.style
+        ? generateStyledChorus(src.song, src.line, src.style, state, chorusIndex, startBeat, isLast, harmony)
+        : generateChorus(src.song, src.line, state, chorusIndex, startBeat, isLast, harmony);
+  // Whatever wrote it, it has to be playable on an upright at this tempo.
+  const playable = makePlayable(chorus.notes, bpm, previousNote).notes;
+  const last = playable[playable.length - 1];
+  return { chorus, playable, state: last && !last.ghost ? { ...next, lastNote: last.midi } : next };
+}
+
+/** The first chorus a performance with these settings and `seed` would play — written without
+    playing anything, to show the line before Play. */
+export function previewChorus(src: LineSource & { bpm: number; choruses: number; seed: number }) {
+  const { chorus, playable } = writeLine(src, chartHarmony(src.song), initialBassState(src.seed), 0, 0, src.choruses === 1, src.bpm, null);
+  return { notes: playable, beats: chorus.beats, start: 0, phrases: chorus.phrases ?? [] };
+}
 
 const TICK_MS = 25;
 const LOOKAHEAD = 0.2;
@@ -147,22 +183,14 @@ export function startBassGenius(opts: BassGeniusStartOptions): BassGeniusRun {
 
   const notes: BassNote[] = [];
   const beats: PerformedBeat[] = [];
-  let state: BassLineState = initialBassState();
+  let state: BassLineState = initialBassState(opts.seed);
   let written = 0; // choruses written so far
   let finished = false; // the last chorus has been written
   const writeChorus = () => {
     const isLast = opts.choruses > 0 && written === opts.choruses - 1;
-    const { chorus, state: next } =
-      opts.line.styleMode === "learn" && opts.model
-        ? generateLearnedChorus(song, opts.line, opts.model, state, written, beats.length, isLast, harmony)
-        : opts.style
-          ? generateStyledChorus(song, opts.line, opts.style, state, written, beats.length, isLast, harmony)
-          : generateChorus(song, opts.line, state, written, beats.length, isLast, harmony);
-    state = next;
-    // Whatever wrote it, it has to be playable on an upright at this tempo.
-    const playable = makePlayable(chorus.notes, bpm, notes[notes.length - 1] ?? null).notes;
-    const last = playable[playable.length - 1];
-    if (last && !last.ghost) state = { ...state, lastNote: last.midi };
+    const out = writeLine({ song, line: opts.line, style: opts.style, model: opts.model }, harmony, state, written, beats.length, isLast, bpm, notes[notes.length - 1] ?? null);
+    const { chorus, playable } = out;
+    state = out.state;
     opts.onWrite?.(written, playable, chorus.beats, beats.length, chorus.phrases ?? []);
     for (const way of ["time", "comp"] as const)
       drumHits[way].push(
