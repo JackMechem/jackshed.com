@@ -574,6 +574,7 @@ const NAV_LINK_ICONS: Record<string, (props: { className?: string }) => React.JS
   "/tunes": NoteIcon,
   "/recorder": RecordIcon,
   "/random-sticking-warmup": DrumIcon,
+  "/drum-generator": DrumIcon,
   "/community": UsersIcon,
 };
 

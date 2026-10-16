@@ -133,6 +133,13 @@ export const NAV_LINKS_DATA: NavLinkInfo[] = [
     category: "Drummers",
   },
   {
+    href: "/drum-generator",
+    label: "Drum Generator",
+    description:
+      "A drummer to play along with — jazz and Latin American grooves from Brazil, Cuba, the Caribbean and Argentina on a real kit, written out as it plays.",
+    category: "Drummers",
+  },
+  {
     href: "/community",
     label: "Community",
     description:

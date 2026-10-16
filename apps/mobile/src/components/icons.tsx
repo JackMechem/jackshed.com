@@ -134,5 +134,6 @@ export const NAV_LINK_ICONS: Record<string, ComponentType<IconProps>> = {
   '/tunes': MusicNoteIcon,
   '/recorder': RecordIcon,
   '/random-sticking-warmup': DrumIcon,
+  '/drum-generator': DrumIcon,
   '/community': UsersIcon,
 };

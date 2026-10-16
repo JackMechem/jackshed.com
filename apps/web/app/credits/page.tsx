@@ -61,12 +61,13 @@ export default function CreditsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection title="Bass Genius drums">
+      <LegalSection title="Bass Genius and Drum Generator drums">
         <p>
           The drummer plays{" "}
           <LegalLink href="https://github.com/sfzinstruments/virtuosity_drums">Virtuosity Drums</LegalLink> by Versilian Studios and Karoryfer
           Samples (<LegalLink href="https://creativecommons.org/publicdomain/zero/1.0/">CC0</LegalLink>), a contemporary jazz kit recorded at
-          Virtuosity Musical Instruments in Boston, served by sheddex itself as mono mp3s (mic pairs mixed).
+          Virtuosity Musical Instruments in Boston, served by sheddex itself as mono mp3s (mic pairs mixed) — Drum Generator also uses
+          its hi-hat, cross-stick, rimshot and toms, and the same release&apos;s cowbell and woodblock.
         </p>
       </LegalSection>
 

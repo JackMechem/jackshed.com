@@ -13,7 +13,27 @@ import { makeRng, type PerformedBeat } from "./bassLine";
 // the ride crashed (plus a little crash cymbal and a kick) on each section's downbeat.
 
 export type DrumKit = "sticks";
-export type DrumVoice = "ride" | "bell" | "pedal" | "kick" | "snare" | "crash" | "stir" | "tap";
+export type DrumVoice =
+  | "ride"
+  | "bell"
+  | "pedal"
+  | "kick"
+  | "snare"
+  | "crash"
+  | "stir"
+  | "tap"
+  /** Closed and open hi-hat (struck with a stick). */
+  | "hhClosed"
+  | "hhOpen"
+  /** Snare cross-stick (rim click) and rimshot. */
+  | "crossStick"
+  | "rimshot"
+  /** High (rack) and low (floor) tom. */
+  | "tomHigh"
+  | "tomLow"
+  /** The kit's mounted cowbell and a woodblock (jam block) for clave. */
+  | "cowbell"
+  | "block";
 
 export type DrumHit = {
   /** Performance beats. For a skip note (`skip`), the whole beat it belongs to — the engine places

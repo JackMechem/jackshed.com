@@ -48,6 +48,7 @@ export const TOOL_COMPONENTS: Record<string, ComponentType> = {
   "/random-sticking-warmup": dynamic(() => import("@/components/StickControl"), {
     loading: PaneLoading,
   }),
+  "/drum-generator": dynamic(() => import("@/components/DrumGenerator"), { loading: PaneLoading }),
   "/community": dynamic(() => import("@/components/Community"), { loading: PaneLoading }),
   "/account": dynamic(() => import("@/components/AccountPage"), { loading: PaneLoading }),
   // "/privacy", "/terms", and "/credits" aren't here — unlike every page above, those three don't
